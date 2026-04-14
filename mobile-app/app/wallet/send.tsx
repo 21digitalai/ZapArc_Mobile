@@ -1165,6 +1165,15 @@ export default function SendScreen() {
                 </View>
               )}
 
+              {(() => {
+                const satsVal = inputCurrency === 'sats' ? Math.floor(Number(amount)) : convertToSats(parseFloat(amount) || 0, inputCurrency);
+                return amount.length > 0 && satsVal > 0 && satsVal < 2000 ? (
+                  <Text style={styles.lowAmountWarning}>
+                    If you are sending to another Lightning wallet, the recipient may not be able to receive this amount.
+                  </Text>
+                ) : null;
+              })()}
+
               <Text style={[styles.label, { color: primaryTextColor }]}>{t('send.commentLabel')}</Text>
 
               <StyledTextInput
@@ -1220,11 +1229,22 @@ export default function SendScreen() {
 
               {(() => {
                 const onchainSats = inputCurrency === 'sats' ? Math.floor(Number(amount)) : convertToSats(parseFloat(amount) || 0, inputCurrency);
-                return amount.length > 0 && onchainSats > 0 && onchainSats < 1000 ? (
-                  <Text style={{ color: '#f44336', fontSize: 12, marginTop: -4, marginBottom: 4 }}>
-                    Minimum on-chain send: 1,000 sats
-                  </Text>
-                ) : null;
+                if (!(amount.length > 0) || onchainSats <= 0) return null;
+                if (onchainSats < 1000) {
+                  return (
+                    <Text style={{ color: '#f44336', fontSize: 12, marginTop: -4, marginBottom: 4 }}>
+                      Minimum on-chain send: 1,000 sats
+                    </Text>
+                  );
+                }
+                if (onchainSats < 2000) {
+                  return (
+                    <Text style={styles.lowAmountWarning}>
+                      If you are sending to another Lightning wallet, the recipient may not be able to receive this amount.
+                    </Text>
+                  );
+                }
+                return null;
               })()}
 
               <Text style={[styles.label, { color: primaryTextColor }]}>{t('send.confirmationSpeed')}</Text>
@@ -1699,6 +1719,18 @@ const styles = StyleSheet.create({
   conversionFiat: {
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 14,
+  },
+  lowAmountWarning: {
+    color: '#ff9800',
+    fontSize: 12,
+    marginTop: 4,
+    marginBottom: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+    borderRadius: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: '#ff9800',
   },
   selectedContactContainer: {
     backgroundColor: 'rgba(255, 193, 7, 0.12)',
