@@ -3,7 +3,7 @@ import { View, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-nat
 import { Text, Button, Menu, IconButton } from 'react-native-paper';
 import { StyledTextInput } from '../../src/components';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   getGradientColors,
@@ -139,6 +139,12 @@ const currencyLabels: Record<InputCurrency, string> = {
 };
 
 export default function SendScreen() {
+  const params = useLocalSearchParams<{
+    paymentInput?: string;
+    tab?: string;
+    amount?: string;
+    comment?: string;
+  }>();
   const { themeMode } = useAppTheme();
   const gradientColors = getGradientColors(themeMode);
   const primaryTextColor = getPrimaryTextColor(themeMode);
@@ -180,6 +186,36 @@ export default function SendScreen() {
   const [contactModalVisible, setContactModalVisible] = useState(false);
   const [isFetchingFees, setIsFetchingFees] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const incomingInput = typeof params.paymentInput === 'string' ? params.paymentInput.trim() : '';
+    if (!incomingInput) return;
+
+    const incomingTab = typeof params.tab === 'string' ? params.tab.toLowerCase() : '';
+    if (incomingTab === 'onchain') {
+      setActiveTab('onchain');
+    } else {
+      setActiveTab('lightning');
+    }
+
+    setPaymentInput(incomingInput);
+
+    if (typeof params.amount === 'string' && params.amount.trim()) {
+      setAmount(params.amount.trim());
+      setInputCurrency('sats');
+    }
+
+    if (typeof params.comment === 'string' && params.comment.trim()) {
+      setComment(params.comment.trim());
+    }
+
+    router.setParams({
+      paymentInput: undefined,
+      tab: undefined,
+      amount: undefined,
+      comment: undefined,
+    });
+  }, [params.paymentInput, params.tab, params.amount, params.comment]);
 
   const currencyOptions: InputCurrency[] = useMemo(() => {
     return ['sats', secondaryFiatCurrency];

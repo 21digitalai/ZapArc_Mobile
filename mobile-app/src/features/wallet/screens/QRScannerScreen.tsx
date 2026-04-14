@@ -24,9 +24,9 @@ import { BRAND_COLOR } from '../../../utils/theme-helpers';
 type ScanMode = 'camera' | 'manual';
 
 interface ParsedQRData {
-  type: 'invoice' | 'lnurl' | 'address' | 'unknown';
+  type: 'lightning' | 'onchain' | 'unknown';
   value: string;
-  amount?: number;
+  amount?: string;
   description?: string;
 }
 
@@ -48,32 +48,49 @@ export function QRScannerScreen(): React.JSX.Element {
   // ========================================
 
   const parseQRData = useCallback((data: string): ParsedQRData => {
-    const trimmed = data.trim().toLowerCase();
+    const normalized = data.trim();
+    const lower = normalized.toLowerCase();
 
-    // Lightning Invoice (bolt11)
-    if (trimmed.startsWith('lightning:') || trimmed.startsWith('lnbc') || trimmed.startsWith('lntb')) {
-      const invoice = trimmed.startsWith('lightning:')
-        ? trimmed.replace('lightning:', '')
-        : trimmed;
-      return { type: 'invoice', value: invoice };
+    if (lower.startsWith('bitcoin:')) {
+      const payload = normalized.substring('bitcoin:'.length);
+      const [address, query = ''] = payload.split('?');
+      const params = new URLSearchParams(query);
+      const amountBtc = params.get('amount');
+      const label = params.get('label') || params.get('message') || undefined;
+
+      let amount: string | undefined;
+      if (amountBtc) {
+        const btc = Number(amountBtc);
+        if (!isNaN(btc) && btc > 0) {
+          amount = Math.round(btc * 100_000_000).toString();
+        }
+      }
+
+      return {
+        type: 'onchain',
+        value: address || normalized,
+        amount,
+        description: label,
+      };
     }
 
-    // LNURL
-    if (trimmed.startsWith('lnurl')) {
-      return { type: 'lnurl', value: trimmed };
+    if (lower.startsWith('lightning:')) {
+      return { type: 'lightning', value: normalized.substring('lightning:'.length) };
     }
 
-    // Lightning Address (user@domain format)
-    if (trimmed.includes('@') && trimmed.includes('.')) {
-      return { type: 'address', value: trimmed };
+    if (lower.startsWith('lnbc') || lower.startsWith('lntb') || lower.startsWith('lnurl')) {
+      return { type: 'lightning', value: normalized };
     }
 
-    // Bitcoin on-chain (not supported but detect)
-    if (trimmed.startsWith('bitcoin:') || trimmed.startsWith('bc1') || trimmed.startsWith('1') || trimmed.startsWith('3')) {
-      return { type: 'unknown', value: data };
+    if (lower.includes('@') && lower.includes('.')) {
+      return { type: 'lightning', value: normalized };
     }
 
-    return { type: 'unknown', value: data };
+    if (lower.startsWith('bc1') || lower.startsWith('1') || lower.startsWith('3')) {
+      return { type: 'onchain', value: normalized };
+    }
+
+    return { type: 'unknown', value: normalized };
   }, []);
 
   // ========================================
@@ -91,34 +108,32 @@ export function QRScannerScreen(): React.JSX.Element {
         const parsed = parseQRData(data);
 
         switch (parsed.type) {
-          case 'invoice':
-            // Navigate to payment screen with invoice
+          case 'lightning':
             router.push({
               pathname: '/wallet/send',
-              params: { invoice: parsed.value },
+              params: {
+                tab: 'lightning',
+                paymentInput: parsed.value,
+              },
             });
             break;
 
-          case 'lnurl':
-            // Navigate to LNURL handler
-            router.push({
-              pathname: '/wallet/lnurl',
-              params: { lnurl: parsed.value },
-            });
-            break;
-
-          case 'address':
-            // Navigate to send with lightning address
+          case 'onchain':
             router.push({
               pathname: '/wallet/send',
-              params: { address: parsed.value },
+              params: {
+                tab: 'onchain',
+                paymentInput: parsed.value,
+                amount: parsed.amount,
+                comment: parsed.description,
+              },
             });
             break;
 
           case 'unknown':
             Alert.alert(
               'Unknown QR Code',
-              'This QR code is not a valid Lightning invoice, LNURL, or Lightning address.',
+              'This QR code is not a valid Lightning invoice, LNURL, Lightning address, or Bitcoin address.',
               [
                 {
                   text: 'OK',
