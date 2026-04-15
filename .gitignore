@@ -243,5 +243,10 @@ mobile-app/android/
 mobile-app/ios/
 mobile-app/dev-build.apk  
 mobile-app/android/app/zaparc-release.keystore
+mobile-app/android/play-service-account.json
+mobile-app/android/play-service-account.json.bak
+mobile-app/keystores/
 ZapArc-android-alpha-*.apk
+ZapArc-v*.aab
 *.apk
+*.aab

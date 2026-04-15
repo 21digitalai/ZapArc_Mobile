@@ -225,6 +225,17 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       }
 
       if (!pin) {
+        // Broken state recovery: biometricEnabled was flipped on (likely by a
+        // prior build's enableBiometric that silently lost the PIN) but the
+        // keystore has no PIN to return. Auto-disable the setting so the
+        // biometric banner reappears on Home and the user can cleanly re-opt-in.
+        try {
+          await settingsService.updateUserSettings({ biometricEnabled: false });
+          setBiometricEnabled(false);
+          console.warn('⚠️ [useWalletAuth] Biometric PIN missing — auto-disabled biometricEnabled for clean re-opt-in');
+        } catch (disableErr) {
+          console.warn('⚠️ [useWalletAuth] Failed to auto-disable biometric setting:', disableErr);
+        }
         setError('Biometric unlock unavailable. Enter your PIN.');
         return false;
       }
@@ -587,15 +598,23 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
 
   /**
    * Explicit opt-in: enable biometric unlock and store the current session PIN
-   * in the auth-gated keystore. This WILL trigger one OS fingerprint prompt
-   * (required to bind the Android keystore entry) — but only here, only when
-   * the user deliberately opted in.
+   * in the auth-gated keystore.
    *
-   * Returns true on success, false if the user cancelled or biometric hardware
-   * is unavailable.
+   * IMPORTANT: we do NOT call LocalAuthentication.authenticateAsync before the
+   * store. On Android, SecureStore.setItemAsync with requireAuthentication:true
+   * already triggers the OS biometric prompt to bind the keystore entry — that
+   * single prompt IS the user's opt-in. Adding a separate authenticateAsync on
+   * top caused a double prompt, and if the second prompt was cancelled we ended
+   * up with biometricEnabled=true but no stored PIN — biometric unlock was then
+   * permanently broken for that wallet.
+   *
+   * Returns true only if the PIN was actually stored AND the setting flipped.
+   * Returns false (without changing the setting) on any failure.
    */
   const enableBiometric = useCallback(async (): Promise<boolean> => {
     try {
+      setError(null);
+
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
       if (!hasHardware || !isEnrolled) {
@@ -603,28 +622,36 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         return false;
       }
 
-      const authResult = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Enable biometric unlock',
-        cancelLabel: 'Cancel',
-      });
-      if (!authResult.success) {
+      const masterKeyId = currentMasterKeyId;
+      const pin = sessionPinRef.current;
+      if (!masterKeyId || !pin) {
+        // We can't enable biometric unlock without a PIN to bind to the
+        // keystore entry. This should only happen if the wallet is locked
+        // or the session PIN was cleared — bail without mutating settings.
+        console.warn('⚠️ [useWalletAuth] enableBiometric: missing masterKeyId or session PIN, aborting', {
+          hasMasterKeyId: Boolean(masterKeyId),
+          hasSessionPin: Boolean(pin),
+        });
+        setError('Unlock your wallet with your PIN first, then enable biometric.');
         return false;
       }
 
-      const masterKeyId = currentMasterKeyId;
-      const pin = sessionPinRef.current;
-      if (masterKeyId && pin) {
-        try {
-          await storageService.storeBiometricPin(masterKeyId, pin);
-        } catch (storeErr) {
-          console.warn('⚠️ [useWalletAuth] Failed to store biometric PIN:', storeErr);
-          // Still enable the setting — the PIN will be re-stored on the next
-          // unlock by the explicit opt-in path if needed.
-        }
+      // The setItemAsync call below triggers the single OS biometric prompt.
+      // If the user cancels, this throws and we bail WITHOUT flipping the
+      // biometricEnabled setting — no broken state.
+      try {
+        await storageService.storeBiometricPin(masterKeyId, pin);
+      } catch (storeErr) {
+        console.error('❌ [useWalletAuth] enableBiometric: storeBiometricPin failed', storeErr);
+        // User cancelled the OS prompt or the keystore write failed. Do NOT
+        // enable the setting — leave the wallet in its previous state so the
+        // banner will reappear and the user can retry.
+        return false;
       }
 
       await settingsService.updateUserSettings({ biometricEnabled: true });
       setBiometricEnabled(true);
+      console.log('✅ [useWalletAuth] Biometric unlock enabled for master key:', masterKeyId);
       return true;
     } catch (err) {
       console.error('❌ [useWalletAuth] enableBiometric failed:', err);
