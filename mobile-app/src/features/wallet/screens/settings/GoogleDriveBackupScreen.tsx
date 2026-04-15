@@ -10,6 +10,8 @@ import {
   Modal,
   TouchableOpacity,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import {
   Text,
@@ -57,7 +59,7 @@ import * as FileSystem from 'expo-file-system';
 
 export function GoogleDriveBackupScreen(): React.JSX.Element {
   const { getMnemonic, activeMasterKey, importMasterKey, masterKeys } = useWallet();
-  const { selectWallet } = useWalletAuth();
+  const { selectWallet, getSessionPin } = useWalletAuth();
   const { themeMode } = useAppTheme();
   const { t } = useLanguage();
 
@@ -91,6 +93,14 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
   const [restorePin, setRestorePin] = useState('');
   const [confirmRestorePin, setConfirmRestorePin] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+
+  // Backup flow: manual PIN entry fallback (when session + biometric storage are empty)
+  const [backupPinPromptVisible, setBackupPinPromptVisible] = useState(false);
+  const [backupManualPin, setBackupManualPin] = useState('');
+  const [pendingBackupContext, setPendingBackupContext] = useState<{
+    targetKeyId: string;
+    password: string;
+  } | null>(null);
 
   // ==========================================================================
   // Effects
@@ -245,6 +255,15 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
 
   const authenticateSensitiveSeedAccess = useCallback(async (): Promise<boolean> => {
     try {
+      // Only re-prompt for biometric if the user has enabled biometric in app
+      // settings. Otherwise the seed access is already gated by the PIN they'll
+      // use to decrypt the mnemonic, and an unconditional OS prompt here is
+      // both redundant and confusing (the user never opted into biometric).
+      const settings = await settingsService.getUserSettings();
+      if (!settings.biometricEnabled) {
+        return true;
+      }
+
       const biometricAvailable = await LocalAuthentication.hasHardwareAsync();
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
 
@@ -307,6 +326,89 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     setShowPasswordModal(true);
   };
 
+  // Resolve the PIN needed to decrypt the master seed for backup.
+  // Priority (each step is silent when it works):
+  //   1. Session PIN — already in memory from the active unlock, no prompt.
+  //   2. Biometric-stored PIN — only populated if the user opted into biometric.
+  //   3. null → caller should prompt the user to enter their PIN manually.
+  const resolveBackupPin = useCallback(
+    async (targetKeyId: string): Promise<string | null> => {
+      if (activeMasterKey?.id === targetKeyId) {
+        const sessionPin = getSessionPin();
+        if (sessionPin) return sessionPin;
+      }
+      try {
+        const biometricPin = await storageService.getBiometricPin(targetKeyId);
+        if (biometricPin) return biometricPin;
+      } catch {
+        // Ignore — fall through to manual entry.
+      }
+      return null;
+    },
+    [activeMasterKey, getSessionPin]
+  );
+
+  // Performs the actual backup once we have a PIN. Split out so it can be
+  // called from both the happy path (session/biometric) and the manual PIN
+  // prompt fallback.
+  const performBackup = useCallback(
+    async (targetKeyId: string, backupPassword: string, pin: string): Promise<void> => {
+      const targetKey = masterKeys.find((k) => k.id === targetKeyId);
+      if (!targetKey) {
+        Alert.alert(t('common.error'), 'No wallet found');
+        return;
+      }
+
+      setIsProcessing(true);
+      try {
+        // Decrypt the master seed with the resolved PIN. A wrong PIN surfaces
+        // here and gives the user a chance to re-enter.
+        let mnemonic: string;
+        try {
+          mnemonic = await getMnemonic(targetKeyId, pin);
+        } catch {
+          Alert.alert(t('common.error'), 'Incorrect PIN');
+          // Re-open manual prompt so the user can try again.
+          setPendingBackupContext({ targetKeyId, password: backupPassword });
+          setBackupManualPin('');
+          setBackupPinPromptVisible(true);
+          return;
+        }
+        if (!mnemonic) {
+          Alert.alert(t('common.error'), 'Could not retrieve seed phrase');
+          return;
+        }
+
+        const result = await googleDriveBackupService.createBackup(
+          mnemonic,
+          backupPassword,
+          targetKey.id,
+          targetKey.nickname
+        );
+
+        if (result.success) {
+          Alert.alert(t('common.success'), t('cloudBackup.backupCreated'));
+          setShowPasswordModal(false);
+          setPassword('');
+          setConfirmPassword('');
+
+          const mnemonicFingerprint = await googleDriveBackupService.getSeedFingerprint(mnemonic);
+          await googleDriveBackupService.saveLocalFingerprint(targetKey.id, mnemonicFingerprint);
+
+          await refreshBackups();
+        } else {
+          Alert.alert(t('common.error'), result.error || 'Failed to create backup');
+        }
+      } catch (error) {
+        console.warn('⚠️ [GoogleDriveBackupScreen] Failed to create backup:', error);
+        Alert.alert(t('common.error'), 'Failed to create backup');
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [masterKeys, getMnemonic, t]
+  );
+
   const handleConfirmCreateBackup = async (): Promise<void> => {
     const targetKey = getSelectedMasterKey();
     if (!targetKey) return;
@@ -322,58 +424,49 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
       return;
     }
 
-    setIsProcessing(true);
-    try {
-      // Get the MASTER KEY mnemonic (the original 12-word seed phrase).
-      // This is intentional: we only back up the master seed, NOT individual sub-wallet
-      // mnemonics. Sub-wallets are derived from the master seed using BIP-85, so
-      // restoring the master seed allows regenerating all sub-wallets.
-      const sensitiveAuthOk = await authenticateSensitiveSeedAccess();
-      if (!sensitiveAuthOk) {
-        Alert.alert(t('common.error'), t('cloudBackup.authenticateToBackup'));
-        return;
-      }
-
-      const pin = await storageService.getBiometricPin(targetKey.id);
-      if (!pin) {
-        Alert.alert(t('common.error'), 'PIN not available');
-        return;
-      }
-
-      const mnemonic = await getMnemonic(targetKey.id, pin);
-      if (!mnemonic) {
-        Alert.alert(t('common.error'), 'Could not retrieve seed phrase');
-        return;
-      }
-
-      // Create backup with the master seed phrase
-      const result = await googleDriveBackupService.createBackup(
-        mnemonic,
-        password,
-        targetKey.id,
-        targetKey.nickname
-      );
-
-      if (result.success) {
-        Alert.alert(t('common.success'), t('cloudBackup.backupCreated'));
-        setShowPasswordModal(false);
-        setPassword('');
-        setConfirmPassword('');
-
-        const mnemonicFingerprint = await googleDriveBackupService.getSeedFingerprint(mnemonic);
-        await googleDriveBackupService.saveLocalFingerprint(targetKey.id, mnemonicFingerprint);
-
-        await refreshBackups();
-      } else {
-        Alert.alert(t('common.error'), result.error || 'Failed to create backup');
-      }
-    } catch (error) {
-      console.warn('⚠️ [GoogleDriveBackupScreen] Failed to create backup:', error);
-      Alert.alert(t('common.error'), 'Failed to create backup');
-    } finally {
-      setIsProcessing(false);
+    // Gate sensitive seed access on biometric (only if user enabled it).
+    const sensitiveAuthOk = await authenticateSensitiveSeedAccess();
+    if (!sensitiveAuthOk) {
+      Alert.alert(t('common.error'), t('cloudBackup.authenticateToBackup'));
+      return;
     }
+
+    // Try to resolve the PIN silently. If neither the session nor biometric
+    // storage has it (common right after an import, before biometric is
+    // enabled), fall back to asking the user to enter their PIN.
+    const pin = await resolveBackupPin(targetKey.id);
+    if (!pin) {
+      setPendingBackupContext({ targetKeyId: targetKey.id, password });
+      setBackupManualPin('');
+      setBackupPinPromptVisible(true);
+      return;
+    }
+
+    await performBackup(targetKey.id, password, pin);
   };
+
+  const handleBackupPinSubmit = useCallback(async (): Promise<void> => {
+    if (!pendingBackupContext) {
+      setBackupPinPromptVisible(false);
+      return;
+    }
+    if (backupManualPin.length !== WALLET_PIN_LENGTH) {
+      Alert.alert(t('common.error'), `PIN must be ${WALLET_PIN_LENGTH} digits`);
+      return;
+    }
+    const { targetKeyId, password: backupPassword } = pendingBackupContext;
+    setBackupPinPromptVisible(false);
+    setPendingBackupContext(null);
+    const pin = backupManualPin;
+    setBackupManualPin('');
+    await performBackup(targetKeyId, backupPassword, pin);
+  }, [pendingBackupContext, backupManualPin, performBackup, t]);
+
+  const handleBackupPinCancel = useCallback((): void => {
+    setBackupPinPromptVisible(false);
+    setPendingBackupContext(null);
+    setBackupManualPin('');
+  }, []);
 
   const handleRestoreBackup = (backup: BackupMetadata): void => {
     setSelectedBackup(backup);
@@ -999,9 +1092,61 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
 
         {renderPasswordModal()}
         {renderPinModal()}
+        {renderBackupPinPromptModal()}
       </SafeAreaView>
     </LinearGradient>
   );
+
+  function renderBackupPinPromptModal(): React.JSX.Element {
+    return (
+      <Modal visible={backupPinPromptVisible} transparent animationType="fade">
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={[styles.modalContent, { backgroundColor: gradientColors[0] }]}>
+            <Text style={[styles.modalTitle, { color: primaryText }]}>
+              Enter your wallet PIN
+            </Text>
+            <Text style={[styles.modalDescription, { color: secondaryText }]}>
+              We need your PIN to unlock the seed phrase for backup. It never leaves this device.
+            </Text>
+            <StyledTextInput
+              value={backupManualPin}
+              onChangeText={(text) =>
+                setBackupManualPin(text.replace(/[^0-9]/g, '').slice(0, WALLET_PIN_LENGTH))
+              }
+              keyboardType="numeric"
+              secureTextEntry
+              maxLength={WALLET_PIN_LENGTH}
+              placeholder={`Enter ${WALLET_PIN_LENGTH}-digit PIN`}
+              style={styles.input}
+              autoFocus
+            />
+            <View style={styles.modalActions}>
+              <Button
+                mode="outlined"
+                onPress={handleBackupPinCancel}
+                style={styles.modalButton}
+                disabled={isProcessing}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                mode="contained"
+                onPress={handleBackupPinSubmit}
+                disabled={isProcessing || backupManualPin.length !== WALLET_PIN_LENGTH}
+                style={[styles.modalButton, { backgroundColor: BRAND_COLOR }]}
+                labelStyle={{ color: '#1a1a2e' }}
+              >
+                {t('common.confirm')}
+              </Button>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    );
+  }
 }
 
 // =============================================================================
@@ -1270,6 +1415,18 @@ const styles = StyleSheet.create({
   },
   modalButton: {
     flex: 1,
+  },
+  modalDescription: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 8,
   },
   restoreHint: {
     fontSize: 13,
