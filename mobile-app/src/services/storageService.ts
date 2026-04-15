@@ -1198,15 +1198,23 @@ class StorageService {
    * Retrieve PIN for biometric unlock.
    * Primary path enforces OS-level authentication on read.
    * Legacy migration: if an older record exists without auth gating, re-save it with auth required.
+   *
+   * Pass `authenticationPrompt` to customise the message shown in the OS biometric dialog.
+   * When reading the PIN as part of an unlock flow, callers SHOULD pass a prompt and MUST NOT
+   * precede this call with a separate `LocalAuthentication.authenticateAsync` — the SecureStore
+   * read already triggers the OS prompt, so a separate call causes a duplicate prompt.
    */
-  async getBiometricPin(masterKeyId: string): Promise<string | null> {
+  async getBiometricPin(
+    masterKeyId: string,
+    options?: { authenticationPrompt?: string }
+  ): Promise<string | null> {
     const key = `${STORAGE_KEYS.BIOMETRIC_PIN_PREFIX}${masterKeyId}`;
+    const secureOptions: SecureStore.SecureStoreOptions = options?.authenticationPrompt
+      ? { ...BIOMETRIC_SECURE_STORE_OPTIONS, authenticationPrompt: options.authenticationPrompt }
+      : BIOMETRIC_SECURE_STORE_OPTIONS;
 
     try {
-      const authenticatedPin = await SecureStore.getItemAsync(
-        key,
-        BIOMETRIC_SECURE_STORE_OPTIONS
-      );
+      const authenticatedPin = await SecureStore.getItemAsync(key, secureOptions);
 
       if (authenticatedPin) {
         if (__DEV__) console.log('✅ [StorageService] Biometric PIN retrieved for master key:', masterKeyId);

@@ -194,65 +194,71 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         throw new Error('Biometric authentication not available');
       }
 
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Unlock wallet',
-        cancelLabel: 'Cancel',
-        disableDeviceFallback: false,
-      });
-
-      if (result.success) {
-        // CRITICAL PATH: Unlock immediately so user can navigate
-        await storageService.unlockWallet();
-        setIsUnlocked(true);
-        updateActivity();
-
-        console.log('✅ [useWalletAuth] Unlocked with biometric - starting background SDK init');
-
-        // NON-BLOCKING: Initialize SDK in background
-        const masterKeyId = currentMasterKeyId;
-        if (masterKeyId) {
-          (async () => {
-            try {
-              // Try to get the PIN from biometric storage first
-              let pin = await storageService.getBiometricPin(masterKeyId);
-
-              // Fall back to cached session PIN if biometric PIN is not available
-              if (!pin && sessionPinRef.current) {
-                pin = sessionPinRef.current;
-                console.log('🔍 [useWalletAuth] Using cached session PIN for SDK initialization');
-              }
-
-              if (pin) {
-                const mnemonic = await storageService.getMasterKeyMnemonic(masterKeyId, pin);
-                if (mnemonic) {
-                  const walletInfo = await storageService.getActiveWalletInfo();
-                  const subWalletIndex = walletInfo?.subWalletIndex ?? 0;
-                  const derivedMnemonic = deriveSubWalletMnemonic(mnemonic, subWalletIndex);
-
-                  await BreezSparkService.initializeSDK(derivedMnemonic, undefined, walletInfo?.subWalletNickname, walletInfo ? { masterKeyId: walletInfo.masterKeyId, subWalletIndex: walletInfo.subWalletIndex } : undefined);
-
-                  // Cache the PIN in session for subsequent unlocks
-                  sessionPinRef.current = pin;
-
-                  console.log('✅ [useWalletAuth] Breez SDK initialized (background biometric)');
-                }
-              } else {
-                console.warn('⚠️ [useWalletAuth] No PIN available for biometric SDK init');
-              }
-            } catch (sdkError) {
-              console.warn('⚠️ [useWalletAuth] SDK initialization failed (biometric):', sdkError);
-            }
-          })();
-        }
-
-        return true;
+      const masterKeyId = currentMasterKeyId;
+      if (!masterKeyId) {
+        throw new Error('No wallet selected');
       }
 
-      if (result.error === 'user_cancel') {
+      // Single biometric prompt: the SecureStore read itself triggers the OS
+      // fingerprint dialog AND returns the PIN on success. Previously we called
+      // LocalAuthentication.authenticateAsync first and then getBiometricPin,
+      // which surfaced two prompts back-to-back ("Unlock wallet" followed by
+      // the OS default "Scan your fingerprint" when navigating to home).
+      let pin: string | null = null;
+      try {
+        pin = await storageService.getBiometricPin(masterKeyId, {
+          authenticationPrompt: 'Unlock wallet',
+        });
+      } catch (authErr) {
+        // User cancelled or auth failed. Don't surface as an error — user stays on PIN screen.
+        console.log('ℹ️ [useWalletAuth] Biometric unlock cancelled/failed:', authErr);
         return false;
       }
 
-      throw new Error(result.error || 'Biometric authentication failed');
+      // Fall back to cached session PIN if biometric record missing (edge case:
+      // biometric enabled but stored PIN was wiped). Without a PIN we can't
+      // init the SDK, so refuse to unlock and let the user enter their PIN.
+      if (!pin && sessionPinRef.current) {
+        pin = sessionPinRef.current;
+        console.log('🔍 [useWalletAuth] Using cached session PIN for SDK initialization');
+      }
+
+      if (!pin) {
+        setError('Biometric unlock unavailable. Enter your PIN.');
+        return false;
+      }
+
+      // CRITICAL PATH: Unlock immediately so user can navigate
+      await storageService.unlockWallet();
+      setIsUnlocked(true);
+      updateActivity();
+
+      console.log('✅ [useWalletAuth] Unlocked with biometric (single prompt)');
+
+      // NON-BLOCKING: Initialize SDK in background with the already-retrieved PIN.
+      // No second biometric prompt here — we already have the PIN in hand.
+      const pinForInit = pin;
+      (async () => {
+        try {
+          const mnemonic = await storageService.getMasterKeyMnemonic(masterKeyId, pinForInit);
+          if (mnemonic) {
+            const walletInfo = await storageService.getActiveWalletInfo();
+            const subWalletIndex = walletInfo?.subWalletIndex ?? 0;
+            const derivedMnemonic = deriveSubWalletMnemonic(mnemonic, subWalletIndex);
+
+            await BreezSparkService.initializeSDK(derivedMnemonic, undefined, walletInfo?.subWalletNickname, walletInfo ? { masterKeyId: walletInfo.masterKeyId, subWalletIndex: walletInfo.subWalletIndex } : undefined);
+
+            // Cache the PIN in session for subsequent unlocks
+            sessionPinRef.current = pinForInit;
+
+            console.log('✅ [useWalletAuth] Breez SDK initialized (background biometric)');
+          }
+        } catch (sdkError) {
+          console.warn('⚠️ [useWalletAuth] SDK initialization failed (biometric):', sdkError);
+        }
+      })();
+
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Biometric unlock failed';
       setError(message);
