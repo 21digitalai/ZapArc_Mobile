@@ -54,6 +54,14 @@ export function PinSetupKeypad({
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  // One-shot guard: once onComplete has fired, never fire again for this
+  // mount. Without this, if the parent re-renders while handleComplete is
+  // in-flight (common — hook callbacks often change reference between
+  // renders), the useEffect below re-fires with `pin === firstPin` still
+  // true and calls onComplete a second (or third, or fourth) time. That's
+  // what caused multiple concurrent wallet imports in alpha.4–alpha.6.
+  const completedRef = useRef(false);
+
   const shakeAnimation = useRef(new Animated.Value(0)).current;
 
   const shake = useCallback(() => {
@@ -69,6 +77,7 @@ export function PinSetupKeypad({
 
   // Auto-advance when a stage is complete
   useEffect(() => {
+    if (completedRef.current) return;
     if (pin.length !== PIN_LENGTH) return;
 
     if (stage === 'enter') {
@@ -82,6 +91,9 @@ export function PinSetupKeypad({
 
     // stage === 'confirm'
     if (pin === firstPin) {
+      // Mark completed BEFORE the async call so the effect can't re-fire
+      // with a still-matching pin if the parent re-renders during await.
+      completedRef.current = true;
       void onComplete(pin);
       return;
     }

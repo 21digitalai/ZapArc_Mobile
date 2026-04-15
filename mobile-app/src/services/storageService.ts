@@ -402,6 +402,42 @@ class StorageService {
         });
       }
 
+      // Dedup: if multiple master keys share the same seed fingerprint (e.g.
+      // the user re-imported the same wallet before dedup-on-create landed,
+      // or the pre-fix multi-fire bug in PinSetupKeypad created parallel
+      // imports), collapse them into the most-recently-used entry.
+      try {
+        const { googleDriveBackupService } = require('./googleDriveBackupService');
+        const byFingerprint = new Map<string, MasterKeyEntry[]>();
+        for (const mk of storage.masterKeys) {
+          const fp: string | null = await googleDriveBackupService.getLocalFingerprint(mk.id);
+          if (!fp) continue;
+          const group = byFingerprint.get(fp) ?? [];
+          group.push(mk);
+          byFingerprint.set(fp, group);
+        }
+        const idsToRemove = new Set<string>();
+        for (const group of byFingerprint.values()) {
+          if (group.length < 2) continue;
+          group.sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0));
+          for (let i = 1; i < group.length; i++) {
+            idsToRemove.add(group[i].id);
+          }
+          // If active was one of the removed, reassign to the keeper.
+          if (storage.activeMasterKeyId && idsToRemove.has(storage.activeMasterKeyId)) {
+            storage.activeMasterKeyId = group[0].id;
+            storage.activeSubWalletIndex = 0;
+          }
+        }
+        if (idsToRemove.size > 0) {
+          storage.masterKeys = storage.masterKeys.filter((mk) => !idsToRemove.has(mk.id));
+          needsMigration = true;
+          if (__DEV__) console.log('♻️ [StorageService] Removed duplicate master keys:', Array.from(idsToRemove));
+        }
+      } catch (dedupErr) {
+        if (__DEV__) console.warn('⚠️ [StorageService] Dedup sweep skipped:', dedupErr);
+      }
+
       // Save migrated data
       if (needsMigration) {
         if (__DEV__) console.log('🔧 [StorageService] Saving migrated data...');
@@ -452,6 +488,36 @@ class StorageService {
 
       if (__DEV__) {
         if (__DEV__) console.log('✅ [StorageService] Pre-storage mnemonic validation passed');
+      }
+
+      // Dedup: if a master key already exists for this exact seed, reuse it
+      // instead of creating a duplicate. This stops the "Select Wallet" list
+      // from filling up when a user removes+restores (or repeatedly restores)
+      // the same cloud backup. We compare by seed fingerprint (SHA256 of the
+      // normalized mnemonic) — same source of truth used for cloud matching.
+      try {
+        const { googleDriveBackupService } = require('./googleDriveBackupService');
+        const newFingerprint: string = await googleDriveBackupService.getSeedFingerprint(normalizedMnemonic);
+        const existingStorage = await this.loadMultiWalletStorage();
+        if (existingStorage && existingStorage.masterKeys.length > 0) {
+          for (const existing of existingStorage.masterKeys) {
+            const existingFp: string | null = await googleDriveBackupService.getLocalFingerprint(existing.id);
+            if (existingFp && existingFp === newFingerprint) {
+              if (nickname && nickname.trim() && nickname !== existing.nickname) {
+                existing.nickname = nickname;
+              }
+              existing.lastUsedAt = Date.now();
+              existingStorage.activeMasterKeyId = existing.id;
+              existingStorage.activeSubWalletIndex = 0;
+              await this.saveMultiWalletStorage(existingStorage);
+              if (__DEV__) console.log('♻️ [StorageService] Reusing existing master key for same seed:', existing.id);
+              return existing.id;
+            }
+          }
+        }
+      } catch (dedupErr) {
+        // Non-fatal — fall through to normal creation if the dedup check fails.
+        if (__DEV__) console.warn('⚠️ [StorageService] Dedup check failed, continuing with create:', dedupErr);
       }
 
       // Encrypt the mnemonic
