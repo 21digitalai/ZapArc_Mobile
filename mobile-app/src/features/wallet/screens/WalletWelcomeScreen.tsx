@@ -121,19 +121,20 @@ export function WalletWelcomeScreen(): React.JSX.Element {
               {t('onboarding.importExisting')}
             </Button>
 
-            {/* Restore from Cloud Backup - only show for first-time setup (no active wallet) */}
-            {!activeMasterKey && (
-              <Button
-                mode="outlined"
-                onPress={() => router.push('/wallet/settings/google-drive-backup')}
-                icon="cloud-download"
-                style={[styles.cloudRestoreButton, { borderColor: secondaryText }]}
-                contentStyle={styles.buttonContent}
-                labelStyle={[styles.importButtonLabel, { color: primaryText }]}
-              >
-                Restore from Cloud Backup
-              </Button>
-            )}
+            {/* Restore from Cloud Backup — shown in both first-time setup AND
+                when an existing user is adding another master wallet. The
+                GoogleDriveBackupScreen handles both modes (no active wallet vs
+                has one). */}
+            <Button
+              mode="outlined"
+              onPress={() => router.push('/wallet/settings/google-drive-backup')}
+              icon="cloud-download"
+              style={[styles.cloudRestoreButton, { borderColor: secondaryText }]}
+              contentStyle={styles.buttonContent}
+              labelStyle={[styles.importButtonLabel, { color: primaryText }]}
+            >
+              {t('onboarding.restoreFromCloud')}
+            </Button>
 
             {/* Add Sub-Wallet Button - only show if logged in */}
             {activeMasterKey && (
