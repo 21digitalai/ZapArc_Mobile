@@ -12,6 +12,30 @@ import type { ActiveWalletInfo } from '../features/wallet/types';
 import type { PinAuthStatus } from '../services/storageService';
 
 // =============================================================================
+// Module-level session PIN cache
+// =============================================================================
+// Shared across every `useWalletAuth()` call site so that a PIN captured on
+// PinEntryScreen is also visible to HomeScreen, SettingsScreen, BackupScreen,
+// etc. Previously this was a `useRef` inside the hook body, which gave each
+// screen its own isolated copy — breaking biometric opt-in from the banner
+// (PIN was in PinEntryScreen's instance, banner ran on HomeScreen's) and
+// session-PIN-based silent cloud-backup.
+//
+// The PIN is held in JS memory only — never persisted — and is cleared on
+// lock(), on startup, and on initializeSessionPin() replacement. It's fine
+// to live at module scope for the same reasons the mnemonic cache lives in
+// storageService's in-memory cache: the JS heap dies with the app process.
+let moduleSessionPin: string | null = null;
+
+function getModuleSessionPin(): string | null {
+  return moduleSessionPin;
+}
+
+function setModuleSessionPin(pin: string | null): void {
+  moduleSessionPin = pin;
+}
+
+// =============================================================================
 // Types
 // =============================================================================
 
@@ -46,6 +70,7 @@ export interface WalletAuthActions {
   // Biometric
   unlockWithBiometric: () => Promise<boolean>;
   enableBiometric: () => Promise<boolean>;
+  disableBiometric: () => Promise<boolean>;
 
   // Wallet selection
   selectWallet: (masterKeyId: string, subWalletIndex: number, pin: string) => Promise<boolean>;
@@ -183,9 +208,6 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
     }
   };
 
-  // Session PIN for SDK initialization (stored in memory only, not persisted)
-  const sessionPinRef = useRef<string | null>(null);
-
   const unlockWithBiometric = useCallback(async (): Promise<boolean> => {
     try {
       setIsLoading(true);
@@ -219,8 +241,8 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       // Fall back to cached session PIN if biometric record missing (edge case:
       // biometric enabled but stored PIN was wiped). Without a PIN we can't
       // init the SDK, so refuse to unlock and let the user enter their PIN.
-      if (!pin && sessionPinRef.current) {
-        pin = sessionPinRef.current;
+      if (!pin && getModuleSessionPin()) {
+        pin = getModuleSessionPin();
         console.log('🔍 [useWalletAuth] Using cached session PIN for SDK initialization');
       }
 
@@ -245,6 +267,11 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       setIsUnlocked(true);
       updateActivity();
 
+      // Cache the PIN for the rest of the session RIGHT NOW so that any
+      // screen we navigate to (backup, settings toggle, sub-wallet switch)
+      // can read it without a second keystore roundtrip.
+      setModuleSessionPin(pin);
+
       console.log('✅ [useWalletAuth] Unlocked with biometric (single prompt)');
 
       // NON-BLOCKING: Initialize SDK in background with the already-retrieved PIN.
@@ -259,9 +286,6 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
             const derivedMnemonic = deriveSubWalletMnemonic(mnemonic, subWalletIndex);
 
             await BreezSparkService.initializeSDK(derivedMnemonic, undefined, walletInfo?.subWalletNickname, walletInfo ? { masterKeyId: walletInfo.masterKeyId, subWalletIndex: walletInfo.subWalletIndex } : undefined);
-
-            // Cache the PIN in session for subsequent unlocks
-            sessionPinRef.current = pinForInit;
 
             console.log('✅ [useWalletAuth] Breez SDK initialized (background biometric)');
           }
@@ -308,8 +332,10 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
 
         console.log('🔵 [useWalletAuth] PIN VERIFIED - unlocking wallet immediately');
 
-        // Cache PIN for biometric unlock SDK initialization
-        sessionPinRef.current = pin;
+        // Cache PIN for biometric unlock SDK initialization.
+        // Module-level cache is visible across every useWalletAuth() caller
+        // (banner on Home, settings toggle, backup screen, ...).
+        setModuleSessionPin(pin);
 
         // CRITICAL PATH: Just unlock and return - user can navigate immediately
         await storageService.unlockWallet();
@@ -361,7 +387,7 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
     try {
       await storageService.lockWallet();
       storageService.clearMnemonicCache(); // Clear cached mnemonics for security
-      sessionPinRef.current = null; // Clear cached PIN for security
+      setModuleSessionPin(null); // Clear cached PIN for security
       setIsUnlocked(false);
       console.log('✅ [useWalletAuth] Wallet locked');
     } catch (err) {
@@ -451,8 +477,8 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
           transactions: resolvedTransactions,
         });
 
-        // Cache PIN for future use
-        sessionPinRef.current = pin;
+        // Cache PIN for future use (module-level — shared across hook callers)
+        setModuleSessionPin(pin);
 
         await storageService.unlockWallet();
         setIsUnlocked(true);
@@ -517,7 +543,7 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         // Reinitialize SDK with the new sub-wallet's mnemonic
         try {
           // Use cached session PIN or biometric PIN to get mnemonic
-          let pin = sessionPinRef.current;
+          let pin = getModuleSessionPin();
           if (!pin) {
             pin = await storageService.getBiometricPin(currentMasterKeyId);
           }
@@ -623,7 +649,7 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       }
 
       const masterKeyId = currentMasterKeyId;
-      const pin = sessionPinRef.current;
+      const pin = getModuleSessionPin();
       if (!masterKeyId || !pin) {
         // We can't enable biometric unlock without a PIN to bind to the
         // keystore entry. This should only happen if the wallet is locked
@@ -659,6 +685,33 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
     }
   }, [currentMasterKeyId]);
 
+  /**
+   * Explicit opt-out: disable biometric unlock. Clears the stored biometric
+   * PIN from SecureStore for the current master key AND flips the setting off.
+   * Keeping these two in lockstep prevents the previous failure mode where the
+   * setting said "on" but no PIN was bound, leading to broken-state recovery.
+   */
+  const disableBiometric = useCallback(async (): Promise<boolean> => {
+    try {
+      setError(null);
+      const masterKeyId = currentMasterKeyId;
+      if (masterKeyId) {
+        try {
+          await storageService.deleteBiometricPin(masterKeyId);
+        } catch (delErr) {
+          console.warn('⚠️ [useWalletAuth] disableBiometric: deleteBiometricPin failed (continuing)', delErr);
+        }
+      }
+      await settingsService.updateUserSettings({ biometricEnabled: false });
+      setBiometricEnabled(false);
+      console.log('✅ [useWalletAuth] Biometric unlock disabled');
+      return true;
+    } catch (err) {
+      console.error('❌ [useWalletAuth] disableBiometric failed:', err);
+      return false;
+    }
+  }, [currentMasterKeyId]);
+
   // ========================================
   // Return Hook Value
   // ========================================
@@ -684,10 +737,11 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
     getPinAuthStatus,
     unlockWithBiometric,
     enableBiometric,
+    disableBiometric,
     selectWallet,
     selectSubWallet,
     updateActivity,
     checkAutoLock,
-    getSessionPin: () => sessionPinRef.current,
+    getSessionPin: () => getModuleSessionPin(),
   };
 }

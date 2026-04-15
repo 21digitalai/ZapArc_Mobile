@@ -9,6 +9,7 @@ import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useSettings } from '../../../../hooks/useSettings';
+import { useWalletAuth } from '../../../../hooks/useWalletAuth';
 import { useLanguage } from '../../../../hooks/useLanguage';
 import { useAppTheme } from '../../../../contexts/ThemeContext';
 import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_COLOR } from '../../../../utils/theme-helpers';
@@ -18,7 +19,8 @@ import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_CO
 // =============================================================================
 
 export function SecuritySettingsScreen(): React.JSX.Element {
-  const { settings, updateSettings } = useSettings();
+  const { settings } = useSettings();
+  const { enableBiometric, disableBiometric } = useWalletAuth();
   const { t } = useLanguage();
   const { themeMode } = useAppTheme();
 
@@ -88,40 +90,44 @@ export function SecuritySettingsScreen(): React.JSX.Element {
     return 'fingerprint';
   };
 
-  // Handle biometric toggle
+  // Handle biometric toggle.
+  //
+  // IMPORTANT: we do NOT just flip the `biometricEnabled` setting here — that
+  // leaves the keystore without a bound PIN and causes unlockWithBiometric to
+  // fail on the next session (which then auto-disables the setting, making it
+  // look like the toggle "doesn't persist"). Instead we go through the
+  // useWalletAuth hook actions which store/clear the PIN in SecureStore AND
+  // flip the setting in lockstep.
   const handleBiometricToggle = async (enabled: boolean): Promise<void> => {
-    let finalEnabled = enabled;
-
-    if (enabled) {
-      // Verify biometric before enabling
-      try {
-        const result = await LocalAuthentication.authenticateAsync({
-          promptMessage: t('settings.verifyToEnableBiometric'),
-          fallbackLabel: t('settings.usePin'),
-        });
-
-        if (!result.success) {
-          Alert.alert(t('settings.failed'), t('settings.biometricVerificationFailed'));
-          return;
-        }
-        finalEnabled = true;
-      } catch {
-        Alert.alert(t('common.error'), t('settings.failedToVerifyBiometric'));
-        return;
-      }
-    }
+    // Optimistic flip for snappy UI — reverted on failure.
+    setBiometricEnabled(enabled);
 
     try {
-      setBiometricEnabled(finalEnabled);
-      await updateSettings({
-        biometricEnabled: finalEnabled,
-      });
-      console.log(`🔐 [SecuritySettings] Biometric ${finalEnabled ? 'enabled' : 'disabled'}`);
+      if (enabled) {
+        const success = await enableBiometric();
+        if (!success) {
+          // enableBiometric already logged the specific reason (missing
+          // session PIN, cancelled OS prompt, keystore write failed, ...).
+          setBiometricEnabled(false);
+          Alert.alert(
+            t('settings.failed'),
+            t('settings.biometricVerificationFailed'),
+          );
+          return;
+        }
+      } else {
+        const success = await disableBiometric();
+        if (!success) {
+          setBiometricEnabled(true);
+          Alert.alert(t('common.error'), t('settings.failedToSaveSettings'));
+          return;
+        }
+      }
+      console.log(`🔐 [SecuritySettings] Biometric ${enabled ? 'enabled' : 'disabled'}`);
     } catch (err) {
-      console.error('❌ [SecuritySettings] Failed to save setting:', err);
+      console.error('❌ [SecuritySettings] Failed to toggle biometric:', err);
       Alert.alert(t('common.error'), t('settings.failedToSaveSettings'));
-      // Revert local state
-      setBiometricEnabled(!finalEnabled);
+      setBiometricEnabled(!enabled);
     }
   };
 
