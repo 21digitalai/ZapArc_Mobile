@@ -236,17 +236,10 @@ export function useWallet(): WalletState & WalletActions {
           pin
         );
 
-        // Store PIN for biometric unlock if biometric is available
-        try {
-          const hasHardware = await LocalAuthentication.hasHardwareAsync();
-          const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-          if (hasHardware && isEnrolled) {
-            await storageService.storeBiometricPin(masterKeyId, pin);
-            console.log('✅ [useWallet] PIN stored for biometric unlock');
-          }
-        } catch (biometricError) {
-          console.warn('⚠️ [useWallet] Failed to store biometric PIN:', biometricError);
-        }
+        // Biometric PIN is stored lazily when the user explicitly enables
+        // biometric unlock from the home banner / security settings. Eagerly
+        // writing it here would trigger an OS fingerprint dialog (to bind the
+        // keystore entry) even though the user never opted in.
 
         // Initialize Breez SDK with the new wallet's mnemonic (sub-wallet index 0)
         let sdkInitialized = false;
@@ -305,17 +298,10 @@ export function useWallet(): WalletState & WalletActions {
           pin
         );
 
-        // Store PIN for biometric unlock if biometric is available
-        try {
-          const hasHardware = await LocalAuthentication.hasHardwareAsync();
-          const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-          if (hasHardware && isEnrolled) {
-            await storageService.storeBiometricPin(masterKeyId, pin);
-            console.log('✅ [useWallet] PIN stored for biometric unlock');
-          }
-        } catch (biometricError) {
-          console.warn('⚠️ [useWallet] Failed to store biometric PIN:', biometricError);
-        }
+        // Biometric PIN is stored lazily when the user explicitly enables
+        // biometric unlock from the home banner / security settings. Eagerly
+        // writing it here would trigger an OS fingerprint dialog right after
+        // the user finishes entering their PIN during restore.
 
         // Initialize Breez SDK with the imported wallet's mnemonic (sub-wallet index 0)
         let sdkInitialized = false;

@@ -25,7 +25,7 @@ import { useCurrency } from '../../../hooks/useCurrency';
 import { onPaymentReceived } from '../../../services/breezSparkService';
 import type { Transaction } from '../types';
 import {
-  runWalletSecurityOnboarding,
+  enableNotificationsIfNeeded,
   shouldShowWalletSecurityReminderBadge,
   dismissWalletSecurityReminderBanner,
 } from '../utils/walletSecurityOnboarding';
@@ -56,7 +56,7 @@ export function HomeScreen(): React.JSX.Element {
     activeWalletInfo,
     loadWalletData,
   } = useWallet();
-  const { lock } = useWalletAuth();
+  const { lock, enableBiometric } = useWalletAuth();
   const { t } = useLanguage();
   const { format, formatTx, refreshSettings } = useCurrency();
 
@@ -97,9 +97,14 @@ export function HomeScreen(): React.JSX.Element {
   }, [refreshSecurityBanner]);
 
   const handleEnableSecurity = useCallback(async (): Promise<void> => {
-    await runWalletSecurityOnboarding('restore', { force: true });
+    // The banner tap IS the user's opt-in, so we skip the extra confirm
+    // alert. Biometric first (stores the session PIN into the auth-gated
+    // keystore); notifications second. Either can be silently skipped by
+    // the user at the OS prompt — we re-check the banner state afterwards.
+    await enableBiometric();
+    await enableNotificationsIfNeeded();
     await refreshSecurityBanner();
-  }, [refreshSecurityBanner]);
+  }, [enableBiometric, refreshSecurityBanner]);
 
   const handleDismissSecurityBanner = useCallback((): void => {
     setShowSecurityBanner(false);

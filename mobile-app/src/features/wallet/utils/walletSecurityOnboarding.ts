@@ -59,7 +59,7 @@ async function enableBiometricsIfNeeded(): Promise<void> {
   }
 }
 
-async function enableNotificationsIfNeeded(): Promise<void> {
+export async function enableNotificationsIfNeeded(): Promise<void> {
   const settings = await settingsService.getUserSettings();
   const { status } = await Notifications.getPermissionsAsync();
 

@@ -45,6 +45,7 @@ export interface WalletAuthActions {
 
   // Biometric
   unlockWithBiometric: () => Promise<boolean>;
+  enableBiometric: () => Promise<boolean>;
 
   // Wallet selection
   selectWallet: (masterKeyId: string, subWalletIndex: number, pin: string) => Promise<boolean>;
@@ -306,20 +307,18 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
 
         console.log('✅ [useWalletAuth] Unlocked with PIN - starting background init');
 
-        // NON-BLOCKING: Initialize SDK and store biometric PIN in background
-        // This allows the user to navigate to home screen immediately
+        // NON-BLOCKING: Initialize SDK in background so the user can navigate
+        // to the home screen immediately.
+        //
+        // The biometric PIN is NOT written here. Writing to SecureStore with
+        // requireAuthentication:true triggers an Android fingerprint dialog
+        // to bind the keystore entry, and we don't want that prompt firing
+        // on every unlock or right after a restore where the user never
+        // opted in. The PIN is written lazily by enableBiometric() when the
+        // user explicitly opts in.
         const masterKeyId = currentMasterKeyId;
         (async () => {
           try {
-            // Store PIN for biometric (non-blocking)
-            const hasHardware = await LocalAuthentication.hasHardwareAsync();
-            const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-            if (hasHardware && isEnrolled) {
-              storageService.storeBiometricPin(masterKeyId, pin).catch((e) => {
-                console.warn('⚠️ [useWalletAuth] Failed to store PIN for biometric:', e);
-              });
-            }
-
             // Initialize Breez SDK in background
             const mnemonic = await storageService.getMasterKeyMnemonic(masterKeyId, pin);
             if (mnemonic) {
@@ -583,6 +582,57 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
   }, [autoLockTimeout, lock]);
 
   // ========================================
+  // Biometric setup (lazy opt-in)
+  // ========================================
+
+  /**
+   * Explicit opt-in: enable biometric unlock and store the current session PIN
+   * in the auth-gated keystore. This WILL trigger one OS fingerprint prompt
+   * (required to bind the Android keystore entry) — but only here, only when
+   * the user deliberately opted in.
+   *
+   * Returns true on success, false if the user cancelled or biometric hardware
+   * is unavailable.
+   */
+  const enableBiometric = useCallback(async (): Promise<boolean> => {
+    try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      if (!hasHardware || !isEnrolled) {
+        setError('Biometric authentication is not set up on this device.');
+        return false;
+      }
+
+      const authResult = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Enable biometric unlock',
+        cancelLabel: 'Cancel',
+      });
+      if (!authResult.success) {
+        return false;
+      }
+
+      const masterKeyId = currentMasterKeyId;
+      const pin = sessionPinRef.current;
+      if (masterKeyId && pin) {
+        try {
+          await storageService.storeBiometricPin(masterKeyId, pin);
+        } catch (storeErr) {
+          console.warn('⚠️ [useWalletAuth] Failed to store biometric PIN:', storeErr);
+          // Still enable the setting — the PIN will be re-stored on the next
+          // unlock by the explicit opt-in path if needed.
+        }
+      }
+
+      await settingsService.updateUserSettings({ biometricEnabled: true });
+      setBiometricEnabled(true);
+      return true;
+    } catch (err) {
+      console.error('❌ [useWalletAuth] enableBiometric failed:', err);
+      return false;
+    }
+  }, [currentMasterKeyId]);
+
+  // ========================================
   // Return Hook Value
   // ========================================
 
@@ -606,6 +656,7 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
     changePin,
     getPinAuthStatus,
     unlockWithBiometric,
+    enableBiometric,
     selectWallet,
     selectSubWallet,
     updateActivity,
