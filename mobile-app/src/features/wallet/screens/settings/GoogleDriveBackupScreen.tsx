@@ -328,24 +328,28 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
 
   // Resolve the PIN needed to decrypt the master seed for backup.
   // Priority (each step is silent when it works):
-  //   1. Session PIN — already in memory from the active unlock, no prompt.
-  //   2. Biometric-stored PIN — only populated if the user opted into biometric.
+  //   1. Session PIN — already in memory from the active unlock. We try this
+  //      FIRST regardless of which wallet is active; in the common case where
+  //      the user reuses the same PIN across their wallets, this is a silent
+  //      hit and skips the prompt entirely. If the wrong PIN is returned,
+  //      performBackup's decrypt attempt surfaces the mismatch and we fall
+  //      back to the manual prompt.
+  //   2. Biometric-stored PIN — only populated if the user opted into
+  //      biometric unlock for this specific master key.
   //   3. null → caller should prompt the user to enter their PIN manually.
   const resolveBackupPin = useCallback(
-    async (targetKeyId: string): Promise<string | null> => {
-      if (activeMasterKey?.id === targetKeyId) {
-        const sessionPin = getSessionPin();
-        if (sessionPin) return sessionPin;
-      }
+    async (_targetKeyId: string): Promise<string | null> => {
+      const sessionPin = getSessionPin();
+      if (sessionPin) return sessionPin;
       try {
-        const biometricPin = await storageService.getBiometricPin(targetKeyId);
+        const biometricPin = await storageService.getBiometricPin(_targetKeyId);
         if (biometricPin) return biometricPin;
       } catch {
         // Ignore — fall through to manual entry.
       }
       return null;
     },
-    [activeMasterKey, getSessionPin]
+    [getSessionPin]
   );
 
   // Performs the actual backup once we have a PIN. Split out so it can be
