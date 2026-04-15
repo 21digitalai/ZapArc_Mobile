@@ -6,6 +6,10 @@ import { settingsService } from '../../../services';
 
 const WALLET_SECURITY_ONBOARDING_KEY = '@zap_arc/wallet_security_onboarding_v1';
 const WALLET_SECURITY_BANNER_DISMISSED_KEY = '@zap_arc/wallet_security_banner_dismissed_v1';
+const BIOMETRIC_BANNER_DISMISSED_KEY = '@zap_arc/wallet_biometric_banner_dismissed_v1';
+const NOTIFICATIONS_BANNER_DISMISSED_KEY = '@zap_arc/wallet_notifications_banner_dismissed_v1';
+
+export type SecurityReminderKind = 'biometric' | 'notifications' | null;
 
 type WalletSecurityContext = 'create' | 'restore';
 
@@ -98,18 +102,23 @@ export async function runWalletSecurityOnboarding(
   await setOnboardingState({ skipped: false });
 }
 
-export async function shouldShowWalletSecurityReminderBadge(): Promise<boolean> {
-  // Respect explicit dismissal.
+/**
+ * Decide which (if any) security banner to show on the home screen.
+ * Only one is ever returned — biometric has priority. Once biometric is
+ * enabled or explicitly dismissed, the notifications banner takes over.
+ */
+export async function getActiveSecurityReminder(): Promise<SecurityReminderKind> {
+  // Legacy blanket dismissal key (from older builds) still suppresses both.
   try {
-    const dismissed = await AsyncStorage.getItem(WALLET_SECURITY_BANNER_DISMISSED_KEY);
-    if (dismissed === '1') return false;
+    const dismissedAll = await AsyncStorage.getItem(WALLET_SECURITY_BANNER_DISMISSED_KEY);
+    if (dismissedAll === '1') return null;
   } catch {
     // fall through
   }
 
   const settings = await settingsService.getUserSettings();
 
-  // Can we even do biometric on this device?
+  // Biometric banner — highest priority when the device can do it.
   let biometricPossible = false;
   try {
     const hasHardware = await LocalAuthentication.hasHardwareAsync();
@@ -119,15 +128,39 @@ export async function shouldShowWalletSecurityReminderBadge(): Promise<boolean> 
     biometricPossible = false;
   }
 
-  const needBiometric = biometricPossible && !settings.biometricEnabled;
-  const needNotifications = !settings.notificationsEnabled;
+  if (biometricPossible && !settings.biometricEnabled) {
+    try {
+      const dismissed = await AsyncStorage.getItem(BIOMETRIC_BANNER_DISMISSED_KEY);
+      if (dismissed !== '1') return 'biometric';
+    } catch {
+      return 'biometric';
+    }
+  }
 
-  return needBiometric || needNotifications;
+  // Notifications banner — shown next, only once biometric is resolved.
+  if (!settings.notificationsEnabled) {
+    try {
+      const dismissed = await AsyncStorage.getItem(NOTIFICATIONS_BANNER_DISMISSED_KEY);
+      if (dismissed !== '1') return 'notifications';
+    } catch {
+      return 'notifications';
+    }
+  }
+
+  return null;
 }
 
-export async function dismissWalletSecurityReminderBanner(): Promise<void> {
+export async function dismissBiometricBanner(): Promise<void> {
   try {
-    await AsyncStorage.setItem(WALLET_SECURITY_BANNER_DISMISSED_KEY, '1');
+    await AsyncStorage.setItem(BIOMETRIC_BANNER_DISMISSED_KEY, '1');
+  } catch {
+    // ignore
+  }
+}
+
+export async function dismissNotificationsBanner(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(NOTIFICATIONS_BANNER_DISMISSED_KEY, '1');
   } catch {
     // ignore
   }

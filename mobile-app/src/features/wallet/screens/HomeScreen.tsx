@@ -26,8 +26,10 @@ import { onPaymentReceived } from '../../../services/breezSparkService';
 import type { Transaction } from '../types';
 import {
   enableNotificationsIfNeeded,
-  shouldShowWalletSecurityReminderBadge,
-  dismissWalletSecurityReminderBanner,
+  getActiveSecurityReminder,
+  dismissBiometricBanner,
+  dismissNotificationsBanner,
+  type SecurityReminderKind,
 } from '../utils/walletSecurityOnboarding';
 
 // =============================================================================
@@ -78,17 +80,17 @@ export function HomeScreen(): React.JSX.Element {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
-  const [showSecurityBanner, setShowSecurityBanner] = useState(false);
+  const [activeReminder, setActiveReminder] = useState<SecurityReminderKind>(null);
 
-  // Check whether we should nudge the user to enable biometric + notifications.
-  // Triggered after restore/import, where we defer this prompt to here
-  // instead of interrupting the restore flow.
+  // Decide which security banner (if any) to show above the balance.
+  // Biometric has priority; notifications only takes over once biometric
+  // is resolved (enabled, dismissed, or unavailable on this device).
   const refreshSecurityBanner = useCallback(async (): Promise<void> => {
     try {
-      const shouldShow = await shouldShowWalletSecurityReminderBadge();
-      setShowSecurityBanner(shouldShow);
+      const next = await getActiveSecurityReminder();
+      setActiveReminder(next);
     } catch {
-      setShowSecurityBanner(false);
+      setActiveReminder(null);
     }
   }, []);
 
@@ -96,20 +98,32 @@ export function HomeScreen(): React.JSX.Element {
     void refreshSecurityBanner();
   }, [refreshSecurityBanner]);
 
-  const handleEnableSecurity = useCallback(async (): Promise<void> => {
-    // The banner tap IS the user's opt-in, so we skip the extra confirm
-    // alert. Biometric first (stores the session PIN into the auth-gated
-    // keystore); notifications second. Either can be silently skipped by
-    // the user at the OS prompt — we re-check the banner state afterwards.
+  const handleEnableBiometric = useCallback(async (): Promise<void> => {
+    // The banner tap IS the user's opt-in, so we skip any confirm alert.
+    // If the user cancels the OS prompt, enableBiometric returns false and
+    // the banner simply stays — refreshSecurityBanner re-derives state.
     await enableBiometric();
-    await enableNotificationsIfNeeded();
     await refreshSecurityBanner();
   }, [enableBiometric, refreshSecurityBanner]);
 
-  const handleDismissSecurityBanner = useCallback((): void => {
-    setShowSecurityBanner(false);
-    void dismissWalletSecurityReminderBanner();
-  }, []);
+  const handleDismissBiometric = useCallback((): void => {
+    setActiveReminder(null);
+    void dismissBiometricBanner().finally(() => {
+      void refreshSecurityBanner();
+    });
+  }, [refreshSecurityBanner]);
+
+  const handleEnableNotifications = useCallback(async (): Promise<void> => {
+    await enableNotificationsIfNeeded();
+    await refreshSecurityBanner();
+  }, [refreshSecurityBanner]);
+
+  const handleDismissNotifications = useCallback((): void => {
+    setActiveReminder(null);
+    void dismissNotificationsBanner().finally(() => {
+      void refreshSecurityBanner();
+    });
+  }, [refreshSecurityBanner]);
 
   // Currency formatting using the useCurrency hook
   const getFormattedBalance = (sats: number) => {
@@ -359,26 +373,57 @@ export function HomeScreen(): React.JSX.Element {
             />
           }
         >
-          {/* Security reminder banner (shown after restore/import if biometric or notifications are off) */}
-          {showSecurityBanner && (
+          {/* Security reminder banner — only one at a time.
+              Biometric has priority; notifications takes over once
+              biometric is enabled, dismissed, or unavailable. */}
+          {activeReminder === 'biometric' && (
             <View style={styles.securityBanner}>
               <View style={styles.securityBannerTextWrap}>
                 <Text style={[styles.securityBannerTitle, { color: primaryTextColor }]}>
-                  Secure your wallet
+                  Enable fingerprint unlock
                 </Text>
                 <Text style={[styles.securityBannerSubtitle, { color: secondaryTextColor }]}>
-                  Enable biometric unlock & payment alerts for faster, safer access.
+                  Unlock your wallet with a fingerprint for faster, safer access.
                 </Text>
               </View>
               <View style={styles.securityBannerActions}>
                 <TouchableOpacity
-                  onPress={handleEnableSecurity}
+                  onPress={handleEnableBiometric}
                   style={[styles.securityBannerPrimary, { backgroundColor: BRAND_COLOR }]}
                 >
                   <Text style={styles.securityBannerPrimaryText}>Enable</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={handleDismissSecurityBanner}
+                  onPress={handleDismissBiometric}
+                  style={styles.securityBannerDismiss}
+                >
+                  <Text style={[styles.securityBannerDismissText, { color: secondaryTextColor }]}>
+                    Not now
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {activeReminder === 'notifications' && (
+            <View style={styles.securityBanner}>
+              <View style={styles.securityBannerTextWrap}>
+                <Text style={[styles.securityBannerTitle, { color: primaryTextColor }]}>
+                  Turn on payment alerts
+                </Text>
+                <Text style={[styles.securityBannerSubtitle, { color: secondaryTextColor }]}>
+                  Get notified instantly when payments arrive.
+                </Text>
+              </View>
+              <View style={styles.securityBannerActions}>
+                <TouchableOpacity
+                  onPress={handleEnableNotifications}
+                  style={[styles.securityBannerPrimary, { backgroundColor: BRAND_COLOR }]}
+                >
+                  <Text style={styles.securityBannerPrimaryText}>Enable</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleDismissNotifications}
                   style={styles.securityBannerDismiss}
                 >
                   <Text style={[styles.securityBannerDismissText, { color: secondaryTextColor }]}>

@@ -13,7 +13,7 @@ import { useSettings } from '../../../hooks/useSettings';
 import { useLanguage } from '../../../hooks/useLanguage';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_COLOR } from '../../../utils/theme-helpers';
-import { shouldShowWalletSecurityReminderBadge } from '../utils/walletSecurityOnboarding';
+import { getActiveSecurityReminder } from '../utils/walletSecurityOnboarding';
 
 // =============================================================================
 // Component
@@ -31,7 +31,10 @@ export function WalletSettingsScreen(): React.JSX.Element {
   useFocusEffect(
     useCallback(() => {
       loadSettings();
-      shouldShowWalletSecurityReminderBadge().then(setShowSecurityReminder).catch(() => setShowSecurityReminder(false));
+      // Any active reminder (biometric or notifications) surfaces the badge here.
+      getActiveSecurityReminder()
+        .then((kind) => setShowSecurityReminder(kind !== null))
+        .catch(() => setShowSecurityReminder(false));
     }, [loadSettings])
   );
 
