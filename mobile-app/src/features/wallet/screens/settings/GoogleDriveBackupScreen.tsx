@@ -19,16 +19,17 @@ import {
 } from 'react-native-paper';
 import { TextInput } from 'react-native-paper'; // Only for TextInput.Icon
 import { StyledTextInput } from '../../../../components/StyledTextInput';
+import { PinSetupKeypad } from '../../../../components/PinSetupKeypad';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useWallet } from '../../../../hooks/useWallet';
+import { useWalletAuth } from '../../../../hooks/useWalletAuth';
 import { storageService, settingsService } from '../../../../services';
 import { useAppTheme } from '../../../../contexts/ThemeContext';
 import { generateMasterKeyNickname } from '../../../../utils/mnemonic';
 import { WALLET_PIN_LENGTH } from '../../constants/security';
-import { runWalletSecurityOnboarding } from '../../utils/walletSecurityOnboarding';
 import { useLanguage } from '../../../../hooks/useLanguage';
 import {
   getGradientColors,
@@ -56,6 +57,7 @@ import * as FileSystem from 'expo-file-system';
 
 export function GoogleDriveBackupScreen(): React.JSX.Element {
   const { getMnemonic, activeMasterKey, importMasterKey, masterKeys } = useWallet();
+  const { selectWallet } = useWalletAuth();
   const { themeMode } = useAppTheme();
   const { t } = useLanguage();
 
@@ -486,16 +488,11 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     }
   };
 
-  const handleConfirmImport = async (): Promise<void> => {
+  const handleConfirmImport = async (pinFromKeypad: string): Promise<void> => {
     if (!restoredMnemonic) return;
 
-    if (restorePin.length !== WALLET_PIN_LENGTH) {
+    if (pinFromKeypad.length !== WALLET_PIN_LENGTH) {
       Alert.alert(t('common.error'), `PIN must be exactly ${WALLET_PIN_LENGTH} digits`);
-      return;
-    }
-
-    if (restorePin !== confirmRestorePin) {
-      Alert.alert(t('common.error'), 'PINs do not match');
       return;
     }
 
@@ -503,33 +500,27 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     try {
       const nickname = restoredWalletName || generateMasterKeyNickname(masterKeys.length + 1);
       console.log('🔄 [Restore] Importing wallet...', { nickname });
-      const masterKeyId = await importMasterKey(restoredMnemonic, restorePin, nickname);
+      const masterKeyId = await importMasterKey(restoredMnemonic, pinFromKeypad, nickname);
       console.log('✅ [Restore] Wallet imported:', masterKeyId);
 
-      // Prompt for notification permission on wallet restore
-      await runWalletSecurityOnboarding('restore');
+      // Make the newly restored wallet the active one. This matters most for
+      // Flow B (restore from settings while another wallet is already active)
+      // but is also safe for Flow A (first install).
+      try {
+        await selectWallet(masterKeyId, 0, pinFromKeypad);
+      } catch (selectError) {
+        console.warn('⚠️ [Restore] selectWallet failed (non-fatal):', selectError);
+      }
 
+      // Clear modal + state; biometric/notification onboarding is deferred
+      // to a dismissable banner on the wallet home screen.
       setShowPinModal(false);
       setRestoredMnemonic(null);
       setRestorePin('');
       setConfirmRestorePin('');
 
-      Alert.alert(
-        t('common.success'),
-        'Wallet restored successfully!',
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              // Navigate to unlock screen to properly initialize the wallet
-              router.replace({
-                pathname: '/wallet/unlock',
-                params: { masterKeyId },
-              });
-            },
-          },
-        ]
-      );
+      // Skip unlock screen — user literally just set this PIN.
+      router.replace('/wallet/home');
     } catch (error) {
       console.error('❌ [Restore] Import failed:', error);
       const message = error instanceof Error ? error.message : 'Failed to import wallet';
@@ -728,67 +719,29 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
       transparent
       animationType="slide"
       onRequestClose={() => {
+        if (isImporting) return;
         setShowPinModal(false);
         setRestoredMnemonic(null);
-        setRestorePin('');
-        setConfirmRestorePin('');
       }}
     >
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContent, { backgroundColor: gradientColors[0] }]}>
-          <Text style={[styles.modalTitle, { color: primaryText }]}>
-            Set a PIN for your wallet
-          </Text>
-
-          <Text style={[styles.restoreHint, { color: secondaryText, marginBottom: 16 }]}>
-            Choose a PIN to secure your restored wallet.
-          </Text>
-
-          <StyledTextInput
-            label="Enter PIN"
-            value={restorePin}
-            onChangeText={setRestorePin}
-            secureTextEntry
-            keyboardType="number-pad"
-            maxLength={WALLET_PIN_LENGTH}
-            style={styles.input}
+          <PinSetupKeypad
+            primaryText={primaryText}
+            secondaryText={secondaryText}
+            isProcessing={isImporting}
+            processingLabel="Restoring wallet…"
+            enterLabel="Create a wallet PIN"
+            confirmLabel="Confirm PIN"
+            cancelLabel={t('common.cancel')}
+            onCancel={() => {
+              setShowPinModal(false);
+              setRestoredMnemonic(null);
+            }}
+            onComplete={(pin) => {
+              void handleConfirmImport(pin);
+            }}
           />
-
-          <StyledTextInput
-            label="Confirm PIN"
-            value={confirmRestorePin}
-            onChangeText={setConfirmRestorePin}
-            secureTextEntry
-            keyboardType="number-pad"
-            maxLength={WALLET_PIN_LENGTH}
-            style={styles.input}
-          />
-
-          <View style={styles.modalButtons}>
-            <Button
-              mode="outlined"
-              onPress={() => {
-                setShowPinModal(false);
-                setRestoredMnemonic(null);
-                setRestorePin('');
-                setConfirmRestorePin('');
-              }}
-              style={styles.modalButton}
-              textColor={secondaryText}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button
-              mode="contained"
-              onPress={handleConfirmImport}
-              loading={isImporting}
-              disabled={isImporting || restorePin.length !== WALLET_PIN_LENGTH || !confirmRestorePin}
-              style={[styles.modalButton, { backgroundColor: BRAND_COLOR }]}
-              labelStyle={{ color: '#1a1a2e' }}
-            >
-              Restore Wallet
-            </Button>
-          </View>
         </View>
       </View>
     </Modal>

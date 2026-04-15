@@ -11,7 +11,7 @@ import {
   Keyboard,
 } from 'react-native';
 import { Button, Text, ProgressBar } from 'react-native-paper';
-import { StyledTextInput } from '../../../components';
+import { StyledTextInput, PinSetupKeypad } from '../../../components';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,15 +22,15 @@ import {
   generateMasterKeyNickname,
 } from '../../../utils/mnemonic';
 import { useWallet } from '../../../hooks/useWallet';
+import { useWalletAuth } from '../../../hooks/useWalletAuth';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_COLOR } from '../../../utils/theme-helpers';
-import { runWalletSecurityOnboarding } from '../utils/walletSecurityOnboarding';
 
 // =============================================================================
 // Types
 // =============================================================================
 
-type ImportStep = 'input' | 'pin' | 'complete';
+type ImportStep = 'input' | 'pin';
 
 // =============================================================================
 // Component
@@ -38,6 +38,7 @@ type ImportStep = 'input' | 'pin' | 'complete';
 
 export function WalletImportScreen(): React.JSX.Element {
   const { importMasterKey, masterKeys } = useWallet();
+  const { selectWallet } = useWalletAuth();
   const { themeMode } = useAppTheme();
 
   // Theme colors
@@ -56,7 +57,7 @@ export function WalletImportScreen(): React.JSX.Element {
 
   // Progress calculation
   const progress = useMemo(() => {
-    const steps: ImportStep[] = ['input', 'pin', 'complete'];
+    const steps: ImportStep[] = ['input', 'pin'];
     return (steps.indexOf(currentStep) + 1) / steps.length;
   }, [currentStep]);
 
@@ -77,10 +78,12 @@ export function WalletImportScreen(): React.JSX.Element {
     }
   }, [masterKeys.length]);
 
-  // PIN validation
+  // PIN validation (kept for backwards-compat with existing error messages)
   const pinValid = useMemo(() => {
     return pin.length >= 6 && pin === confirmPin;
   }, [pin, confirmPin]);
+  void pinValid;
+  void setConfirmPin;
 
   // ========================================
   // Step 1: Mnemonic Input
@@ -101,9 +104,9 @@ export function WalletImportScreen(): React.JSX.Element {
   // Step 2: PIN Setup
   // ========================================
 
-  const handleImportWallet = useCallback(async () => {
-    if (!pinValid) {
-      setError('PINs do not match or are too short');
+  const handleImportWallet = useCallback(async (finalPin: string) => {
+    if (finalPin.length < 6) {
+      setError('PIN must be 6 digits');
       return;
     }
 
@@ -112,12 +115,20 @@ export function WalletImportScreen(): React.JSX.Element {
       setError(null);
 
       const normalizedMnemonic = normalizeMnemonic(mnemonic);
-      await importMasterKey(normalizedMnemonic, pin, walletName.trim() || undefined);
-      setCurrentStep('complete');
+      const masterKeyId = await importMasterKey(normalizedMnemonic, finalPin, walletName.trim() || undefined);
+
+      // Make the newly imported wallet active (relevant for multi-wallet users).
+      try {
+        await selectWallet(masterKeyId, 0, finalPin);
+      } catch (selectError) {
+        console.warn('⚠️ [Import] selectWallet failed (non-fatal):', selectError);
+      }
+
+      // Skip success screen + onboarding prompts — navigate directly.
+      // Biometric/notification setup is offered as a dismissable banner on home.
+      router.replace('/wallet/home');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to import wallet';
-      
-      // Check for duplicate wallet error
       if (message.toLowerCase().includes('already')) {
         setError('This wallet has already been imported');
       } else {
@@ -126,16 +137,7 @@ export function WalletImportScreen(): React.JSX.Element {
     } finally {
       setIsLoading(false);
     }
-  }, [pinValid, pin, mnemonic, importMasterKey]);
-
-  // ========================================
-  // Step 3: Complete
-  // ========================================
-
-  const handleComplete = useCallback(async () => {
-    await runWalletSecurityOnboarding('restore');
-    router.replace('/wallet/home');
-  }, []);
+  }, [mnemonic, walletName, importMasterKey, selectWallet]);
 
   // ========================================
   // Render Steps
@@ -218,110 +220,43 @@ export function WalletImportScreen(): React.JSX.Element {
   );
 
   const renderPinStep = () => (
-    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-      <Text style={[styles.stepTitle, { color: primaryText }]}>Set Your PIN</Text>
-      <Text style={[styles.stepDescription, { color: secondaryText }]}>
-        Create a 6-digit PIN to secure your wallet. You'll use this PIN to
-        unlock the wallet.
-      </Text>
-
+    <ScrollView
+      style={styles.scrollView}
+      contentContainerStyle={styles.scrollContent}
+      keyboardShouldPersistTaps="handled"
+    >
       {error && (
         <View style={styles.errorBox}>
           <Text style={styles.errorText}>{error}</Text>
         </View>
       )}
 
-      <View style={styles.pinInputs}>
-        <StyledTextInput
-          mode="outlined"
-          label="Wallet Name"
-          value={walletName}
-          onChangeText={(text: string) => {
-            setWalletName(text);
-            nameChangedRef.current = true;
-          }}
-          style={styles.pinInput}
-        />
+      <StyledTextInput
+        mode="outlined"
+        label="Wallet Name"
+        value={walletName}
+        onChangeText={(text: string) => {
+          setWalletName(text);
+          nameChangedRef.current = true;
+        }}
+        style={styles.pinInput}
+      />
 
-        <StyledTextInput
-          mode="outlined"
-          label="Enter 6-digit PIN"
-          value={pin}
-          onChangeText={(text) => {
-            setPin(text.replace(/[^0-9]/g, ''));
-            if (text.length === 6) {
-              Keyboard.dismiss();
-            }
-          }}
-          secureTextEntry
-          keyboardType="numeric"
-          maxLength={6}
-          style={styles.pinInput}
-        />
-        {pin.length > 0 && pin.length < 6 && (
-          <Text style={styles.pinHint}>{6 - pin.length} more digit{6 - pin.length !== 1 ? 's' : ''} needed</Text>
-        )}
-
-        <StyledTextInput
-          mode="outlined"
-          label="Confirm 6-digit PIN"
-          value={confirmPin}
-          onChangeText={(text) => {
-            setConfirmPin(text.replace(/[^0-9]/g, ''));
-            if (text.length === 6) {
-              Keyboard.dismiss();
-            }
-          }}
-          secureTextEntry
-          keyboardType="numeric"
-          maxLength={6}
-          style={styles.pinInput}
-        />
-      </View>
-
-      {pin.length > 0 && pin.length < 6 && confirmPin.length === 0 && (
-        <Text style={styles.pinMismatch}>PIN must be exactly 6 digits</Text>
-      )}
-      {pin.length >= 6 && confirmPin.length >= 6 && pin !== confirmPin && (
-        <Text style={styles.pinMismatch}>PINs do not match</Text>
-      )}
-
-      <Button
-        mode="contained"
-        onPress={handleImportWallet}
-        disabled={!pinValid || isLoading}
-        loading={isLoading}
-        style={styles.primaryButton}
-        contentStyle={styles.buttonContent}
-        labelStyle={styles.buttonLabel}
-      >
-        Import Wallet
-      </Button>
+      <PinSetupKeypad
+        primaryText={primaryText}
+        secondaryText={secondaryText}
+        isProcessing={isLoading}
+        processingLabel="Importing wallet…"
+        enterLabel="Create a wallet PIN"
+        confirmLabel="Confirm PIN"
+        cancelLabel="Back"
+        onCancel={() => setCurrentStep('input')}
+        onComplete={(finalPin) => {
+          setPin(finalPin);
+          void handleImportWallet(finalPin);
+        }}
+      />
     </ScrollView>
-  );
-
-  const renderCompleteStep = () => (
-    <View style={styles.stepContent}>
-      <View style={styles.successIcon}>
-        <Text style={styles.successEmoji}>✅</Text>
-      </View>
-
-      <Text style={[styles.stepTitle, { color: primaryText }]}>Wallet Imported!</Text>
-      <Text style={[styles.stepDescription, { color: secondaryText }]}>
-        Your wallet has been successfully imported. You can now access your
-        funds via the Lightning Network.
-      </Text>
-
-      <Button
-        mode="contained"
-        onPress={handleComplete}
-        style={styles.primaryButton}
-        contentStyle={styles.buttonContent}
-        labelStyle={styles.buttonLabel}
-      >
-        Get Started
-      </Button>
-    </View>
   );
 
   const renderCurrentStep = () => {
@@ -330,8 +265,6 @@ export function WalletImportScreen(): React.JSX.Element {
         return renderInputStep();
       case 'pin':
         return renderPinStep();
-      case 'complete':
-        return renderCompleteStep();
       default:
         return renderInputStep();
     }
@@ -345,31 +278,19 @@ export function WalletImportScreen(): React.JSX.Element {
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <SafeAreaView style={styles.container}>
           {/* Progress Bar */}
-          {currentStep !== 'complete' && (
-            <View style={styles.progressContainer}>
-              <ProgressBar
-                progress={progress}
-                color={BRAND_COLOR}
-                style={styles.progressBar}
-              />
-              <Text style={styles.progressText}>
-                Step {['input', 'pin'].indexOf(currentStep) + 1} of 2
-              </Text>
-            </View>
-          )}
+          <View style={styles.progressContainer}>
+            <ProgressBar
+              progress={progress}
+              color={BRAND_COLOR}
+              style={styles.progressBar}
+            />
+            <Text style={styles.progressText}>
+              Step {['input', 'pin'].indexOf(currentStep) + 1} of 2
+            </Text>
+          </View>
 
           {/* Content */}
           {renderCurrentStep()}
-
-          {/* Back Button */}
-          {currentStep === 'pin' && (
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => setCurrentStep('input')}
-            >
-              <Text style={styles.backButtonText}>← Back</Text>
-            </TouchableOpacity>
-          )}
         </SafeAreaView>
       </TouchableWithoutFeedback>
     </LinearGradient>

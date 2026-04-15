@@ -5,6 +5,7 @@ import * as Notifications from 'expo-notifications';
 import { settingsService } from '../../../services';
 
 const WALLET_SECURITY_ONBOARDING_KEY = '@zap_arc/wallet_security_onboarding_v1';
+const WALLET_SECURITY_BANNER_DISMISSED_KEY = '@zap_arc/wallet_security_banner_dismissed_v1';
 
 type WalletSecurityContext = 'create' | 'restore';
 
@@ -79,9 +80,12 @@ async function enableNotificationsIfNeeded(): Promise<void> {
   });
 }
 
-export async function runWalletSecurityOnboarding(context: WalletSecurityContext): Promise<void> {
+export async function runWalletSecurityOnboarding(
+  context: WalletSecurityContext,
+  options: { force?: boolean } = {}
+): Promise<void> {
   const existingState = await getOnboardingState();
-  if (existingState) return;
+  if (existingState && !options.force) return;
 
   const shouldContinue = await askContinue(context);
   if (!shouldContinue) {
@@ -95,9 +99,36 @@ export async function runWalletSecurityOnboarding(context: WalletSecurityContext
 }
 
 export async function shouldShowWalletSecurityReminderBadge(): Promise<boolean> {
-  const state = await getOnboardingState();
-  if (!state?.skipped) return false;
+  // Respect explicit dismissal.
+  try {
+    const dismissed = await AsyncStorage.getItem(WALLET_SECURITY_BANNER_DISMISSED_KEY);
+    if (dismissed === '1') return false;
+  } catch {
+    // fall through
+  }
 
   const settings = await settingsService.getUserSettings();
-  return !(settings.biometricEnabled && settings.notificationsEnabled);
+
+  // Can we even do biometric on this device?
+  let biometricPossible = false;
+  try {
+    const hasHardware = await LocalAuthentication.hasHardwareAsync();
+    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+    biometricPossible = hasHardware && isEnrolled;
+  } catch {
+    biometricPossible = false;
+  }
+
+  const needBiometric = biometricPossible && !settings.biometricEnabled;
+  const needNotifications = !settings.notificationsEnabled;
+
+  return needBiometric || needNotifications;
+}
+
+export async function dismissWalletSecurityReminderBanner(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(WALLET_SECURITY_BANNER_DISMISSED_KEY, '1');
+  } catch {
+    // ignore
+  }
 }

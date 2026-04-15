@@ -24,6 +24,11 @@ import { useLanguage } from '../../../hooks/useLanguage';
 import { useCurrency } from '../../../hooks/useCurrency';
 import { onPaymentReceived } from '../../../services/breezSparkService';
 import type { Transaction } from '../types';
+import {
+  runWalletSecurityOnboarding,
+  shouldShowWalletSecurityReminderBadge,
+  dismissWalletSecurityReminderBanner,
+} from '../utils/walletSecurityOnboarding';
 
 // =============================================================================
 // Types
@@ -73,6 +78,33 @@ export function HomeScreen(): React.JSX.Element {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [showSecurityBanner, setShowSecurityBanner] = useState(false);
+
+  // Check whether we should nudge the user to enable biometric + notifications.
+  // Triggered after restore/import, where we defer this prompt to here
+  // instead of interrupting the restore flow.
+  const refreshSecurityBanner = useCallback(async (): Promise<void> => {
+    try {
+      const shouldShow = await shouldShowWalletSecurityReminderBadge();
+      setShowSecurityBanner(shouldShow);
+    } catch {
+      setShowSecurityBanner(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSecurityBanner();
+  }, [refreshSecurityBanner]);
+
+  const handleEnableSecurity = useCallback(async (): Promise<void> => {
+    await runWalletSecurityOnboarding('restore', { force: true });
+    await refreshSecurityBanner();
+  }, [refreshSecurityBanner]);
+
+  const handleDismissSecurityBanner = useCallback((): void => {
+    setShowSecurityBanner(false);
+    void dismissWalletSecurityReminderBanner();
+  }, []);
 
   // Currency formatting using the useCurrency hook
   const getFormattedBalance = (sats: number) => {
@@ -322,6 +354,36 @@ export function HomeScreen(): React.JSX.Element {
             />
           }
         >
+          {/* Security reminder banner (shown after restore/import if biometric or notifications are off) */}
+          {showSecurityBanner && (
+            <View style={styles.securityBanner}>
+              <View style={styles.securityBannerTextWrap}>
+                <Text style={[styles.securityBannerTitle, { color: primaryTextColor }]}>
+                  Secure your wallet
+                </Text>
+                <Text style={[styles.securityBannerSubtitle, { color: secondaryTextColor }]}>
+                  Enable biometric unlock & payment alerts for faster, safer access.
+                </Text>
+              </View>
+              <View style={styles.securityBannerActions}>
+                <TouchableOpacity
+                  onPress={handleEnableSecurity}
+                  style={[styles.securityBannerPrimary, { backgroundColor: BRAND_COLOR }]}
+                >
+                  <Text style={styles.securityBannerPrimaryText}>Enable</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleDismissSecurityBanner}
+                  style={styles.securityBannerDismiss}
+                >
+                  <Text style={[styles.securityBannerDismissText, { color: secondaryTextColor }]}>
+                    Not now
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
           {/* Balance Card */}
           <View style={styles.balanceCard}>
             <Text style={[styles.balanceLabel, { color: secondaryTextColor }]}>{t('wallet.balance')}</Text>
@@ -618,6 +680,49 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
     paddingBottom: 32,
+  },
+  securityBanner: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  securityBannerTextWrap: {
+    marginBottom: 10,
+  },
+  securityBannerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  securityBannerSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  securityBannerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  securityBannerPrimary: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  securityBannerPrimaryText: {
+    color: '#1a1a2e',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  securityBannerDismiss: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  securityBannerDismissText: {
+    fontSize: 13,
+    fontWeight: '500',
   },
   balanceCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
