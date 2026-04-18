@@ -16,7 +16,8 @@ import {
 } from '../../src/utils/theme-helpers';
 import { BreezSparkService, onPaymentReceived, extractSdkErrorMessage } from '../../src/services/breezSparkService';
 import { useWallet } from '../../src/hooks/useWallet';
-import { useCurrency, type InputCurrency } from '../../src/hooks/useCurrency';
+import { useCurrency } from '../../src/hooks/useCurrency';
+import type { DisplayCurrency } from '../../src/services/displayCurrencyService';
 import { useLightningAddress } from '../../src/hooks/useLightningAddress';
 import { StyledTextInput } from '../../src/components';
 import { useFeedback } from '../../src/features/wallet/components/FeedbackComponents';
@@ -36,9 +37,8 @@ interface PendingDepositItem {
   failureReason?: string;
 }
 
-const currencyLabels: Record<InputCurrency, string> = {
+const currencyLabels: Record<DisplayCurrency, string> = {
   sats: 'sats',
-  btc: 'BTC',
   usd: 'USD',
   eur: 'EUR',
 };
@@ -51,7 +51,7 @@ export default function ReceiveScreen() {
   const inputBackgroundColor = getInputBackgroundColor(themeMode);
   const iconColor = secondaryTextColor;
 
-  const { secondaryFiatCurrency, convertToSats, formatSatsWithFiat, isLoadingRates } = useCurrency();
+  const { displayCurrency, setDisplayCurrency, convertToSats, formatSatsWithFiat, isLoadingRates } = useCurrency();
   const { addressInfo, isRegistered, isLoading: isLoadingAddress, refresh: refreshAddress } = useLightningAddress();
   const { refreshBalance, refreshTransactions } = useWallet();
   const { showSuccess } = useFeedback();
@@ -78,12 +78,16 @@ export default function ReceiveScreen() {
   const [pendingDeposits, setPendingDeposits] = useState<PendingDepositItem[]>([]);
   const [selectedPendingDeposit, setSelectedPendingDeposit] = useState<PendingDepositItem | null>(null);
 
-  const [inputCurrency, setInputCurrency] = useState<InputCurrency>('sats');
+  const [inputCurrency, setInputCurrency] = useState<DisplayCurrency>('sats');
   const [currencyMenuVisible, setCurrencyMenuVisible] = useState(false);
 
-  const currencyOptions: InputCurrency[] = useMemo(() => {
-    return ['sats', secondaryFiatCurrency];
-  }, [secondaryFiatCurrency]);
+  const currencyOptions: DisplayCurrency[] = useMemo(() => {
+    return ['sats', 'usd', 'eur'];
+  }, []);
+
+  useEffect(() => {
+    setInputCurrency(displayCurrency);
+  }, [displayCurrency]);
 
   const previewSats = useMemo(() => {
     const numAmount = parseFloat(amount);
@@ -101,8 +105,6 @@ export default function ReceiveScreen() {
       case 'eur':
       case 'usd':
         return [10, 25, 50, 100];
-      case 'btc':
-        return [0.0001, 0.0005, 0.001, 0.005];
       case 'sats':
       default:
         return [10000, 50000, 100000, 500000];
@@ -115,8 +117,6 @@ export default function ReceiveScreen() {
         return `€${preset}`;
       case 'usd':
         return `$${preset}`;
-      case 'btc':
-        return `${preset} BTC`;
       case 'sats':
       default:
         return preset >= 1000 ? `${preset / 1000}K` : `${preset}`;
@@ -243,11 +243,12 @@ export default function ReceiveScreen() {
     setActiveTab(tab);
   }, [activeTab]);
 
-  const handleCurrencyChange = useCallback((currency: InputCurrency) => {
+  const handleCurrencyChange = useCallback((currency: DisplayCurrency) => {
     setInputCurrency(currency);
+    void setDisplayCurrency(currency);
     setCurrencyMenuVisible(false);
     setAmount('');
-  }, []);
+  }, [setDisplayCurrency]);
 
   const handleCopyAddress = useCallback(async () => {
     if (!addressInfo?.lightningAddress) return;

@@ -15,7 +15,8 @@ import { useAppTheme } from '../../src/contexts/ThemeContext';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { useWallet } from '../../src/hooks/useWallet';
 import { BreezSparkService } from '../../src/services/breezSparkService';
-import { useCurrency, type InputCurrency } from '../../src/hooks/useCurrency';
+import { useCurrency } from '../../src/hooks/useCurrency';
+import type { DisplayCurrency } from '../../src/services/displayCurrencyService';
 import { useLightningAddress } from '../../src/hooks/useLightningAddress';
 import { useContacts } from '../../src/features/addressBook/hooks/useContacts';
 import { ContactSelectionModal } from '../../src/features/addressBook/components/ContactSelectionModal';
@@ -131,9 +132,8 @@ interface PaymentPreview {
   description?: string;
 }
 
-const currencyLabels: Record<InputCurrency, string> = {
+const currencyLabels: Record<DisplayCurrency, string> = {
   sats: 'sats',
-  btc: 'BTC',
   usd: 'USD',
   eur: 'EUR',
 };
@@ -151,7 +151,7 @@ export default function SendScreen() {
   const secondaryTextColor = getSecondaryTextColor(themeMode);
 
   const { balance, refreshBalance } = useWallet();
-  const { secondaryFiatCurrency, convertToSats, formatSatsWithFiat, isLoadingRates } = useCurrency();
+  const { displayCurrency, setDisplayCurrency, convertToSats, formatSatsWithFiat, isLoadingRates } = useCurrency();
   const { contacts, refreshContacts } = useContacts();
 
   // Refresh contacts when screen gains focus (e.g. after adding a contact in address book)
@@ -179,7 +179,7 @@ export default function SendScreen() {
   >(null);
   const [selectedSpeed, setSelectedSpeed] = useState<ConfirmationSpeed>('medium');
 
-  const [inputCurrency, setInputCurrency] = useState<InputCurrency>('sats');
+  const [inputCurrency, setInputCurrency] = useState<DisplayCurrency>('sats');
   const [currencyMenuVisible, setCurrencyMenuVisible] = useState(false);
 
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
@@ -217,9 +217,13 @@ export default function SendScreen() {
     });
   }, [params.paymentInput, params.tab, params.amount, params.comment]);
 
-  const currencyOptions: InputCurrency[] = useMemo(() => {
-    return ['sats', secondaryFiatCurrency];
-  }, [secondaryFiatCurrency]);
+  const currencyOptions: DisplayCurrency[] = useMemo(() => {
+    return ['sats', 'usd', 'eur'];
+  }, []);
+
+  useEffect(() => {
+    setInputCurrency(displayCurrency);
+  }, [displayCurrency]);
 
   const previewSats = useMemo(() => {
     const numAmount = parseFloat(amount);
@@ -276,11 +280,12 @@ export default function SendScreen() {
     [activeTab, resetFormState]
   );
 
-  const handleCurrencyChange = useCallback((currency: InputCurrency) => {
+  const handleCurrencyChange = useCallback((currency: DisplayCurrency) => {
     setInputCurrency(currency);
+    void setDisplayCurrency(currency);
     setCurrencyMenuVisible(false);
     setAmount('');
-  }, []);
+  }, [setDisplayCurrency]);
 
   const handleContactSelect = useCallback((contact: Contact) => {
     setSelectedContact(contact);

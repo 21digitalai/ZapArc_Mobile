@@ -3,11 +3,10 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSettings } from './useSettings';
+import { getDisplayCurrency as getStoredDisplayCurrency, setDisplayCurrency as setStoredDisplayCurrency, type DisplayCurrency } from '../services/displayCurrencyService';
 import {
   getExchangeRates,
   getCachedRates,
-  formatAmountWithSettings,
-  formatTransactionAmountWithSettings,
   fiatToSats,
   btcToSats,
   formatSats,
@@ -29,6 +28,7 @@ interface UseCurrencyReturn {
   primaryDenomination: PrimaryDenomination;
   secondaryFiatCurrency: FiatCurrency;
   currencySettings: CurrencySettings;
+  displayCurrency: DisplayCurrency;
 
   // Exchange rates
   rates: ExchangeRates | null;
@@ -46,6 +46,7 @@ interface UseCurrencyReturn {
   // Refresh functions
   refreshRates: () => Promise<void>;
   refreshSettings: () => Promise<void>;
+  setDisplayCurrency: (currency: DisplayCurrency) => Promise<void>;
 }
 
 // =============================================================================
@@ -69,6 +70,24 @@ export function useCurrency(): UseCurrencyReturn {
 
   const [rates, setRates] = useState<ExchangeRates | null>(getCachedRates());
   const [isLoadingRates, setIsLoadingRates] = useState(false);
+  const [displayCurrency, setDisplayCurrencyState] = useState<DisplayCurrency>('sats');
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadDisplayCurrency = async (): Promise<void> => {
+      const value = await getStoredDisplayCurrency(secondaryFiatCurrency);
+      if (mounted) {
+        setDisplayCurrencyState(value);
+      }
+    };
+
+    void loadDisplayCurrency();
+
+    return (): void => {
+      mounted = false;
+    };
+  }, [secondaryFiatCurrency]);
 
   // Fetch rates on mount and periodically
   useEffect(() => {
@@ -88,10 +107,8 @@ export function useCurrency(): UseCurrencyReturn {
       }
     };
 
-    // Initial fetch
     fetchRates();
 
-    // Refresh every 5 minutes
     const interval = global.setInterval(fetchRates, 5 * 60 * 1000);
 
     return (): void => {
@@ -116,29 +133,66 @@ export function useCurrency(): UseCurrencyReturn {
     await loadSettings();
   }, [loadSettings]);
 
-  // Format amount with current currency settings
+  // Format amount with current display currency
   const format = useCallback(
     (sats: number, options?: { hideBalance?: boolean }): FormattedAmount => {
-      return formatAmountWithSettings(sats, currencySettings, rates, options);
+      const { hideBalance = false } = options || {};
+      if (hideBalance) {
+        return {
+          primary: '••••••',
+          secondary: null,
+          secondaryCompact: null,
+        };
+      }
+
+      const safeSats = typeof sats === 'number' && !isNaN(sats) ? sats : 0;
+
+      if (displayCurrency === 'sats') {
+        return {
+          primary: `${formatSats(safeSats)} sats`,
+          secondary: null,
+          secondaryCompact: null,
+        };
+      }
+
+      if (!rates || rates[displayCurrency] <= 0) {
+        return {
+          primary: `${formatSats(safeSats)} sats`,
+          secondary: null,
+          secondaryCompact: null,
+        };
+      }
+
+      const fiatAmount = satsToFiat(safeSats, rates, displayCurrency);
+      return {
+        primary: formatFiat(fiatAmount, displayCurrency),
+        secondary: `${formatSats(safeSats)} sats`,
+        secondaryCompact: `${formatSats(safeSats)} sats`,
+      };
     },
-    [currencySettings, rates]
+    [displayCurrency, rates]
   );
 
   // Format transaction amount
   const formatTx = useCallback(
     (sats: number, isReceived: boolean): FormattedAmount => {
-      return formatTransactionAmountWithSettings(sats, isReceived, currencySettings, rates);
+      const formatted = format(sats);
+      const prefix = isReceived ? '+' : '-';
+      return {
+        primary: `${prefix}${formatted.primary}`,
+        secondary: formatted.secondary,
+        secondaryCompact: formatted.secondaryCompact,
+      };
     },
-    [currencySettings, rates]
+    [format]
   );
 
   // Format compact (for tight spaces like transaction list)
   const formatCompact = useCallback(
     (sats: number): string => {
-      const formatted = formatAmountWithSettings(sats, currencySettings, rates);
-      return formatted.primary;
+      return format(sats).primary;
     },
-    [currencySettings, rates]
+    [format]
   );
 
   // Convert input amount to sats based on input currency
@@ -162,26 +216,36 @@ export function useCurrency(): UseCurrencyReturn {
     [rates]
   );
 
-  // Format sats with fiat equivalent for display
+  // Format sats with display-currency-aware equivalent for screen widgets
   const formatSatsWithFiat = useCallback(
     (sats: number): { satsDisplay: string; fiatDisplay: string | null } => {
-      const satsDisplay = `${formatSats(sats)} sats`;
-      let fiatDisplay: string | null = null;
-      
-      if (rates && rates[secondaryFiatCurrency] > 0) {
-        const fiatAmount = satsToFiat(sats, rates, secondaryFiatCurrency);
-        fiatDisplay = `~${formatFiat(fiatAmount, secondaryFiatCurrency)}`;
+      if (displayCurrency === 'sats') {
+        return { satsDisplay: `${formatSats(sats)} sats`, fiatDisplay: null };
       }
-      
-      return { satsDisplay, fiatDisplay };
+
+      if (rates && rates[displayCurrency] > 0) {
+        const fiatAmount = satsToFiat(sats, rates, displayCurrency);
+        return {
+          satsDisplay: `${formatSats(sats)} sats`,
+          fiatDisplay: formatFiat(fiatAmount, displayCurrency),
+        };
+      }
+
+      return { satsDisplay: `${formatSats(sats)} sats`, fiatDisplay: null };
     },
-    [rates, secondaryFiatCurrency]
+    [displayCurrency, rates]
   );
+
+  const setDisplayCurrency = useCallback(async (currency: DisplayCurrency): Promise<void> => {
+    setDisplayCurrencyState(currency);
+    await setStoredDisplayCurrency(currency);
+  }, []);
 
   return {
     primaryDenomination,
     secondaryFiatCurrency,
     currencySettings,
+    displayCurrency,
     rates,
     isLoadingRates,
     format,
@@ -191,5 +255,6 @@ export function useCurrency(): UseCurrencyReturn {
     formatSatsWithFiat,
     refreshRates,
     refreshSettings,
+    setDisplayCurrency,
   };
 }
