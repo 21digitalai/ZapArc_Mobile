@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { View, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
-import { Text, Button, Menu, IconButton } from 'react-native-paper';
+import { Text, Button, IconButton } from 'react-native-paper';
 import { StyledTextInput } from '../../src/components';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -16,7 +16,7 @@ import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-ca
 import { useWallet } from '../../src/hooks/useWallet';
 import { BreezSparkService } from '../../src/services/breezSparkService';
 import { useCurrency } from '../../src/hooks/useCurrency';
-import type { DisplayCurrency } from '../../src/services/displayCurrencyService';
+import { cycleDisplayCurrency, type DisplayCurrency } from '../../src/services/displayCurrencyService';
 import { useLightningAddress } from '../../src/hooks/useLightningAddress';
 import { useContacts } from '../../src/features/addressBook/hooks/useContacts';
 import { ContactSelectionModal } from '../../src/features/addressBook/components/ContactSelectionModal';
@@ -180,7 +180,6 @@ export default function SendScreen() {
   const [selectedSpeed, setSelectedSpeed] = useState<ConfirmationSpeed>('medium');
 
   const [inputCurrency, setInputCurrency] = useState<DisplayCurrency>('sats');
-  const [currencyMenuVisible, setCurrencyMenuVisible] = useState(false);
 
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [contactModalVisible, setContactModalVisible] = useState(false);
@@ -216,10 +215,6 @@ export default function SendScreen() {
       comment: undefined,
     });
   }, [params.paymentInput, params.tab, params.amount, params.comment]);
-
-  const currencyOptions: DisplayCurrency[] = useMemo(() => {
-    return ['sats', 'usd', 'eur'];
-  }, []);
 
   useEffect(() => {
     setInputCurrency(displayCurrency);
@@ -266,7 +261,6 @@ export default function SendScreen() {
     setOnchainFeeQuotes(null);
     setSelectedSpeed('medium');
     setSelectedContact(null);
-    setCurrencyMenuVisible(false);
     setInputCurrency('sats');
     setAddressError(null);
   }, []);
@@ -280,12 +274,12 @@ export default function SendScreen() {
     [activeTab, resetFormState]
   );
 
-  const handleCurrencyChange = useCallback((currency: DisplayCurrency) => {
-    setInputCurrency(currency);
-    void setDisplayCurrency(currency);
-    setCurrencyMenuVisible(false);
+  const handleCycleCurrency = useCallback(() => {
+    const nextCurrency = cycleDisplayCurrency(inputCurrency);
+    setInputCurrency(nextCurrency);
+    void setDisplayCurrency(nextCurrency);
     setAmount('');
-  }, [setDisplayCurrency]);
+  }, [inputCurrency, setDisplayCurrency]);
 
   const handleContactSelect = useCallback((contact: Contact) => {
     setSelectedContact(contact);
@@ -1139,28 +1133,12 @@ export default function SendScreen() {
                   style={[styles.input, styles.amountInput]}
                 />
 
-                <Menu
-                  visible={currencyMenuVisible}
-                  onDismiss={() => setCurrencyMenuVisible(false)}
-                  anchor={
-                    <TouchableOpacity
-                      style={[styles.currencySelector, { backgroundColor: gradientColors[1] || '#16213e' }]}
-                      onPress={() => setCurrencyMenuVisible(true)}
-                    >
-                      <Text style={styles.currencySelectorText}>{currencyLabels[inputCurrency]} ▼</Text>
-                    </TouchableOpacity>
-                  }
-                  contentStyle={[styles.currencyMenu, { backgroundColor: gradientColors[0] || '#1a1a2e' }]}
+                <TouchableOpacity
+                  style={[styles.currencySelector, { backgroundColor: gradientColors[1] || '#16213e' }]}
+                  onPress={handleCycleCurrency}
                 >
-                  {currencyOptions.map((currency) => (
-                    <Menu.Item
-                      key={currency}
-                      onPress={() => handleCurrencyChange(currency)}
-                      title={currencyLabels[currency]}
-                      titleStyle={inputCurrency === currency ? styles.currencyMenuItemActive : { color: primaryTextColor }}
-                    />
-                  ))}
-                </Menu>
+                  <Text style={styles.currencySelectorText}>{currencyLabels[inputCurrency]}</Text>
+                </TouchableOpacity>
               </View>
 
               {previewDisplay && previewSats > 0 && inputCurrency !== 'sats' && (
@@ -1201,28 +1179,12 @@ export default function SendScreen() {
                   style={[styles.input, styles.amountInput]}
                 />
 
-                <Menu
-                  visible={currencyMenuVisible}
-                  onDismiss={() => setCurrencyMenuVisible(false)}
-                  anchor={
-                    <TouchableOpacity
-                      style={[styles.currencySelector, { backgroundColor: gradientColors[1] || '#16213e' }]}
-                      onPress={() => setCurrencyMenuVisible(true)}
-                    >
-                      <Text style={styles.currencySelectorText}>{currencyLabels[inputCurrency]} ▼</Text>
-                    </TouchableOpacity>
-                  }
-                  contentStyle={[styles.currencyMenu, { backgroundColor: gradientColors[0] || '#1a1a2e' }]}
+                <TouchableOpacity
+                  style={[styles.currencySelector, { backgroundColor: gradientColors[1] || '#16213e' }]}
+                  onPress={handleCycleCurrency}
                 >
-                  {currencyOptions.map((currency) => (
-                    <Menu.Item
-                      key={currency}
-                      onPress={() => handleCurrencyChange(currency)}
-                      title={currencyLabels[currency]}
-                      titleStyle={inputCurrency === currency ? styles.currencyMenuItemActive : { color: primaryTextColor }}
-                    />
-                  ))}
-                </Menu>
+                  <Text style={styles.currencySelectorText}>{currencyLabels[inputCurrency]}</Text>
+                </TouchableOpacity>
               </View>
 
               {previewDisplay && previewSats > 0 && inputCurrency !== 'sats' && (
@@ -1696,13 +1658,6 @@ const styles = StyleSheet.create({
     color: BRAND_COLOR,
     fontSize: 14,
     fontWeight: '600',
-  },
-  currencyMenu: {
-    backgroundColor: '#1a1a2e',
-  },
-  currencyMenuItemActive: {
-    color: BRAND_COLOR,
-    fontWeight: 'bold',
   },
   conversionPreview: {
     flexDirection: 'row',

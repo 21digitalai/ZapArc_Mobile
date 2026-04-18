@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Modal, Linking } from 'react-native';
-import { Text, Button, Menu, Snackbar, IconButton, Divider } from 'react-native-paper';
+import { Text, Button, Snackbar, IconButton, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,7 +17,7 @@ import {
 import { BreezSparkService, onPaymentReceived, extractSdkErrorMessage } from '../../src/services/breezSparkService';
 import { useWallet } from '../../src/hooks/useWallet';
 import { useCurrency } from '../../src/hooks/useCurrency';
-import type { DisplayCurrency } from '../../src/services/displayCurrencyService';
+import { cycleDisplayCurrency, type DisplayCurrency } from '../../src/services/displayCurrencyService';
 import { useLightningAddress } from '../../src/hooks/useLightningAddress';
 import { StyledTextInput } from '../../src/components';
 import { useFeedback } from '../../src/features/wallet/components/FeedbackComponents';
@@ -79,11 +79,6 @@ export default function ReceiveScreen() {
   const [selectedPendingDeposit, setSelectedPendingDeposit] = useState<PendingDepositItem | null>(null);
 
   const [inputCurrency, setInputCurrency] = useState<DisplayCurrency>('sats');
-  const [currencyMenuVisible, setCurrencyMenuVisible] = useState(false);
-
-  const currencyOptions: DisplayCurrency[] = useMemo(() => {
-    return ['sats', 'usd', 'eur'];
-  }, []);
 
   useEffect(() => {
     setInputCurrency(displayCurrency);
@@ -243,12 +238,12 @@ export default function ReceiveScreen() {
     setActiveTab(tab);
   }, [activeTab]);
 
-  const handleCurrencyChange = useCallback((currency: DisplayCurrency) => {
-    setInputCurrency(currency);
-    void setDisplayCurrency(currency);
-    setCurrencyMenuVisible(false);
+  const handleCycleCurrency = useCallback(() => {
+    const nextCurrency = cycleDisplayCurrency(inputCurrency);
+    setInputCurrency(nextCurrency);
+    void setDisplayCurrency(nextCurrency);
     setAmount('');
-  }, [setDisplayCurrency]);
+  }, [inputCurrency, setDisplayCurrency]);
 
   const handleCopyAddress = useCallback(async () => {
     if (!addressInfo?.lightningAddress) return;
@@ -596,28 +591,12 @@ export default function ReceiveScreen() {
                   style={[styles.input, styles.amountInput]}
                 />
 
-                <Menu
-                  visible={currencyMenuVisible}
-                  onDismiss={() => setCurrencyMenuVisible(false)}
-                  anchor={
-                    <TouchableOpacity
-                      style={[styles.currencySelector, { backgroundColor: gradientColors[1] || '#16213e' }]}
-                      onPress={() => setCurrencyMenuVisible(true)}
-                    >
-                      <Text style={styles.currencySelectorText}>{currencyLabels[inputCurrency]} ▼</Text>
-                    </TouchableOpacity>
-                  }
-                  contentStyle={[styles.currencyMenu, { backgroundColor: gradientColors[0] || '#1a1a2e' }]}
+                <TouchableOpacity
+                  style={[styles.currencySelector, { backgroundColor: gradientColors[1] || '#16213e' }]}
+                  onPress={handleCycleCurrency}
                 >
-                  {currencyOptions.map((currency) => (
-                    <Menu.Item
-                      key={currency}
-                      onPress={() => handleCurrencyChange(currency)}
-                      title={currencyLabels[currency]}
-                      titleStyle={inputCurrency === currency ? styles.currencyMenuItemActive : { color: primaryTextColor }}
-                    />
-                  ))}
-                </Menu>
+                  <Text style={styles.currencySelectorText}>{currencyLabels[inputCurrency]}</Text>
+                </TouchableOpacity>
               </View>
 
               {previewDisplay && previewSats > 0 && inputCurrency !== 'sats' && (
@@ -906,8 +885,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   currencySelectorText: { color: BRAND_COLOR, fontSize: 14, fontWeight: '600' },
-  currencyMenu: { backgroundColor: '#1a1a2e' },
-  currencyMenuItemActive: { color: BRAND_COLOR, fontWeight: 'bold' },
   conversionPreview: {
     flexDirection: 'row',
     alignItems: 'center',
