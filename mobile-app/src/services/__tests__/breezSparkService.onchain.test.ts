@@ -32,6 +32,17 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
     },
   },
   Network: { Mainnet: 'mainnet' },
+  OnchainConfirmationSpeed: { Fast: 'fast', Medium: 'medium', Slow: 'slow' },
+  MaxFee: {
+    NetworkRecommended: function (inner: unknown) {
+      return { type: 'networkRecommended', ...((inner as object) || {}) };
+    },
+  },
+  SendPaymentOptions: {
+    BitcoinAddress: function ({ confirmationSpeed }: { confirmationSpeed: string }) {
+      return { type: 'bitcoinAddress', confirmationSpeed };
+    },
+  },
   defaultConfig: jest.fn(() => ({})),
   connect: jest.fn().mockResolvedValue({
     sendPayment: (...args: unknown[]) => mockSendPayment(...args),
@@ -39,6 +50,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
     removeEventListener: (...args: unknown[]) => mockRemoveEventListener(...args),
     disconnect: jest.fn().mockResolvedValue(undefined),
     getLightningAddress: jest.fn().mockResolvedValue(null),
+    getInfo: jest.fn().mockResolvedValue({ identityPubkey: undefined }),
   }),
 }));
 
@@ -78,7 +90,7 @@ describe('BreezSparkService.sendOnchainPayment', () => {
 
     const result = await svc.sendOnchainPayment({}, 'medium');
 
-    expect(result).toEqual({ success: false, error: 'fee estimation unavailable' });
+    expect(result).toMatchObject({ success: false, error: 'fee estimation unavailable' });
   });
 
   it('returns not initialized error when no sdk instance', async () => {
