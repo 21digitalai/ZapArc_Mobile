@@ -69,6 +69,7 @@ jest.mock('../../../src/hooks/useWallet', () => ({
   useWallet: () => ({
     balance: 500000,
     refreshBalance: jest.fn().mockResolvedValue(undefined),
+    getBalanceForAsset: (asset: 'BTC' | 'USDB') => (asset === 'USDB' ? 250 : 500000),
   }),
 }));
 

@@ -16,6 +16,7 @@ import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-ca
 import { useWallet } from '../../src/hooks/useWallet';
 import { BreezSparkService } from '../../src/services/breezSparkService';
 import { useCurrency } from '../../src/hooks/useCurrency';
+import { formatFiat, usdbToFiat } from '../../src/utils/currency';
 import { cycleDisplayCurrency, type DisplayCurrency } from '../../src/services/displayCurrencyService';
 import { useLightningAddress } from '../../src/hooks/useLightningAddress';
 import { useContacts } from '../../src/features/addressBook/hooks/useContacts';
@@ -151,8 +152,16 @@ export default function SendScreen() {
   const primaryTextColor = getPrimaryTextColor(themeMode);
   const secondaryTextColor = getSecondaryTextColor(themeMode);
 
-  const { balance, refreshBalance } = useWallet();
-  const { displayCurrency, setDisplayCurrency, convertToSats, formatSatsWithFiat, isLoadingRates } = useCurrency();
+  const { balance, refreshBalance, getBalanceForAsset } = useWallet();
+  const {
+    displayCurrency,
+    setDisplayCurrency,
+    convertToSats,
+    formatSatsWithFiat,
+    isLoadingRates,
+    rates,
+    secondaryFiatCurrency,
+  } = useCurrency();
   const { contacts, refreshContacts } = useContacts();
 
   // Refresh contacts when screen gains focus (e.g. after adding a contact in address book)
@@ -189,6 +198,7 @@ export default function SendScreen() {
   const [addressError, setAddressError] = useState<string | null>(null);
   const [usdbLightningError, setUsdbLightningError] = useState<string | null>(null);
   const [usdbTokenIdentifier, setUsdbTokenIdentifier] = useState<string | null>(null);
+  const [usdbInternalDecimals, setUsdbInternalDecimals] = useState<number>(2);
 
   const isUsdbAsset = activeAsset === 'USDB';
 
@@ -249,11 +259,13 @@ export default function SendScreen() {
         const [usdbToken] = await BreezSparkService.resolveSwapTokens();
         if (!isCancelled) {
           setUsdbTokenIdentifier(usdbToken?.tokenIdentifier || null);
+          setUsdbInternalDecimals(Number.isFinite(usdbToken?.internalDecimals) ? Number(usdbToken?.internalDecimals) : 2);
         }
       } catch (error) {
         console.warn('⚠️ [Send] Failed to resolve USDB token identifier:', error);
         if (!isCancelled) {
           setUsdbTokenIdentifier(null);
+          setUsdbInternalDecimals(2);
         }
       }
     };
@@ -264,6 +276,21 @@ export default function SendScreen() {
       isCancelled = true;
     };
   }, [isUsdbAsset]);
+
+
+  const usdbBalance = useMemo(() => getBalanceForAsset('USDB'), [getBalanceForAsset]);
+
+  const convertUsdbDisplayToBaseUnits = useCallback((value: number): number => {
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    const factor = 10 ** usdbInternalDecimals;
+    return Math.floor(value * factor);
+  }, [usdbInternalDecimals]);
+
+  const formatUsdbFromBaseUnits = useCallback((value: number): string => {
+    const factor = 10 ** usdbInternalDecimals;
+    const normalized = factor > 0 ? value / factor : value;
+    return normalized.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }, [usdbInternalDecimals]);
 
 
   const previewSats = useMemo(() => {
@@ -278,8 +305,12 @@ export default function SendScreen() {
   }, [previewSats, formatSatsWithFiat]);
 
   const balanceDisplay = useMemo(() => {
+    if (isUsdbAsset) {
+      const fiat = rates ? formatFiat(usdbToFiat(usdbBalance, secondaryFiatCurrency, rates), secondaryFiatCurrency) : null;
+      return { satsDisplay: `${usdbBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDB`, fiatDisplay: fiat };
+    }
     return formatSatsWithFiat(balance);
-  }, [balance, formatSatsWithFiat]);
+  }, [isUsdbAsset, rates, usdbBalance, secondaryFiatCurrency, balance, formatSatsWithFiat]);
 
   const getOnchainFeeQuote = useCallback(
     (
@@ -689,7 +720,9 @@ export default function SendScreen() {
           Alert.alert(t('common.error'), t('send.invalidAmount'));
           return;
         }
-        paymentAmount = convertToSats(parsedAmount, inputCurrency);
+        paymentAmount = isUsdbAsset
+          ? convertUsdbDisplayToBaseUnits(parsedAmount)
+          : convertToSats(parsedAmount, inputCurrency);
 
         if (!paymentAmount || paymentAmount <= 0) {
           Alert.alert(t('send.conversionError'), t('send.conversionErrorMessage'));
@@ -707,7 +740,8 @@ export default function SendScreen() {
         return;
       }
 
-      if (paymentAmount > balance) {
+      const availableBalance = isUsdbAsset ? convertUsdbDisplayToBaseUnits(usdbBalance) : balance;
+      if (paymentAmount > availableBalance) {
         Alert.alert(
           t('send.insufficientBalance'),
           t('send.insufficientBalanceMessage')
@@ -1034,21 +1068,21 @@ export default function SendScreen() {
               <View style={styles.previewRow}>
                 <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>{t('payments.amount')}:</Text>
                 <Text style={[styles.previewAmount, { color: primaryTextColor }]}>
-                  {preview.amount.toLocaleString()} sats
+                  {isUsdbAsset ? `${formatUsdbFromBaseUnits(preview.amount)} USDB` : `${preview.amount.toLocaleString()} sats`}
                 </Text>
               </View>
 
               <View style={styles.previewRow}>
                 <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>{t('wallet.fee')}:</Text>
                 <Text style={[styles.previewFee, { color: secondaryTextColor }]}>
-                  {preview.fee.toLocaleString()} sats{isOnchainPreview && selectedOnchainQuote?.satPerVbyte ? ` (${selectedOnchainQuote.satPerVbyte} sat/vB)` : ''}
+                  {isUsdbAsset ? `${formatUsdbFromBaseUnits(preview.fee)} USDB` : `${preview.fee.toLocaleString()} sats`}{isOnchainPreview && selectedOnchainQuote?.satPerVbyte ? ` (${selectedOnchainQuote.satPerVbyte} sat/vB)` : ''}
                 </Text>
               </View>
 
               <View style={[styles.previewRow, styles.previewTotal]}>
                 <Text style={[styles.previewTotalLabel, { color: primaryTextColor }]}>{t('send.total')}</Text>
                 <Text style={styles.previewTotalAmount}>
-                  {preview.total.toLocaleString()} sats
+                  {isUsdbAsset ? `${formatUsdbFromBaseUnits(preview.total)} USDB` : `${preview.total.toLocaleString()} sats`}
                 </Text>
               </View>
 
@@ -1141,7 +1175,7 @@ export default function SendScreen() {
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           <View style={styles.balanceContainer}>
             <Text style={[styles.balanceLabel, { color: secondaryTextColor }]}>{t('send.availableBalance')}</Text>
-            <Text style={styles.balanceAmount}>{balance.toLocaleString()} sats</Text>
+            <Text style={styles.balanceAmount}>{isUsdbAsset ? `${usdbBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDB` : `${balance.toLocaleString()} sats`}</Text>
             {balanceDisplay.fiatDisplay && (
               <Text style={[styles.balanceFiat, { color: secondaryTextColor }]}>{balanceDisplay.fiatDisplay}</Text>
             )}
@@ -1240,7 +1274,7 @@ export default function SendScreen() {
 
               <View style={styles.amountInputRow}>
                 <StyledTextInput
-                  label={t('send.amountInCurrency').replace('{{currency}}', currencyLabels[inputCurrency])}
+                  label={isUsdbAsset ? 'Amount in USDB' : t('send.amountInCurrency').replace('{{currency}}', currencyLabels[inputCurrency])}
                   value={amount}
                   onChangeText={setAmount}
                   keyboardType="decimal-pad"
@@ -1249,9 +1283,9 @@ export default function SendScreen() {
 
                 <TouchableOpacity
                   style={[styles.currencySelector, { backgroundColor: gradientColors[1] || '#16213e' }]}
-                  onPress={handleCycleCurrency}
+                  onPress={isUsdbAsset ? undefined : handleCycleCurrency}
                 >
-                  <Text style={styles.currencySelectorText}>{currencyLabels[inputCurrency]}</Text>
+                  <Text style={styles.currencySelectorText}>{isUsdbAsset ? 'USDB' : currencyLabels[inputCurrency]}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -1286,7 +1320,7 @@ export default function SendScreen() {
 
               <View style={styles.amountInputRow}>
                 <StyledTextInput
-                  label={t('send.amountInCurrency').replace('{{currency}}', currencyLabels[inputCurrency])}
+                  label={isUsdbAsset ? 'Amount in USDB' : t('send.amountInCurrency').replace('{{currency}}', currencyLabels[inputCurrency])}
                   value={amount}
                   onChangeText={setAmount}
                   keyboardType="decimal-pad"
@@ -1295,9 +1329,9 @@ export default function SendScreen() {
 
                 <TouchableOpacity
                   style={[styles.currencySelector, { backgroundColor: gradientColors[1] || '#16213e' }]}
-                  onPress={handleCycleCurrency}
+                  onPress={isUsdbAsset ? undefined : handleCycleCurrency}
                 >
-                  <Text style={styles.currencySelectorText}>{currencyLabels[inputCurrency]}</Text>
+                  <Text style={styles.currencySelectorText}>{isUsdbAsset ? 'USDB' : currencyLabels[inputCurrency]}</Text>
                 </TouchableOpacity>
               </View>
 
