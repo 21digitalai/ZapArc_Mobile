@@ -65,6 +65,7 @@ export default function ReceiveScreen() {
 
   const [activeTab, setActiveTab] = useState<ReceiveTab>('lightning');
   const [activeAsset, setActiveAsset] = useState<'BTC' | 'USDB'>('BTC');
+  const isUsdbAsset = activeAsset === 'USDB';
 
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
@@ -81,6 +82,7 @@ export default function ReceiveScreen() {
   const [selectedPendingDeposit, setSelectedPendingDeposit] = useState<PendingDepositItem | null>(null);
 
   const [inputCurrency, setInputCurrency] = useState<DisplayCurrency>('sats');
+  const [usdbTokenIdentifier, setUsdbTokenIdentifier] = useState<string | null>(null);
 
   useEffect(() => {
     setInputCurrency(displayCurrency);
@@ -156,7 +158,11 @@ export default function ReceiveScreen() {
 
     try {
       setIsGenerating(true);
-      const result = await BreezSparkService.receivePayment(satsAmount, description || undefined);
+      const result = await BreezSparkService.receivePayment(
+        satsAmount,
+        description || undefined,
+        isUsdbAsset ? { tokenIdentifier: usdbTokenIdentifier || undefined } : undefined
+      );
 
       setInvoice(result.paymentRequest);
       setInvoiceSatsAmount(satsAmount);
@@ -167,7 +173,7 @@ export default function ReceiveScreen() {
     } finally {
       setIsGenerating(false);
     }
-  }, [amount, description, inputCurrency, convertToSats]);
+  }, [amount, description, inputCurrency, convertToSats, isUsdbAsset, usdbTokenIdentifier]);
 
   const [snackMsg, setSnackMsg] = useState('');
   const [snackVisible, setSnackVisible] = useState(false);
@@ -253,7 +259,36 @@ export default function ReceiveScreen() {
     }
   }, [activeTab, handleGenerateOnchainAddress]);
 
-  const isUsdbAsset = activeAsset === 'USDB';
+
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (!isUsdbAsset) {
+      setUsdbTokenIdentifier(null);
+      return;
+    }
+
+    const loadUsdbTokenIdentifier = async () => {
+      try {
+        const [usdbToken] = await BreezSparkService.resolveSwapTokens();
+        if (!isCancelled) {
+          setUsdbTokenIdentifier(usdbToken?.tokenIdentifier || null);
+        }
+      } catch (error) {
+        console.warn('⚠️ [Receive] Failed to resolve USDB token identifier:', error);
+        if (!isCancelled) {
+          setUsdbTokenIdentifier(null);
+        }
+      }
+    };
+
+    void loadUsdbTokenIdentifier();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isUsdbAsset]);
 
   const handleTabChange = useCallback((tab: ReceiveTab) => {
     if (isUsdbAsset && tab === 'onchain') return;

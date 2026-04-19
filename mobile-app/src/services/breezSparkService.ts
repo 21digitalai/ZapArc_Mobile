@@ -1242,7 +1242,8 @@ export async function payInvoice(
  */
 export async function receivePayment(
   amountSat: number,
-  description?: string
+  description?: string,
+  options?: { tokenIdentifier?: string }
 ): Promise<ReceivePaymentResult> {
   if (!_isNativeAvailable || !sdkInstance) {
     throw new Error('SDK not available');
@@ -1264,7 +1265,14 @@ export async function receivePayment(
       invoiceParams.amountSats = BigInt(amountSat);
     }
 
-    const paymentMethod = BreezSDK.ReceivePaymentMethod.Bolt11Invoice.new(invoiceParams);
+    const paymentMethod = options?.tokenIdentifier
+      ? {
+          tag: 'SparkAddress',
+          inner: {
+            tokenIdentifier: options.tokenIdentifier,
+          },
+        }
+      : BreezSDK.ReceivePaymentMethod.Bolt11Invoice.new(invoiceParams);
 
     const response = await sdkInstance.receivePayment({
       paymentMethod,
@@ -1651,10 +1659,11 @@ export async function unregisterLightningAddress(): Promise<void> {
  * Parse and validate a payment request
  */
 export async function parsePaymentRequest(input: string): Promise<{
-  type: 'bolt11' | 'lnurl' | 'lightningAddress' | 'bitcoinAddress' | 'sparkAddress' | 'unknown';
+  type: 'bolt11' | 'sparkInvoice' | 'lnurl' | 'lightningAddress' | 'bitcoinAddress' | 'sparkAddress' | 'unknown';
   isValid: boolean;
   amountSat?: number;
   description?: string;
+  tokenIdentifier?: string;
 }> {
   const trimmed = input.trim();
   const trimmedLower = trimmed.toLowerCase();
@@ -1708,8 +1717,24 @@ export async function parsePaymentRequest(input: string): Promise<{
         isValid: true,
         amountSat,
         description: invoiceDetails?.description,
+        tokenIdentifier: invoiceDetails?.tokenIdentifier,
       };
     }
+
+    if (parsed.tag === 'SparkInvoice' && parsed.inner) {
+      const innerData = Array.isArray(parsed.inner) ? parsed.inner[0] : parsed.inner;
+      const invoiceDetails = innerData?.invoiceDetails || innerData;
+      const amountSat = invoiceDetails?.amountMsat ? Number(invoiceDetails.amountMsat) / 1000 : undefined;
+
+      return {
+        type: 'sparkInvoice',
+        isValid: true,
+        amountSat,
+        description: invoiceDetails?.description,
+        tokenIdentifier: invoiceDetails?.tokenIdentifier,
+      };
+    }
+
 
     if (parsed.tag === 'LightningAddress') {
       return { type: 'lightningAddress', isValid: true };
@@ -1724,7 +1749,12 @@ export async function parsePaymentRequest(input: string): Promise<{
     }
 
     if (parsed.tag === 'SparkAddress') {
-      return { type: 'sparkAddress', isValid: true };
+      const innerData = Array.isArray(parsed.inner) ? parsed.inner[0] : parsed.inner;
+      return {
+        type: 'sparkAddress',
+        isValid: true,
+        tokenIdentifier: innerData?.tokenIdentifier,
+      };
     }
 
     return { type: 'unknown', isValid: false };
@@ -1740,7 +1770,8 @@ export async function parsePaymentRequest(input: string): Promise<{
  */
 export async function prepareSendPayment(
   paymentRequest: string,
-  amountSat?: number
+  amountSat?: number,
+  options?: { tokenIdentifier?: string }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> {
   if (!_isNativeAvailable || !sdkInstance) {
@@ -1833,6 +1864,7 @@ export async function prepareSendPayment(
   return await sdkInstance.prepareSendPayment({
     paymentRequest: trimmed,
     amount: amountSat ? BigInt(amountSat) : undefined,
+    tokenIdentifier: options?.tokenIdentifier,
   });
 }
 

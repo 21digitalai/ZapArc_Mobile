@@ -188,6 +188,7 @@ export default function SendScreen() {
   const [isFetchingFees, setIsFetchingFees] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
   const [usdbLightningError, setUsdbLightningError] = useState<string | null>(null);
+  const [usdbTokenIdentifier, setUsdbTokenIdentifier] = useState<string | null>(null);
 
   const isUsdbAsset = activeAsset === 'USDB';
 
@@ -234,6 +235,36 @@ export default function SendScreen() {
       setActiveTab('lightning');
     }
   }, [activeTab, isUsdbAsset]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (!isUsdbAsset) {
+      setUsdbTokenIdentifier(null);
+      return;
+    }
+
+    const loadUsdbTokenIdentifier = async () => {
+      try {
+        const [usdbToken] = await BreezSparkService.resolveSwapTokens();
+        if (!isCancelled) {
+          setUsdbTokenIdentifier(usdbToken?.tokenIdentifier || null);
+        }
+      } catch (error) {
+        console.warn('⚠️ [Send] Failed to resolve USDB token identifier:', error);
+        if (!isCancelled) {
+          setUsdbTokenIdentifier(null);
+        }
+      }
+    };
+
+    void loadUsdbTokenIdentifier();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isUsdbAsset]);
+
 
   const previewSats = useMemo(() => {
     const numAmount = parseFloat(amount);
@@ -323,6 +354,16 @@ export default function SendScreen() {
     setUsdbLightningError(null);
   }, []);
 
+  const isValidUsdbSparkPayment = useCallback((parsed: { type: string; tokenIdentifier?: string }) => {
+    if (parsed.type !== 'sparkAddress' && parsed.type !== 'sparkInvoice') {
+      return false;
+    }
+    if (!usdbTokenIdentifier) {
+      return false;
+    }
+    return parsed.tokenIdentifier === usdbTokenIdentifier;
+  }, [usdbTokenIdentifier]);
+
   useEffect(() => {
     const trimmedInput = paymentInput.trim();
     if (!trimmedInput) return;
@@ -336,7 +377,7 @@ export default function SendScreen() {
           setPaymentInput(bip21.lightning);
           try {
             const parsed = await BreezSparkService.parsePaymentRequest(bip21.lightning);
-            if (parsed.isValid && parsed.type === 'bolt11' && parsed.amountSat !== undefined) {
+            if (parsed.isValid && (parsed.type === 'bolt11' || parsed.type === 'sparkInvoice') && parsed.amountSat !== undefined) {
               setAmount(parsed.amountSat.toString());
             }
           } catch (e) { /* ignore */ }
@@ -367,11 +408,17 @@ export default function SendScreen() {
       if (activeTab !== 'lightning') return;
       try {
         const parsed = await BreezSparkService.parsePaymentRequest(trimmedInput);
-        if (isUsdbAsset && parsed.type === 'bolt11') {
-          setUsdbLightningError('USDB transfers stay on Spark. Lightning invoices are BTC-only.');
-          return;
+        if (isUsdbAsset) {
+          if (parsed.type === 'bolt11') {
+            setUsdbLightningError('USDB transfers stay on Spark. Lightning invoices are BTC-only.');
+            return;
+          }
+          if (!isValidUsdbSparkPayment(parsed)) {
+            setUsdbLightningError('USDB transfers require a Spark destination for USDB.');
+            return;
+          }
         }
-        if (parsed.isValid && parsed.type === 'bolt11' && parsed.amountSat !== undefined) {
+        if (parsed.isValid && (parsed.type === 'bolt11' || parsed.type === 'sparkInvoice') && parsed.amountSat !== undefined) {
           setAmount(parsed.amountSat.toString());
         }
       } catch (error) {
@@ -382,7 +429,7 @@ export default function SendScreen() {
     }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [paymentInput, activeTab, isUsdbAsset]);
+  }, [paymentInput, activeTab, isUsdbAsset, isValidUsdbSparkPayment]);
 
   // Auto-fetch on-chain fee quotes when address + amount are filled
   useEffect(() => {
@@ -509,7 +556,7 @@ export default function SendScreen() {
           setStep('input');
           try {
             const parsed = await BreezSparkService.parsePaymentRequest(bip21.lightning);
-            if (parsed.isValid && parsed.type === 'bolt11' && parsed.amountSat !== undefined) {
+            if (parsed.isValid && (parsed.type === 'bolt11' || parsed.type === 'sparkInvoice') && parsed.amountSat !== undefined) {
               setAmount(parsed.amountSat.toString());
             }
           } catch (error) {
@@ -538,7 +585,7 @@ export default function SendScreen() {
         setStep('input');
         try {
           const parsed = await BreezSparkService.parsePaymentRequest(bip21.address);
-          if (parsed.isValid && parsed.type === 'bolt11' && parsed.amountSat !== undefined) {
+          if (parsed.isValid && (parsed.type === 'bolt11' || parsed.type === 'sparkInvoice') && parsed.amountSat !== undefined) {
             setAmount(parsed.amountSat.toString());
           }
         } catch (error) {
@@ -554,7 +601,7 @@ export default function SendScreen() {
       if (activeTab === 'lightning') {
         try {
           const parsed = await BreezSparkService.parsePaymentRequest(data);
-          if (parsed.isValid && parsed.type === 'bolt11' && parsed.amountSat !== undefined) {
+          if (parsed.isValid && (parsed.type === 'bolt11' || parsed.type === 'sparkInvoice') && parsed.amountSat !== undefined) {
             setAmount(parsed.amountSat.toString());
           }
         } catch (error) {
@@ -593,9 +640,15 @@ export default function SendScreen() {
       const parsedRequest = await BreezSparkService.parsePaymentRequest(resolvedInput);
       const isOnchainFlow = activeTab === 'onchain';
 
-      if (isUsdbAsset && parsedRequest.type === 'bolt11') {
-        setUsdbLightningError('USDB transfers stay on Spark. Lightning invoices are BTC-only.');
-        return;
+      if (isUsdbAsset) {
+        if (parsedRequest.type === 'bolt11') {
+          setUsdbLightningError('USDB transfers stay on Spark. Lightning invoices are BTC-only.');
+          return;
+        }
+        if (!isValidUsdbSparkPayment(parsedRequest)) {
+          setUsdbLightningError('USDB transfers require a Spark destination for USDB.');
+          return;
+        }
       }
 
       if (!parsedRequest.isValid) {
@@ -664,7 +717,11 @@ export default function SendScreen() {
         return;
       }
 
-      const prepared = await BreezSparkService.prepareSendPayment(resolvedInput, paymentAmount);
+      const prepared = await BreezSparkService.prepareSendPayment(
+        resolvedInput,
+        paymentAmount,
+        isUsdbAsset ? { tokenIdentifier: usdbTokenIdentifier || undefined } : undefined
+      );
       console.log('🔍 [Send] prepared response:', JSON.stringify(prepared, (_, v) => typeof v === 'bigint' ? v.toString() : v));
       setPrepareResponse(prepared);
 
@@ -764,7 +821,7 @@ export default function SendScreen() {
     } finally {
       setIsPreparing(false);
     }
-  }, [paymentInput, amount, comment, balance, inputCurrency, convertToSats, getOnchainFeeQuote, selectedSpeed, activeTab, isUsdbAsset, t]);
+  }, [paymentInput, amount, comment, balance, inputCurrency, convertToSats, getOnchainFeeQuote, selectedSpeed, activeTab, isUsdbAsset, usdbTokenIdentifier, isValidUsdbSparkPayment, t]);
 
   const handleSendPayment = useCallback(async () => {
     if (!preview || !prepareResponse) {
