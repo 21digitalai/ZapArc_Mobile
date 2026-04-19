@@ -54,3 +54,11 @@
 - Uses `AssetTabBar` under the header and persists selected asset via `settingsService.getActiveAsset()/setActiveAsset()`.
 - Quick actions are asset-aware: `Send`, `Receive`, `Scan`, and `History` routes include `asset` param.
 - USDB tab adds a leading `Swap` quick action and a zero-state card with single CTA `Swap sats → USDB` when `usdbBalance === 0` and no USDB history.
+
+
+### Swap terminal states
+
+`src/features/wallet/components/SwapResultView.tsx`
+- Terminal-state component for swap flows: `success`, `dustResidual`, `refunded`, `error`.
+- `dustResidual` must display residual in **USDB units** (not fiat).
+- `refunded` variant keeps two CTAs visible together: retry + increase slippage.
