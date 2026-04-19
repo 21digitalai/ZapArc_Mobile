@@ -250,6 +250,22 @@ export function WalletSettingsScreen(): React.JSX.Element {
             <Divider style={styles.divider} />
 
             <List.Item
+              title={t('swap.title')}
+              description={`${t('swap.slippageCustomLabel')} (1-1000 bps)`}
+              left={(props) => (
+                <List.Icon {...props} icon="swap-horizontal" color={BRAND_COLOR} />
+              )}
+              right={(props) => (
+                <List.Icon {...props} icon="chevron-right" color={secondaryTextColor} />
+              )}
+              onPress={() => router.push('/wallet/settings/swap')}
+              titleStyle={[styles.listTitle, { color: primaryTextColor }]}
+              descriptionStyle={[styles.listDescription, { color: secondaryTextColor }]}
+              style={styles.listItem}
+            />
+            <Divider style={styles.divider} />
+
+            <List.Item
               title={t('wallet.archivedWallets')}
               description={t('wallet.viewArchivedWallets')}
               left={(props) => (

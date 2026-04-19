@@ -19,9 +19,18 @@ const SETTINGS_KEYS = {
   USER_SETTINGS: '@zap_arc/user_settings',
   DOMAIN_SETTINGS: '@zap_arc/domain_settings',
   BLACKLIST_DATA: '@zap_arc/blacklist_data',
+  SWAP_SETTINGS: '@zap_arc/swap_settings',
   ONBOARDING_COMPLETE: '@zap_arc/onboarding_complete',
   LAST_SYNC_TIME: '@zap_arc/last_sync_time',
 } as const;
+
+type SwapSettings = {
+  slippageBps: number;
+};
+
+const DEFAULT_SWAP_SETTINGS: SwapSettings = {
+  slippageBps: 50,
+};
 
 // =============================================================================
 // Settings Service Class
@@ -96,6 +105,51 @@ class SettingsService {
       console.log('✅ [SettingsService] User settings reset to defaults');
     } catch (error) {
       console.error('❌ [SettingsService] Failed to reset user settings:', error);
+      throw error;
+    }
+  }
+
+  // ========================================
+  // Swap Settings
+  // ========================================
+
+  async getSwapSettings(): Promise<SwapSettings> {
+    try {
+      const stored = await AsyncStorage.getItem(SETTINGS_KEYS.SWAP_SETTINGS);
+      if (!stored) {
+        return DEFAULT_SWAP_SETTINGS;
+      }
+
+      const parsed = JSON.parse(stored) as Partial<SwapSettings>;
+      const slippageBps = Number(parsed.slippageBps);
+      if (!Number.isFinite(slippageBps)) {
+        return DEFAULT_SWAP_SETTINGS;
+      }
+
+      return {
+        slippageBps: Math.min(1000, Math.max(1, Math.round(slippageBps))),
+      };
+    } catch (error) {
+      console.error('❌ [SettingsService] Failed to get swap settings:', error);
+      return DEFAULT_SWAP_SETTINGS;
+    }
+  }
+
+  async updateSwapSettings(updates: Partial<SwapSettings>): Promise<SwapSettings> {
+    try {
+      const current = await this.getSwapSettings();
+      const merged: SwapSettings = {
+        ...current,
+        ...updates,
+      };
+      const next: SwapSettings = {
+        slippageBps: Math.min(1000, Math.max(1, Math.round(Number(merged.slippageBps)))),
+      };
+
+      await AsyncStorage.setItem(SETTINGS_KEYS.SWAP_SETTINGS, JSON.stringify(next));
+      return next;
+    } catch (error) {
+      console.error('❌ [SettingsService] Failed to update swap settings:', error);
       throw error;
     }
   }

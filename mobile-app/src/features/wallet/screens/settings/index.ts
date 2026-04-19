@@ -13,3 +13,4 @@ export { ThemeSettingsScreen as AppPreferencesScreen } from './AppPreferencesScr
 export { NotificationsSettingsScreen } from './NotificationsSettingsScreen';
 export { CurrencySettingsScreen } from './CurrencySettingsScreen';
 export { LightningAddressScreen } from './LightningAddressScreen';
+export { SwapSettingsScreen } from './SwapSettingsScreen';
