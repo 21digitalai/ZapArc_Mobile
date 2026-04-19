@@ -144,6 +144,7 @@ export default function SendScreen() {
     tab?: string;
     amount?: string;
     comment?: string;
+    asset?: string;
   }>();
   const { themeMode } = useAppTheme();
   const gradientColors = getGradientColors(themeMode);
@@ -182,12 +183,15 @@ export default function SendScreen() {
   const [inputCurrency, setInputCurrency] = useState<DisplayCurrency>('sats');
 
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [activeAsset, setActiveAsset] = useState<'BTC' | 'USDB'>('BTC');
   const [contactModalVisible, setContactModalVisible] = useState(false);
   const [isFetchingFees, setIsFetchingFees] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
 
   useEffect(() => {
     const incomingInput = typeof params.paymentInput === 'string' ? params.paymentInput.trim() : '';
+    const incomingAsset = typeof params.asset === 'string' ? params.asset.toUpperCase() : 'BTC';
+    setActiveAsset(incomingAsset === 'USDB' ? 'USDB' : 'BTC');
     if (!incomingInput) return;
 
     const incomingTab = typeof params.tab === 'string' ? params.tab.toLowerCase() : '';
@@ -213,8 +217,9 @@ export default function SendScreen() {
       tab: undefined,
       amount: undefined,
       comment: undefined,
+      asset: undefined,
     });
-  }, [params.paymentInput, params.tab, params.amount, params.comment]);
+  }, [params.paymentInput, params.tab, params.amount, params.comment, params.asset]);
 
   useEffect(() => {
     setInputCurrency(displayCurrency);
@@ -283,9 +288,10 @@ export default function SendScreen() {
 
   const handleContactSelect = useCallback((contact: Contact) => {
     setSelectedContact(contact);
-    setPaymentInput(contact.lightningAddress);
+    const destination = activeAsset === 'USDB' ? contact.sparkAddress : contact.lightningAddress;
+    setPaymentInput(destination || '');
     setContactModalVisible(false);
-  }, []);
+  }, [activeAsset]);
 
   const handleClearContact = useCallback(() => {
     setSelectedContact(null);
@@ -1065,7 +1071,7 @@ export default function SendScreen() {
                 />
               </View>
               <Text style={styles.selectedContactAddress} numberOfLines={1} ellipsizeMode="middle">
-                {selectedContact.lightningAddress}
+                {activeAsset === 'USDB' ? selectedContact.sparkAddress : selectedContact.lightningAddress}
               </Text>
             </View>
           ) : isLightningTab ? (
@@ -1118,6 +1124,7 @@ export default function SendScreen() {
             onSelect={handleContactSelect}
             contacts={contacts}
             myAddress={addressInfo?.lightningAddress}
+            activeAsset={activeAsset}
           />
 
           {isLightningTab ? (

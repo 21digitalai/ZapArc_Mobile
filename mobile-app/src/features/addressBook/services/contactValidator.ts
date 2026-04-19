@@ -19,6 +19,7 @@ import {
  * - TLD: at least 2 characters
  */
 const LIGHTNING_ADDRESS_PATTERN = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const SPARK_ADDRESS_PATTERN = /^sp1[a-z0-9]{8,}$/i;
 
 /**
  * Normalize a Lightning Address for comparison
@@ -118,6 +119,27 @@ export function validateName(name: string): ValidationResult {
 /**
  * Validate optional contact notes
  */
+export function validateSparkAddress(sparkAddress: string | undefined): ValidationResult {
+  if (sparkAddress === undefined || sparkAddress === null || !sparkAddress.trim()) {
+    return { isValid: true, errors: [] };
+  }
+
+  const trimmed = sparkAddress.trim();
+  if (!SPARK_ADDRESS_PATTERN.test(trimmed)) {
+    return {
+      isValid: false,
+      errors: [
+        {
+          field: 'sparkAddress',
+          message: 'Please enter a valid Spark address (starts with sp1)',
+        },
+      ],
+    };
+  }
+
+  return { isValid: true, errors: [] };
+}
+
 export function validateNotes(notes: string | undefined): ValidationResult {
   if (notes === undefined || notes === null) {
     return { isValid: true, errors: [] };
@@ -164,6 +186,11 @@ export function validateContactInput(
     }
   }
 
+  const sparkResult = validateSparkAddress((input as CreateContactInput).sparkAddress);
+  if (!sparkResult.isValid) {
+    errors.push(...sparkResult.errors);
+  }
+
   const notesResult = validateNotes(input.notes);
   if (!notesResult.isValid) {
     errors.push(...notesResult.errors);
@@ -178,6 +205,7 @@ export function validateContactInput(
 export const contactValidator = {
   validateLightningAddress,
   validateName,
+  validateSparkAddress,
   validateNotes,
   validateContactInput,
   normalizeLightningAddress,

@@ -38,9 +38,11 @@ import { getContactById } from '../services/contactService';
 import {
   validateName,
   validateLightningAddress,
+  validateSparkAddress,
   validateNotes,
 } from '../services/contactValidator';
 import { ContactValidationError } from '../services/contactService';
+import { t } from '../../../services/i18nService';
 
 export function EditContactScreen(): React.JSX.Element {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -55,6 +57,8 @@ export function EditContactScreen(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [lightningAddress, setLightningAddress] = useState('');
+  const [sparkAddress, setSparkAddress] = useState('');
+  const [preferredAsset, setPreferredAsset] = useState<'BTC' | 'USDB'>('BTC');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -64,6 +68,7 @@ export function EditContactScreen(): React.JSX.Element {
 
   const [nameError, setNameError] = useState<string | null>(null);
   const [addressError, setAddressError] = useState<string | null>(null);
+  const [sparkAddressError, setSparkAddressError] = useState<string | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -79,6 +84,8 @@ export function EditContactScreen(): React.JSX.Element {
           setContact(loadedContact);
           setName(loadedContact.name);
           setLightningAddress(loadedContact.lightningAddress);
+          setSparkAddress(loadedContact.sparkAddress || '');
+          setPreferredAsset(loadedContact.preferredAsset || 'BTC');
           setNotes(loadedContact.notes || '');
         }
       } catch (err) {
@@ -112,6 +119,18 @@ export function EditContactScreen(): React.JSX.Element {
       setAddressError(null);
     }
 
+    if (sparkAddress.trim()) {
+      const sparkResult = validateSparkAddress(sparkAddress);
+      if (!sparkResult.isValid) {
+        setSparkAddressError(sparkResult.errors[0]?.message || 'Invalid Spark address');
+        isValid = false;
+      } else {
+        setSparkAddressError(null);
+      }
+    } else {
+      setSparkAddressError(null);
+    }
+
     if (notes.trim()) {
       const notesResult = validateNotes(notes);
       if (!notesResult.isValid) {
@@ -125,7 +144,7 @@ export function EditContactScreen(): React.JSX.Element {
     }
 
     return isValid;
-  }, [name, lightningAddress, notes]);
+  }, [name, lightningAddress, sparkAddress, notes]);
 
   const handleSave = useCallback(async () => {
     if (!contact || !validateForm()) return;
@@ -136,6 +155,8 @@ export function EditContactScreen(): React.JSX.Element {
         id: contact.id,
         name: name.trim(),
         lightningAddress: lightningAddress.trim(),
+        sparkAddress: sparkAddress.trim() || undefined,
+        preferredAsset,
         notes: notes.trim() || undefined,
       });
       router.back();
@@ -157,7 +178,7 @@ export function EditContactScreen(): React.JSX.Element {
     } finally {
       setSaving(false);
     }
-  }, [contact, validateForm, updateContact, name, lightningAddress, notes]);
+  }, [contact, validateForm, updateContact, name, lightningAddress, sparkAddress, preferredAsset, notes]);
 
   const handleDelete = useCallback(async () => {
     if (!contact) return;
@@ -295,6 +316,22 @@ export function EditContactScreen(): React.JSX.Element {
               />
               <HelperText type="error" visible={!!addressError}>
                 {addressError}
+              </HelperText>
+            </View>
+
+            {/* Spark Address Input */}
+            <View style={styles.inputContainer}>
+              <StyledTextInput
+                label={t('addressBook.sparkAddressOptional')}
+                value={sparkAddress}
+                onChangeText={setSparkAddress}
+                error={!!sparkAddressError}
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder="sp1..."
+              />
+              <HelperText type="error" visible={!!sparkAddressError}>
+                {sparkAddressError}
               </HelperText>
             </View>
 

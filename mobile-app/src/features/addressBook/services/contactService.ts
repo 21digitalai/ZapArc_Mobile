@@ -49,7 +49,8 @@ export async function searchContacts(query: string): Promise<Contact[]> {
   const filtered = contacts.filter(
     (contact) =>
       contact.name.toLowerCase().includes(normalizedQuery) ||
-      contact.lightningAddress.toLowerCase().includes(normalizedQuery)
+      contact.lightningAddress.toLowerCase().includes(normalizedQuery) ||
+      contact.sparkAddress?.toLowerCase().includes(normalizedQuery)
   );
 
   return filtered.sort((a, b) => a.name.localeCompare(b.name));
@@ -105,6 +106,8 @@ export async function createContact(
     id: generateUUID(),
     name: input.name.trim(),
     lightningAddress: input.lightningAddress.trim(),
+    sparkAddress: input.sparkAddress?.trim() || undefined,
+    preferredAsset: input.preferredAsset,
     notes: input.notes?.trim() || undefined,
     createdAt: now,
     updatedAt: now,
@@ -140,6 +143,10 @@ export async function updateContact(
   if (input.name !== undefined) updateData.name = input.name;
   if (input.lightningAddress !== undefined)
     updateData.lightningAddress = input.lightningAddress;
+  if (input.sparkAddress !== undefined)
+    updateData.sparkAddress = input.sparkAddress;
+  if (input.preferredAsset !== undefined)
+    updateData.preferredAsset = input.preferredAsset;
   if (input.notes !== undefined) updateData.notes = input.notes;
 
   // Validate the update
@@ -176,6 +183,14 @@ export async function updateContact(
       input.lightningAddress !== undefined
         ? input.lightningAddress.trim()
         : existing.lightningAddress,
+    sparkAddress:
+      input.sparkAddress !== undefined
+        ? input.sparkAddress?.trim() || undefined
+        : existing.sparkAddress,
+    preferredAsset:
+      input.preferredAsset !== undefined
+        ? input.preferredAsset
+        : existing.preferredAsset,
     notes:
       input.notes !== undefined
         ? input.notes?.trim() || undefined

@@ -36,6 +36,7 @@ import { useContacts } from '../hooks/useContacts';
 import {
   validateName,
   validateLightningAddress,
+  validateSparkAddress,
   validateNotes,
 } from '../services/contactValidator';
 import { ContactValidationError } from '../services/contactService';
@@ -50,6 +51,8 @@ export function AddContactScreen(): React.JSX.Element {
 
   const [name, setName] = useState('');
   const [lightningAddress, setLightningAddress] = useState('');
+  const [sparkAddress, setSparkAddress] = useState('');
+  const [preferredAsset, setPreferredAsset] = useState<'BTC' | 'USDB'>('BTC');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -58,6 +61,7 @@ export function AddContactScreen(): React.JSX.Element {
 
   const [nameError, setNameError] = useState<string | null>(null);
   const [addressError, setAddressError] = useState<string | null>(null);
+  const [sparkAddressError, setSparkAddressError] = useState<string | null>(null);
   const [notesError, setNotesError] = useState<string | null>(null);
 
   const validateForm = useCallback((): boolean => {
@@ -79,6 +83,18 @@ export function AddContactScreen(): React.JSX.Element {
       setAddressError(null);
     }
 
+    if (sparkAddress.trim()) {
+      const sparkResult = validateSparkAddress(sparkAddress);
+      if (!sparkResult.isValid) {
+        setSparkAddressError(sparkResult.errors[0]?.message || 'Invalid Spark address');
+        isValid = false;
+      } else {
+        setSparkAddressError(null);
+      }
+    } else {
+      setSparkAddressError(null);
+    }
+
     if (notes.trim()) {
       const notesResult = validateNotes(notes);
       if (!notesResult.isValid) {
@@ -92,7 +108,7 @@ export function AddContactScreen(): React.JSX.Element {
     }
 
     return isValid;
-  }, [name, lightningAddress, notes]);
+  }, [name, lightningAddress, sparkAddress, notes]);
 
   const handleSave = useCallback(async () => {
     if (!validateForm()) return;
@@ -114,6 +130,8 @@ export function AddContactScreen(): React.JSX.Element {
       await createContact({
         name: name.trim(),
         lightningAddress: lightningAddress.trim(),
+        sparkAddress: sparkAddress.trim() || undefined,
+        preferredAsset,
         notes: notes.trim() || undefined,
       });
       router.back();
@@ -136,7 +154,7 @@ export function AddContactScreen(): React.JSX.Element {
     } finally {
       setSaving(false);
     }
-  }, [validateForm, createContact, name, lightningAddress, notes]);
+  }, [validateForm, createContact, name, lightningAddress, sparkAddress, preferredAsset, notes]);
 
   return (
     <LinearGradient colors={gradientColors} style={styles.gradient}>
@@ -200,6 +218,22 @@ export function AddContactScreen(): React.JSX.Element {
               />
               <HelperText type="error" visible={!!addressError}>
                 {addressError}
+              </HelperText>
+            </View>
+
+            {/* Spark Address Input */}
+            <View style={styles.inputContainer}>
+              <StyledTextInput
+                label={t('addressBook.sparkAddressOptional')}
+                value={sparkAddress}
+                onChangeText={setSparkAddress}
+                error={!!sparkAddressError}
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder="sp1..."
+              />
+              <HelperText type="error" visible={!!sparkAddressError}>
+                {sparkAddressError}
               </HelperText>
             </View>
 

@@ -5,10 +5,14 @@
 /**
  * Represents a saved contact in the address book
  */
+export type ContactPreferredAsset = 'BTC' | 'USDB';
+
 export interface Contact {
   id: string;
   name: string;
   lightningAddress: string;
+  sparkAddress?: string;
+  preferredAsset?: ContactPreferredAsset;
   notes?: string;
   createdAt: number;
   updatedAt: number;
@@ -20,6 +24,8 @@ export interface Contact {
 export interface CreateContactInput {
   name: string;
   lightningAddress: string;
+  sparkAddress?: string;
+  preferredAsset?: ContactPreferredAsset;
   notes?: string;
 }
 
@@ -30,6 +36,8 @@ export interface UpdateContactInput {
   id: string;
   name?: string;
   lightningAddress?: string;
+  sparkAddress?: string;
+  preferredAsset?: ContactPreferredAsset;
   notes?: string;
 }
 

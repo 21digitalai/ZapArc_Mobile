@@ -20,6 +20,8 @@ function isValidContact(obj: unknown): obj is Contact {
     typeof contact.lightningAddress === 'string' &&
     typeof contact.createdAt === 'number' &&
     typeof contact.updatedAt === 'number' &&
+    (contact.sparkAddress === undefined || typeof contact.sparkAddress === 'string') &&
+    (contact.preferredAsset === undefined || contact.preferredAsset === 'BTC' || contact.preferredAsset === 'USDB') &&
     (contact.notes === undefined || typeof contact.notes === 'string')
   );
 }

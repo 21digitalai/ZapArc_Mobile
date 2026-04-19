@@ -12,6 +12,8 @@ import { useContactSearch } from '../hooks/useContactSearch';
 import { t } from '../../../services/i18nService';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
 
+type ContactAssetContext = 'BTC' | 'USDB';
+
 interface ContactSelectionModalProps {
   visible: boolean;
   onDismiss: () => void;
@@ -19,6 +21,7 @@ interface ContactSelectionModalProps {
   contacts: Contact[];
   /** Current user's Lightning Address to detect self */
   myAddress?: string;
+  activeAsset?: ContactAssetContext;
 }
 
 export function ContactSelectionModal({
@@ -27,8 +30,16 @@ export function ContactSelectionModal({
   onSelect,
   contacts,
   myAddress,
+  activeAsset = 'BTC',
 }: ContactSelectionModalProps): React.JSX.Element {
-  const { searchQuery, setSearchQuery, filteredContacts } = useContactSearch(contacts);
+  const assetContacts = React.useMemo(() => {
+    if (activeAsset === 'USDB') {
+      return contacts.filter((c) => !!c.sparkAddress?.trim());
+    }
+    return contacts.filter((c) => !!c.lightningAddress?.trim());
+  }, [contacts, activeAsset]);
+
+  const { searchQuery, setSearchQuery, filteredContacts } = useContactSearch(assetContacts);
 
   const handleSelect = (contact: Contact) => {
     onSelect(contact);
@@ -67,7 +78,9 @@ export function ContactSelectionModal({
               </View>
             )}
           </View>
-          <Text style={styles.contactAddress}>{item.lightningAddress}</Text>
+          <Text style={styles.contactAddress}>
+            {activeAsset === 'USDB' ? item.sparkAddress : item.lightningAddress}
+          </Text>
         </View>
       </TouchableOpacity>
     );

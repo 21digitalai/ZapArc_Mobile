@@ -52,7 +52,8 @@ export function useContactSearch(contacts: Contact[]): UseContactSearchReturn {
     return contacts.filter(
       (contact) =>
         contact.name.toLowerCase().includes(normalizedQuery) ||
-        contact.lightningAddress.toLowerCase().includes(normalizedQuery)
+        contact.lightningAddress.toLowerCase().includes(normalizedQuery) ||
+        contact.sparkAddress?.toLowerCase().includes(normalizedQuery)
     );
   }, [contacts, debouncedQuery]);
 
