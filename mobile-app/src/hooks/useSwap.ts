@@ -83,6 +83,14 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB', options
 
   const amountBaseUnits = useMemo(() => toPositiveBigint(amountInput), [amountInput]);
 
+  useEffect(() => {
+    setDirectionState(initialDirection);
+    lastDirectionRef.current = initialDirection;
+    setAmountInput('');
+    setState({ status: 'idle' });
+    requestSeqRef.current += 1;
+  }, [initialDirection]);
+
   const clearTimers = useCallback(() => {
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);

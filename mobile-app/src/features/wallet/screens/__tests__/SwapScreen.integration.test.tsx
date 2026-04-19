@@ -11,10 +11,10 @@ jest.mock('../../../../hooks/useSwap', () => ({
 
 
 jest.mock('../../components/SwapAmountCard', () => ({
-  SwapAmountCard: ({ label }: { label: string }) => {
+  SwapAmountCard: ({ label, currency }: { label: string; currency: string }) => {
     const React = require('react');
     const { Text } = require('react-native');
-    return React.createElement(Text, null, label);
+    return React.createElement(Text, null, `${label}: ${currency}`);
   },
 }));
 
@@ -98,4 +98,30 @@ describe('SwapScreen integration', () => {
     expect(screen.getByText('Offline')).toBeTruthy();
     expect(screen.getByText('Limits unavailable')).toBeTruthy();
   });
+  it('rendersBtcOnTop_forBtcToUsdbDirection', () => {
+    mockUseSwap.mockReturnValue({ ...baseSwap, direction: 'BTC_TO_USDB' });
+
+    render(<SwapScreen />);
+
+    expect(screen.getByText('You pay: BTC')).toBeTruthy();
+    expect(screen.getByText('You receive: USDB')).toBeTruthy();
+  });
+
+  it('rendersUsdbOnTop_forUsdbToBtcDirection', () => {
+    mockUseSwap.mockReturnValue({ ...baseSwap, direction: 'USDB_TO_BTC' });
+
+    render(<SwapScreen />);
+
+    expect(screen.getByText('You pay: USDB')).toBeTruthy();
+    expect(screen.getByText('You receive: BTC')).toBeTruthy();
+  });
+
+  it('swapsCards_onFlipButtonTap', () => {
+    render(<SwapScreen />);
+
+    fireEvent.press(screen.getByLabelText('Flip swap direction'));
+
+    expect(baseSwap.flipDirection).toHaveBeenCalled();
+  });
+
 });

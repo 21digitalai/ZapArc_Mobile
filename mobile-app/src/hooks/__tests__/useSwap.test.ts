@@ -92,7 +92,21 @@ describe('useSwap', () => {
   });
 
   it('initial direction can be overridden', () => {
-    const { result } = renderHook(() => useSwap('USDB_TO_BTC'));
+    const { result } = renderHook(({ direction }: { direction: 'BTC_TO_USDB' | 'USDB_TO_BTC' }) => useSwap(direction), {
+      initialProps: { direction: 'USDB_TO_BTC' as const },
+    });
+    expect(result.current.direction).toBe('USDB_TO_BTC');
+  });
+
+  it('syncs direction when initialDirection prop changes', () => {
+    const { result, rerender } = renderHook(({ direction }: { direction: 'BTC_TO_USDB' | 'USDB_TO_BTC' }) => useSwap(direction), {
+      initialProps: { direction: 'BTC_TO_USDB' as const },
+    });
+
+    expect(result.current.direction).toBe('BTC_TO_USDB');
+
+    rerender({ direction: 'USDB_TO_BTC' });
+
     expect(result.current.direction).toBe('USDB_TO_BTC');
   });
 
