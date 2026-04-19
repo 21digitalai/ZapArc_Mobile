@@ -1,0 +1,48 @@
+# ZapArc Mobile — Style Guide
+
+> Single source of truth for reusable UI patterns in this repo.
+> Builder: read this before UI work and update when introducing new reusable components.
+
+---
+
+## Stack
+
+- **Framework:** React Native (Expo Router)
+- **Styling:** React Native `StyleSheet` + theme helpers
+- **Theme:** Light and dark modes via `ThemeContext`
+
+---
+
+## Tokens
+
+| Token | Value |
+|---|---|
+| Primary | `BRAND_COLOR` |
+| Primary text (active tab on brand bg) | `#1a1a2e` |
+| Surface muted | `rgba(255,255,255,0.08)` |
+| Text color | `getPrimaryTextColor(themeMode)` |
+
+---
+
+## Components
+
+### Asset tabs
+
+`AssetTabBar` (`src/features/wallet/components/AssetTabBar.tsx`)
+- Reuses Send screen tab styling verbatim.
+- Container style mirrors `send.tsx`: `tabContainer`.
+- Button style mirrors `send.tsx`: `tabButton` + active modifier `tabButtonActive`.
+- Active tab visuals:
+  - background: `BRAND_COLOR`
+  - text: `#1a1a2e`
+- Inactive tab visuals:
+  - background: transparent
+  - text: `primaryTextColor`
+
+### Send screen tab styles (source reference)
+
+`app/wallet/send.tsx`
+- `tabContainer`
+- `tabButton`
+- `tabButtonActive`
+- `tabText`
