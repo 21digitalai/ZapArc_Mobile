@@ -73,7 +73,16 @@ export function SwapRateLine({
         })}
       </View>
 
-      {!!inlineError && <Text style={styles.errorText}>{inlineError}</Text>}
+      {!!inlineError && (
+        <Text
+          style={styles.errorText}
+          accessibilityLiveRegion="polite"
+          accessibilityRole="alert"
+          accessibilityLabel={`Swap error: ${inlineError}`}
+        >
+          {inlineError}
+        </Text>
+      )}
     </View>
   );
 }

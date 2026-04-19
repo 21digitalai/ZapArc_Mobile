@@ -32,7 +32,7 @@ export function SwapResultView({
 
   if (kind === 'success' || kind === 'dustResidual') {
     return (
-      <View style={styles.card}>
+      <View style={styles.card} accessibilityLabel="Swap completed">
         <Text style={styles.title}>{t('swap.success.title')}</Text>
         {!!paidAmount && <Text style={styles.row}>{`${t('swap.success.paid')}: ${paidAmount}`}</Text>}
         {!!receivedAmount && <Text style={styles.row}>{`${t('swap.success.received')}: ${receivedAmount}`}</Text>}
@@ -48,7 +48,7 @@ export function SwapResultView({
 
   if (kind === 'refunded') {
     return (
-      <View style={styles.card}>
+      <View style={styles.card} accessibilityLabel="Swap refunded">
         <Text style={styles.title}>{t('swap.refunded.title')}</Text>
         <Text style={styles.body}>{t('swap.refunded.body', { slippage: 'your tolerance' })}</Text>
         <View style={styles.actionsRow}>
@@ -64,7 +64,7 @@ export function SwapResultView({
   }
 
   return (
-    <View style={styles.card}>
+    <View style={styles.card} accessibilityRole="alert" accessibilityLabel="Swap failed">
       <Text style={styles.title}>{t('swap.error.title')}</Text>
       <Text style={styles.body}>{errorMessage || t('swap.error.networkBody')}</Text>
       <Button mode="contained" onPress={onRetry} buttonColor={BRAND_COLOR} textColor="#1a1a2e">

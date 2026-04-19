@@ -47,11 +47,37 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
       : null;
   const quoteLoading = swap.state.status === 'typing' || swap.state.status === 'quoteLoading' || swap.state.status === 'quoteRefreshing';
 
-  const fromTicker = swap.direction === 'BTC_TO_USDB' ? 'BTC' : 'USDB';
-  const toTicker = swap.direction === 'BTC_TO_USDB' ? 'USDB' : 'BTC';
+  // Use 'sats' on the BTC side (not 'BTC') — balances are denominated in sats
+  // throughout the app and typing BTC fractional values is awkward on mobile.
+  const fromTicker = swap.direction === 'BTC_TO_USDB' ? 'sats' : 'USDB';
+  const toTicker = swap.direction === 'BTC_TO_USDB' ? 'USDB' : 'sats';
 
   const rateText = activeQuote ? `${activeQuote.rate}` : '...';
   const feeText = activeQuote ? `${activeQuote.feeSat.toString()} sats` : '...';
+
+  // Bidirectional editing on the destination card. We don't have a reverse-quote
+  // SDK method, so we derive the source amount using the most recent quote's
+  // rate. First edit without a rate still sets the source to the destination
+  // value (user will see a quote shortly that corrects it).
+  const receiveDisplay = activeQuote ? activeQuote.receiveAmount.toString() : '';
+  const handleReceiveChange = (nextReceive: string): void => {
+    const cleaned = nextReceive.replace(/[^0-9]/g, '');
+    if (!cleaned) {
+      swap.setAmountInput('');
+      return;
+    }
+    // If we have a quote, reverse the rate to compute the source side.
+    // activeQuote.rate is destination-per-source in the current direction.
+    if (activeQuote && activeQuote.amount > 0n && activeQuote.receiveAmount > 0n) {
+      const ratio = Number(activeQuote.amount) / Number(activeQuote.receiveAmount);
+      const computed = Math.round(Number(cleaned) * ratio);
+      swap.setAmountInput(String(computed));
+      return;
+    }
+    // No quote yet — set source=destination as a placeholder; real quote will
+    // arrive in a moment and overwrite the displayed destination value.
+    swap.setAmountInput(cleaned);
+  };
 
   const inlineError = useMemo(() => {
     if (swap.state.status === 'error') return swap.state.message;
@@ -113,9 +139,21 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
           <View style={styles.headerSpacer} />
         </View>
 
-        {swap.isOffline && <Text style={styles.banner}>Offline</Text>}
-        {swap.limitsUnavailable && <Text style={styles.banner}>Limits unavailable</Text>}
-        {isConfirming && <Text style={styles.banner}>swap.backgrounded.toast</Text>}
+        {swap.isOffline && (
+          <Text style={styles.banner} accessibilityRole="alert" accessibilityLiveRegion="polite">
+            Offline
+          </Text>
+        )}
+        {swap.limitsUnavailable && (
+          <Text style={styles.banner} accessibilityRole="alert" accessibilityLiveRegion="polite">
+            Limits unavailable
+          </Text>
+        )}
+        {isConfirming && (
+          <Text style={styles.banner} accessibilityLiveRegion="polite">
+            swap.backgrounded.toast
+          </Text>
+        )}
 
         <ScrollView contentContainerStyle={styles.content}>
           {renderResult() || (
@@ -135,6 +173,7 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
                 style={styles.flipButton}
                 onPress={swap.flipDirection}
                 disabled={isConfirming}
+                accessibilityRole="button"
                 accessibilityLabel="Flip swap direction"
               >
                 <Text style={styles.flipText}>⇅</Text>
@@ -143,10 +182,10 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
               <SwapAmountCard
                 label="You receive"
                 currency={toTicker}
-                amount={activeQuote ? activeQuote.receiveAmount.toString() : ''}
-                onAmountChange={() => undefined}
+                amount={receiveDisplay}
+                onAmountChange={handleReceiveChange}
                 onMax={() => undefined}
-                isReadOnly
+                isLoading={quoteLoading}
                 maxDisabled
               />
 
@@ -159,8 +198,13 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
               />
 
               {isConfirming ? (
-                <View style={styles.confirmingBox}>
-                  <ActivityIndicator color={BRAND_COLOR} />
+                <View
+                  style={styles.confirmingBox}
+                  accessibilityRole="progressbar"
+                  accessibilityLabel={`Swap confirming. About ${CONFIRMING_SECONDS} seconds remaining`}
+                  accessibilityLiveRegion="polite"
+                >
+                  <ActivityIndicator color={BRAND_COLOR} accessibilityLabel="Swap in progress" />
                   <Text style={{ color: primaryTextColor, marginTop: 8 }}>Confirming... (~{CONFIRMING_SECONDS}s)</Text>
                 </View>
               ) : (
@@ -170,6 +214,8 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
                   textColor="#1a1a2e"
                   onPress={swap.openReview}
                   disabled={!isQuoteReady}
+                  accessibilityRole="button"
+                  accessibilityLabel="Review swap"
                 >
                   Review
                 </Button>

@@ -53,7 +53,13 @@ export function SwapAmountCard({
 
   if (isLoading) {
     return (
-      <View style={styles.card} testID="swap-amount-card-skeleton">
+      <View
+        style={styles.card}
+        testID="swap-amount-card-skeleton"
+        accessibilityRole="progressbar"
+        accessibilityLabel="Loading quote"
+        accessibilityLiveRegion="polite"
+      >
         <Animated.View style={[styles.skeletonLineShort, { opacity: pulse }]} />
         <Animated.View style={[styles.skeletonLineLarge, { opacity: pulse }]} />
         <Animated.View style={[styles.skeletonLineMedium, { opacity: pulse }]} />
@@ -85,7 +91,7 @@ export function SwapAmountCard({
           editable={!isReadOnly}
           placeholder="0"
           placeholderTextColor="rgba(255,255,255,0.4)"
-          accessibilityLabel="Swap amount"
+          accessibilityLabel={`${label} amount`}
         />
         <Text style={styles.currencyLabel}>{currency}</Text>
       </View>

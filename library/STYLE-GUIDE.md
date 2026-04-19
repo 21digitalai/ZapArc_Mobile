@@ -76,3 +76,11 @@
 - Compose swap flow from shared parts: `SwapAmountCard` (pay/receive), `SwapRateLine`, `SwapReviewModal`, and `SwapResultView`.
 - Keep connectivity status visible with inline top banners for offline and limits-unavailable states.
 - During `confirming`, block navigation gestures/back and show a dedicated confirming state block instead of actionable CTAs.
+
+### Swap accessibility contract
+
+- Loading quote placeholders must be exposed as `progressbar` with `accessibilityLabel="Loading quote"` and `accessibilityLiveRegion="polite"`.
+- Dynamic error text (inline rate errors, auth errors, connectivity banners) must use live region announcements.
+- Terminal result containers should expose state semantics:
+  - success/refunded: explicit accessibility labels (for example `Swap completed`, `Swap refunded`)
+  - failure: `accessibilityRole="alert"`

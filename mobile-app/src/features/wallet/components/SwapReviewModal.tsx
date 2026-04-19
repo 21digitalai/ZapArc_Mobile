@@ -99,7 +99,16 @@ export function SwapReviewModal({
             <Text style={styles.label}>{t('swap.review.slippage')}</Text>
             <Text style={styles.value}>{slippageText}</Text>
           </View>
-          {!!authError && <Text style={styles.error}>{authError}</Text>}
+          {!!authError && (
+            <Text
+              style={styles.error}
+              accessibilityLiveRegion="polite"
+              accessibilityRole="alert"
+              accessibilityLabel={`Authentication error: ${authError}`}
+            >
+              {authError}
+            </Text>
+          )}
         </Dialog.Content>
 
         <Dialog.Actions>
