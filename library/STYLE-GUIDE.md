@@ -62,3 +62,10 @@
 - Terminal-state component for swap flows: `success`, `dustResidual`, `refunded`, `error`.
 - `dustResidual` must display residual in **USDB units** (not fiat).
 - `refunded` variant keeps two CTAs visible together: retry + increase slippage.
+
+### Swap amount input card
+
+`src/features/wallet/components/SwapAmountCard.tsx`
+- Reusable amount-entry card for swap flows with plain text currency label (no dropdown).
+- Loading state uses animated opacity pulse skeleton rows (no `ActivityIndicator`).
+- Max control supports disabled state with helper tooltip text.
