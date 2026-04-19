@@ -12,9 +12,10 @@ import {
 import { StyledTextInput } from '../../../components';
 import { Text, IconButton, Button, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
+import { BreezSparkService } from '../../../services/breezSparkService';
 
 
 // =============================================================================
@@ -24,10 +25,9 @@ import { BRAND_COLOR } from '../../../utils/theme-helpers';
 type ScanMode = 'camera' | 'manual';
 
 interface ParsedQRData {
-  type: 'lightning' | 'onchain' | 'unknown';
+  type: 'invoice' | 'lnurl' | 'address' | 'sparkAddress' | 'sparkInvoice' | 'bitcoinAddress' | 'unknown';
   value: string;
-  amount?: string;
-  description?: string;
+  tokenIdentifier?: string;
 }
 
 // =============================================================================
@@ -35,6 +35,7 @@ interface ParsedQRData {
 // =============================================================================
 
 export function QRScannerScreen(): React.JSX.Element {
+  const params = useLocalSearchParams<{ asset?: string | string[] }>();
   // State
   const [permission, requestPermission] = useCameraPermissions();
   const [scanMode, setScanMode] = useState<ScanMode>('camera');
@@ -47,50 +48,69 @@ export function QRScannerScreen(): React.JSX.Element {
   // QR Code Parsing
   // ========================================
 
-  const parseQRData = useCallback((data: string): ParsedQRData => {
-    const normalized = data.trim();
-    const lower = normalized.toLowerCase();
+  const parseQRData = useCallback(async (data: string): Promise<ParsedQRData> => {
+    const raw = data.trim();
+    const trimmed = raw.toLowerCase();
 
-    if (lower.startsWith('bitcoin:')) {
-      const payload = normalized.substring('bitcoin:'.length);
-      const [address, query = ''] = payload.split('?');
-      const params = new URLSearchParams(query);
-      const amountBtc = params.get('amount');
-      const label = params.get('label') || params.get('message') || undefined;
+    const tokenFromText = (() => {
+      const match = raw.match(/tokenIdentifier=([^&\s]+)/i);
+      return match && match[1] ? decodeURIComponent(match[1]) : undefined;
+    })();
 
-      let amount: string | undefined;
-      if (amountBtc) {
-        const btc = Number(amountBtc);
-        if (!isNaN(btc) && btc > 0) {
-          amount = Math.round(btc * 100_000_000).toString();
+    try {
+      const parsed = await BreezSparkService.parsePaymentRequest(raw);
+      const parsedWithToken = parsed as typeof parsed & { tokenIdentifier?: string };
+      if (parsed.isValid) {
+        if (parsed.type === 'sparkAddress') {
+          return { type: 'sparkAddress', value: raw, tokenIdentifier: parsedWithToken.tokenIdentifier || tokenFromText };
+        }
+        if (parsed.type === 'bitcoinAddress') {
+          return { type: 'bitcoinAddress', value: raw };
+        }
+        if (parsed.type === 'bolt11') {
+          return { type: 'invoice', value: raw };
+        }
+        if (parsed.type === 'lnurl') {
+          return { type: 'lnurl', value: raw };
+        }
+        if (parsed.type === 'lightningAddress') {
+          return { type: 'address', value: raw };
         }
       }
-
-      return {
-        type: 'onchain',
-        value: address || normalized,
-        amount,
-        description: label,
-      };
+    } catch {
+      // fallback below
     }
 
-    if (lower.startsWith('lightning:')) {
-      return { type: 'lightning', value: normalized.substring('lightning:'.length) };
+    // Lightning Invoice (bolt11)
+    if (trimmed.startsWith('lightning:') || trimmed.startsWith('lnbc') || trimmed.startsWith('lntb')) {
+      const invoice = trimmed.startsWith('lightning:') ? raw.slice('lightning:'.length) : raw;
+      return { type: 'invoice', value: invoice };
     }
 
-    if (lower.startsWith('lnbc') || lower.startsWith('lntb') || lower.startsWith('lnurl')) {
-      return { type: 'lightning', value: normalized };
+    if (trimmed.startsWith('sp1')) {
+      return { type: 'sparkAddress', value: raw, tokenIdentifier: tokenFromText };
     }
 
-    if (lower.includes('@') && lower.includes('.')) {
-      return { type: 'lightning', value: normalized };
+    if (trimmed.startsWith('spark:') || trimmed.includes('tokenidentifier=')) {
+      return { type: 'sparkInvoice', value: raw, tokenIdentifier: tokenFromText };
     }
 
-    if (lower.startsWith('bc1') || lower.startsWith('1') || lower.startsWith('3')) {
-      return { type: 'onchain', value: normalized };
+    // LNURL
+    if (trimmed.startsWith('lnurl')) {
+      return { type: 'lnurl', value: raw };
     }
 
-    return { type: 'unknown', value: normalized };
+    // Lightning Address (user@domain format)
+    if (trimmed.includes('@') && trimmed.includes('.')) {
+      return { type: 'address', value: raw };
+    }
+
+    // Bitcoin on-chain
+    if (trimmed.startsWith('bitcoin:') || trimmed.startsWith('bc1') || trimmed.startsWith('1') || trimmed.startsWith('3')) {
+      return { type: 'bitcoinAddress', value: raw };
+    }
+
+    return { type: 'unknown', value: raw };
   }, []);
 
   // ========================================
@@ -105,27 +125,51 @@ export function QRScannerScreen(): React.JSX.Element {
       setIsProcessing(true);
 
       try {
-        const parsed = parseQRData(data);
+        const parsed = await parseQRData(data);
+        const requestedAssetRaw = Array.isArray(params.asset) ? params.asset[0] : params.asset;
+        const requestedAsset = (requestedAssetRaw || '').toUpperCase() === 'USDB' ? 'USDB' : 'BTC';
+        const tokenLooksUsdb = !!parsed.tokenIdentifier && parsed.tokenIdentifier.toLowerCase().includes('usdb');
+        const sparkAsset = tokenLooksUsdb || requestedAsset === 'USDB' ? 'USDB' : 'BTC';
 
         switch (parsed.type) {
-          case 'lightning':
+          case 'invoice':
             router.push({
               pathname: '/wallet/send',
               params: {
+                asset: 'BTC',
                 tab: 'lightning',
                 paymentInput: parsed.value,
               },
             });
             break;
 
-          case 'onchain':
+          case 'bitcoinAddress':
             router.push({
               pathname: '/wallet/send',
               params: {
+                asset: 'BTC',
                 tab: 'onchain',
                 paymentInput: parsed.value,
-                amount: parsed.amount,
-                comment: parsed.description,
+              },
+            });
+            break;
+
+          case 'lnurl':
+            router.push({
+              pathname: '/wallet/lnurl',
+              params: { lnurl: parsed.value },
+            });
+            break;
+
+          case 'address':
+          case 'sparkAddress':
+          case 'sparkInvoice':
+            router.push({
+              pathname: '/wallet/send',
+              params: {
+                asset: sparkAsset,
+                tab: 'lightning',
+                paymentInput: parsed.value,
               },
             });
             break;
@@ -133,7 +177,7 @@ export function QRScannerScreen(): React.JSX.Element {
           case 'unknown':
             Alert.alert(
               'Unknown QR Code',
-              'This QR code is not a valid Lightning invoice, LNURL, Lightning address, or Bitcoin address.',
+              'This QR code is not a valid Lightning invoice, LNURL, Spark payload, or Lightning address.',
               [
                 {
                   text: 'OK',
@@ -154,7 +198,7 @@ export function QRScannerScreen(): React.JSX.Element {
         setIsProcessing(false);
       }
     },
-    [isProcessing, scanned, parseQRData]
+    [isProcessing, scanned, parseQRData, params.asset]
   );
 
   // ========================================
