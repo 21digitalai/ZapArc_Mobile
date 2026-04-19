@@ -18,7 +18,11 @@ export function AssetTabBar({ assets, active, onChange, primaryTextColor }: Asse
         return (
           <TouchableOpacity
             key={asset}
-            style={[styles.tabButton, isActive && styles.tabButtonActive]}
+            style={[
+              styles.tabButton,
+              isActive && styles.tabButtonActive,
+              { borderColor: BRAND_COLOR },
+            ]}
             onPress={() => onChange(asset)}
             accessibilityRole="button"
             accessibilityLabel={`${asset} tab`}
