@@ -766,6 +766,9 @@ export function useWallet(): WalletState & WalletActions {
           description: p.description,
           method: p.method,
           txid: p.txid,
+          paymentType: p.paymentType,
+          asset: p.asset,
+          tokenIdentifier: p.tokenIdentifier,
         }));
 
         if (activeWalletKeyRef.current !== walletKey) {
@@ -1182,10 +1185,8 @@ export function useWallet(): WalletState & WalletActions {
   const getTransactionsForAsset = useCallback((asset: WalletAsset): Transaction[] => {
     if (asset === 'BTC') return transactions;
     return transactions.filter((tx) => {
-      const rec = tx as unknown as Record<string, unknown>;
-      const currency = String(rec.currency || rec.asset || '').toUpperCase();
-      const paymentType = String(rec.paymentType || '').toLowerCase();
-      return currency === 'USDB' || paymentType === 'conversion' || paymentType === 'spark';
+      const paymentType = String(tx.paymentType || '').toLowerCase();
+      return tx.asset === 'USDB' || paymentType === 'conversion' || paymentType === 'spark';
     });
   }, [transactions]);
 

@@ -27,6 +27,7 @@ import { settingsService } from '../../../services/settingsService';
 import { formatFiat, usdbToFiat } from '../../../utils/currency';
 import { AssetTabBar } from '../components/AssetTabBar';
 import type { Transaction } from '../types';
+import { buildTransactionRows, type TransactionRow } from '../utils/transactionRows';
 import {
   enableNotificationsIfNeeded,
   getActiveSecurityReminder,
@@ -94,7 +95,8 @@ export function HomeScreen(): React.JSX.Element {
 
   const displayBalance = getBalanceForAsset(activeAsset);
   const displayTransactions = getTransactionsForAsset(activeAsset);
-  const showUsdbEmptyState = activeAsset === 'USDB' && usdbBalance <= 0 && displayTransactions.length === 0;
+  const transactionRows = buildTransactionRows(displayTransactions, activeAsset);
+  const showUsdbEmptyState = activeAsset === 'USDB' && usdbBalance <= 0 && transactionRows.length === 0;
 
   // Decide which security banner (if any) to show above the balance.
   // Biometric has priority; notifications only takes over once biometric
@@ -308,10 +310,11 @@ export function HomeScreen(): React.JSX.Element {
 
 
   // Render transaction item
-  const renderTransaction = (tx: Transaction, index: number): React.JSX.Element => {
-    const isReceived = tx.type === 'receive';
-    const method = tx.method || (tx.txid ? 'onchain' : 'lightning');
-    const amount = tx.amount ?? 0;
+  const renderTransaction = (row: TransactionRow, index: number): React.JSX.Element => {
+    const tx = row.transaction;
+    const isReceived = row.displayType === 'receive';
+    const method = row.isSwap ? 'swap' : (tx.method || (tx.txid ? 'onchain' : 'lightning'));
+    const amount = row.displayAmount;
     const timestamp = typeof tx.timestamp === 'number' && tx.timestamp > 0 ? tx.timestamp : Date.now();
     const dateObj = new Date(timestamp);
     const date = dateObj.toLocaleDateString();
@@ -323,18 +326,18 @@ export function HomeScreen(): React.JSX.Element {
 
     return (
       <TouchableOpacity
-        key={tx.id || index}
+        key={row.id || tx.id || index}
         style={styles.transactionItem}
         onPress={() => setSelectedTransaction(tx)}
       >
         <View style={styles.transactionIcon}>
           <Text style={[styles.transactionIconText, { color: primaryTextColor }]}>
-            {method === 'onchain' ? '⛓️' : '⚡'}
+            {method === 'swap' ? '⇄' : method === 'onchain' ? '⛓️' : '⚡'}
           </Text>
         </View>
         <View style={styles.transactionInfo}>
           <Text style={[styles.transactionDescription, { color: primaryTextColor }]} numberOfLines={1}>
-            {tx.description || (isReceived ? t('wallet.received') : t('wallet.sent'))}
+            {row.displayDescription || tx.description || (isReceived ? t('wallet.received') : t('wallet.sent'))}
           </Text>
           <Text style={[styles.transactionDate, { color: secondaryTextColor }]}>{`${date} · ${time}`}</Text>
         </View>
@@ -578,7 +581,7 @@ export function HomeScreen(): React.JSX.Element {
                 <ActivityIndicator color={BRAND_COLOR} />
                 <Text style={[styles.loadingText, { color: secondaryTextColor }]}>{t('common.loading')}</Text>
               </View>
-            ) : displayTransactions.length === 0 ? (
+            ) : transactionRows.length === 0 ? (
               <View style={styles.emptyTransactions}>
                 <Text style={styles.emptyIcon}>📭</Text>
                 <Text style={[styles.emptyText, { color: secondaryTextColor }]}>{t('wallet.noTransactions')}</Text>
@@ -587,7 +590,7 @@ export function HomeScreen(): React.JSX.Element {
                 </Text>
               </View>
             ) : (
-              displayTransactions.slice(0, 5).map(renderTransaction)
+              transactionRows.slice(0, 5).map(renderTransaction)
             )}
           </View>
         </ScrollView>

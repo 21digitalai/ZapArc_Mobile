@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { Text, IconButton, Chip, Button, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, getIconColor, BRAND_COLOR } from '../../../utils/theme-helpers';
@@ -21,6 +21,7 @@ import { useWallet } from '../../../hooks/useWallet';
 import { useLanguage } from '../../../hooks/useLanguage';
 import { useCurrency } from '../../../hooks/useCurrency';
 import type { Transaction } from '../types';
+import { buildTransactionRows, type TransactionRow, type WalletAsset } from '../utils/transactionRows';
 
 // =============================================================================
 // Types
@@ -37,6 +38,9 @@ export function TransactionHistoryScreen(): React.JSX.Element {
   const { t } = useLanguage();
   const { formatTx, refreshSettings } = useCurrency();
 
+  const params = useLocalSearchParams<{ asset?: string }>();
+  const [activeAsset, setActiveAsset] = useState<WalletAsset>(params.asset === 'USDB' ? 'USDB' : 'BTC');
+
   const { themeMode } = useAppTheme();
   const gradientColors = getGradientColors(themeMode);
   const primaryTextColor = getPrimaryTextColor(themeMode);
@@ -49,17 +53,20 @@ export function TransactionHistoryScreen(): React.JSX.Element {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
   // Filtered transactions
+  const transactionRows = useMemo(() => buildTransactionRows(transactions, activeAsset), [transactions, activeAsset]);
+
   const filteredTransactions = useMemo(() => {
-    if (filter === 'all') return transactions;
+    if (filter === 'all') return transactionRows;
     const typeMap: Record<string, string> = { received: 'receive', sent: 'send' };
-    return transactions.filter((tx) => tx.type === typeMap[filter]);
-  }, [transactions, filter]);
+    return transactionRows.filter((row) => row.displayType === typeMap[filter]);
+  }, [transactionRows, filter]);
 
   // Group transactions by date
   const groupedTransactions = useMemo(() => {
-    const groups: { [key: string]: Transaction[] } = {};
+    const groups: { [key: string]: TransactionRow[] } = {};
 
-    filteredTransactions.forEach((tx) => {
+    filteredTransactions.forEach((row) => {
+      const tx = row.transaction;
       const date = new Date(tx.timestamp);
       const key = date.toLocaleDateString('en-US', {
         year: 'numeric',
@@ -70,7 +77,7 @@ export function TransactionHistoryScreen(): React.JSX.Element {
       if (!groups[key]) {
         groups[key] = [];
       }
-      groups[key].push(tx);
+      groups[key].push(row);
     });
 
     return Object.entries(groups).map(([date, txs]) => ({
@@ -97,6 +104,12 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     }, [refreshTransactions, refreshSettings])
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      setActiveAsset(params.asset === 'USDB' ? 'USDB' : 'BTC');
+    }, [params.asset])
+  );
+
   // Format time
   const formatTime = (timestamp: number): string => {
     return new Date(timestamp).toLocaleTimeString('en-US', {
@@ -106,15 +119,17 @@ export function TransactionHistoryScreen(): React.JSX.Element {
   };
 
   // Render transaction item
-  const renderTransaction = (tx: Transaction): React.JSX.Element => {
-    const isReceived = tx.type === 'receive';
-    const method = tx.method || (tx.txid ? 'onchain' : 'lightning');
-    const formattedAmount = formatTx(tx.amount ?? 0, isReceived);
+  const renderTransaction = (row: TransactionRow): React.JSX.Element => {
+    const tx = row.transaction;
+    const isReceived = row.displayType === 'receive';
+    const method = row.isSwap ? 'swap' : (tx.method || (tx.txid ? 'onchain' : 'lightning'));
+    const formattedAmount = formatTx(row.displayAmount ?? 0, isReceived);
 
     return (
       <TouchableOpacity
         style={styles.transactionItem}
-        onPress={() => setSelectedTransaction(tx)}
+        onPress={row.isSwap ? undefined : () => setSelectedTransaction(tx)}
+        disabled={row.isSwap}
       >
         <View
           style={[
@@ -123,13 +138,13 @@ export function TransactionHistoryScreen(): React.JSX.Element {
           ]}
         >
           <Text style={[styles.transactionIconText, { color: primaryTextColor }]}>
-            {method === 'onchain' ? '⛓️' : '⚡'}
+            {method === 'swap' ? '⇄' : method === 'onchain' ? '⛓️' : '⚡'}
           </Text>
         </View>
 
         <View style={styles.transactionInfo}>
           <Text style={[styles.transactionDescription, { color: primaryTextColor }]} numberOfLines={1}>
-            {tx.description || (isReceived ? t('wallet.receivedPayment') : t('wallet.sentPayment'))}
+            {row.displayDescription || tx.description || (isReceived ? t('wallet.receivedPayment') : t('wallet.sentPayment'))}
           </Text>
           <Text style={[styles.transactionTime, { color: secondaryTextColor }]}>{formatTime(tx.timestamp)}</Text>
         </View>
@@ -351,8 +366,8 @@ export function TransactionHistoryScreen(): React.JSX.Element {
             renderItem={({ item }) => (
               <View>
                 {renderSectionHeader(item.date)}
-                {item.transactions.map((tx) => (
-                  <View key={tx.id}>{renderTransaction(tx)}</View>
+                {item.transactions.map((row) => (
+                  <View key={row.id}>{renderTransaction(row)}</View>
                 ))}
               </View>
             )}

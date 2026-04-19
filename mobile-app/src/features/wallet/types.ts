@@ -138,6 +138,9 @@ export interface Transaction {
   destination?: string;
   method?: 'lightning' | 'onchain';
   txid?: string;
+  paymentType?: string;
+  asset?: 'BTC' | 'USDB';
+  tokenIdentifier?: string;
 }
 
 /**

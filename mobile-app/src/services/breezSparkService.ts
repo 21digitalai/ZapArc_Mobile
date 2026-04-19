@@ -122,6 +122,9 @@ export interface TransactionInfo {
   method?: 'lightning' | 'onchain';
   txid?: string;
   failureReason?: string;
+  paymentType?: string;
+  asset?: 'BTC' | 'USDB';
+  tokenIdentifier?: string;
 }
 
 export interface DepositInfo {
@@ -1434,6 +1437,27 @@ export async function listPayments(): Promise<TransactionInfo[]> {
             ? JSON.stringify(failureReasonRaw)
             : undefined;
 
+      const rawPaymentType = String(payment.paymentType ?? '').trim();
+      const paymentTypeNormalized = rawPaymentType.toLowerCase();
+      const tokenIdentifierRaw =
+        payment.details?.inner?.tokenIdentifier ||
+        payment.details?.tokenIdentifier ||
+        payment.tokenIdentifier;
+      const tokenIdentifier =
+        typeof tokenIdentifierRaw === 'string' && tokenIdentifierRaw.trim().length > 0
+          ? tokenIdentifierRaw.trim()
+          : undefined;
+      const currencyRaw = String(
+        payment.currency ||
+        payment.asset ||
+        payment.details?.currency ||
+        payment.details?.inner?.currency ||
+        payment.details?.inner?.ticker ||
+        ''
+      ).toUpperCase();
+      const asset: 'BTC' | 'USDB' =
+        currencyRaw === 'USDB' || tokenIdentifier ? 'USDB' : 'BTC';
+
       return {
         id: payment.id,
         type,
@@ -1445,6 +1469,9 @@ export async function listPayments(): Promise<TransactionInfo[]> {
         method,
         txid: txid ? String(txid) : undefined,
         failureReason,
+        paymentType: paymentTypeNormalized || undefined,
+        asset,
+        tokenIdentifier,
       };
     });
   } catch (error) {
