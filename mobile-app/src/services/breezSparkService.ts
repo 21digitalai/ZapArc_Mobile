@@ -145,6 +145,33 @@ export interface SwapLimits {
   max: bigint;
 }
 
+
+export interface PrepareSwapParams {
+  direction: SwapDirection;
+  amount: bigint;
+  slippageBps: number;
+}
+
+export interface SwapQuote {
+  direction: SwapDirection;
+  amount: bigint;
+  slippageBps: number;
+  receiveAmount: bigint;
+  feeSat: bigint;
+  rate: number;
+  preparedPayment: unknown;
+}
+
+export interface SwapResult {
+  paymentId?: string;
+}
+
+export type SwapOutcome =
+  | { kind: 'success'; result: SwapResult }
+  | { kind: 'dustResidual'; result: SwapResult; residualUsdbBaseUnits: bigint }
+  | { kind: 'refunded' }
+  | { kind: 'error'; message: string; retryable: boolean };
+
 // =============================================================================
 // Native Module Detection
 // =============================================================================
@@ -240,6 +267,92 @@ function extractLimitsFromResponse(response: unknown): SwapLimits {
   }
 
   return { min, max };
+}
+
+function pickBigInt(record: Record<string, unknown>, keys: string[]): bigint | null {
+  for (const key of keys) {
+    const value = toBigIntOrNull(record[key]);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function parsePreparedAmounts(prepared: unknown): { receiveAmount: bigint; feeSat: bigint } {
+  const source = (prepared || {}) as Record<string, unknown>;
+  const receiveAmount =
+    pickBigInt(source, ['receiveAmount', 'receiveAmountSat', 'receiverAmount', 'amountReceiving']) ??
+    pickBigInt((source.quote as Record<string, unknown>) || {}, ['receiveAmount', 'receiveAmountSat']) ??
+    0n;
+
+  const feeSat =
+    pickBigInt(source, ['feesSat', 'feeSat', 'totalFeeSat', 'networkFeeSat']) ??
+    pickBigInt((source.fees as Record<string, unknown>) || {}, ['total', 'sat', 'sats']) ??
+    0n;
+
+  return { receiveAmount, feeSat };
+}
+
+function parseRateFromPrepared(prepared: unknown): number {
+  const source = (prepared || {}) as Record<string, unknown>;
+  const quote = (source.quote as Record<string, unknown>) || {};
+  const rateCandidate = source.rate ?? quote.rate ?? quote.effectiveRate;
+  const n = Number(rateCandidate);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function isSlippageRefundError(error: unknown): boolean {
+  const msg = extractSdkErrorMessage(error, '').toLowerCase();
+  const raw = JSON.stringify(error || {}).toLowerCase();
+  return (
+    msg.includes('slippage') ||
+    msg.includes('refund') ||
+    msg.includes('conversion') ||
+    raw.includes('slippage') ||
+    raw.includes('refund')
+  );
+}
+
+function paymentLooksRefunded(payment: unknown): boolean {
+  if (!payment || typeof payment !== 'object') return false;
+  const raw = JSON.stringify(payment).toLowerCase();
+  return raw.includes('refund') || raw.includes('refunded') || raw.includes('conversion_refund');
+}
+
+function paymentLooksTimeout(error: unknown): boolean {
+  const msg = extractSdkErrorMessage(error, '').toLowerCase();
+  return msg.includes('timeout') || msg.includes('timed out') || msg.includes('completion_timeout');
+}
+
+function extractUsdbBalanceBaseUnitsFromObject(value: unknown, tokenIdentifier: string): bigint {
+  if (!value || typeof value !== 'object') return 0n;
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const found = extractUsdbBalanceBaseUnitsFromObject(entry, tokenIdentifier);
+      if (found > 0n) return found;
+    }
+    return 0n;
+  }
+
+  const record = value as Record<string, unknown>;
+  const id = String(record.tokenIdentifier || record.identifier || record.tokenId || '');
+  if (id === tokenIdentifier) {
+    return (
+      pickBigInt(record, ['balance', 'amount', 'baseUnits', 'amountBaseUnits', 'value']) ??
+      0n
+    );
+  }
+
+  for (const child of Object.values(record)) {
+    const found = extractUsdbBalanceBaseUnitsFromObject(child, tokenIdentifier);
+    if (found > 0n) return found;
+  }
+
+  return 0n;
+}
+
+async function getUsdbBalanceBaseUnits(tokenIdentifier: string): Promise<bigint> {
+  const info = await sdkInstance.getInfo?.({ ensureSynced: true });
+  return extractUsdbBalanceBaseUnitsFromObject(info?.tokenBalances, tokenIdentifier);
 }
 
 // =============================================================================
@@ -372,6 +485,117 @@ export async function fetchSwapLimits(direction: SwapDirection): Promise<SwapLim
   }
 
   return extractLimitsFromResponse(response);
+}
+
+
+export async function prepareSwap(params: PrepareSwapParams): Promise<SwapQuote> {
+  if (!_isNativeAvailable || !sdkInstance) {
+    throw new Error('SDK not available');
+  }
+
+  const [usdbToken] = await resolveSwapTokens();
+  if (!usdbToken) throw new Error('USDB token unavailable');
+
+  const receivePayment = await sdkInstance.receivePayment?.({
+    paymentMethod: {
+      tag: 'SparkAddress',
+      inner: {
+        tokenIdentifier: params.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
+      },
+    },
+  });
+
+  const paymentRequest = String(receivePayment?.paymentRequest || '').trim();
+  if (!paymentRequest) throw new Error('Failed to generate swap self-address');
+
+  // ⚠️ SELF-PAYMENT PATTERN — important for future maintainers:
+  // We are NOT paying an external recipient. The Breez SDK has no direct swap API,
+  // so BTC⇄USDB conversion is performed by paying our own Spark receive address
+  // with conversionOptions enabled. Do not remove this self-address step.
+  const preparedPayment = await sdkInstance.prepareSendPayment?.({
+    paymentRequest,
+    amount: BigInt(params.amount),
+    tokenIdentifier: params.direction === 'USDB_TO_BTC' ? usdbToken.tokenIdentifier : undefined,
+    conversionOptions: {
+      conversionType:
+        params.direction === 'BTC_TO_USDB'
+          ? { tag: 'FromBitcoin' }
+          : { tag: 'ToBitcoin', fromTokenIdentifier: usdbToken.tokenIdentifier },
+      maxSlippageBps: params.slippageBps,
+      completionTimeoutSecs: 30,
+    },
+  });
+
+  const { receiveAmount, feeSat } = parsePreparedAmounts(preparedPayment);
+  const rate = parseRateFromPrepared(preparedPayment);
+
+  return {
+    direction: params.direction,
+    amount: BigInt(params.amount),
+    slippageBps: params.slippageBps,
+    receiveAmount,
+    feeSat,
+    rate,
+    preparedPayment,
+  };
+}
+
+export async function executeSwap(quote: SwapQuote): Promise<SwapOutcome> {
+  if (!_isNativeAvailable || !sdkInstance) {
+    return { kind: 'error', message: 'SDK not available', retryable: true };
+  }
+
+  const [usdbToken] = await resolveSwapTokens();
+  if (!usdbToken) {
+    return { kind: 'error', message: 'USDB token unavailable', retryable: true };
+  }
+
+  const preBalance =
+    quote.direction === 'USDB_TO_BTC'
+      ? await getUsdbBalanceBaseUnits(usdbToken.tokenIdentifier)
+      : 0n;
+
+  try {
+    const response = await sdkInstance.sendPayment?.({
+      prepareResponse: quote.preparedPayment,
+    });
+
+    if (paymentLooksRefunded(response?.payment)) {
+      // TODO T15: prune losing branch after spike-results.md confirms mechanism.
+      return { kind: 'refunded' };
+    }
+
+    const result: SwapResult = { paymentId: response?.payment?.id };
+
+    if (quote.direction === 'USDB_TO_BTC') {
+      const postBalance = await getUsdbBalanceBaseUnits(usdbToken.tokenIdentifier);
+      const residual = postBalance > preBalance ? postBalance - preBalance : postBalance;
+      if (residual > 0n) {
+        return { kind: 'dustResidual', result, residualUsdbBaseUnits: residual };
+      }
+    }
+
+    return { kind: 'success', result };
+  } catch (error) {
+    if (isSlippageRefundError(error)) {
+      // TODO T15: prune losing branch after spike-results.md confirms mechanism.
+      return { kind: 'refunded' };
+    }
+
+    if (paymentLooksTimeout(error)) {
+      return {
+        kind: 'error',
+        message: extractSdkErrorMessage(error, 'Swap timed out'),
+        retryable: true,
+      };
+    }
+
+    return {
+      kind: 'error',
+      message: extractSdkErrorMessage(error, 'Swap failed'),
+      retryable: false,
+    };
+  }
 }
 
 
@@ -1874,6 +2098,8 @@ export const BreezSparkService = {
   getRawSdkInstanceForDevtools,
   resolveSwapTokens,
   fetchSwapLimits,
+  prepareSwap,
+  executeSwap,
   getBalance,
   prepareSendPayment,
   sendPayment,

@@ -23,7 +23,6 @@ import { useWalletAuth } from '../../../hooks/useWalletAuth';
 import { useLanguage } from '../../../hooks/useLanguage';
 import { useCurrency } from '../../../hooks/useCurrency';
 import { onPaymentReceived } from '../../../services/breezSparkService';
-import { runSwapSpike } from '../../../devtools/swapSpike';
 import type { Transaction } from '../types';
 import {
   enableNotificationsIfNeeded,
@@ -262,17 +261,6 @@ export function HomeScreen(): React.JSX.Element {
   };
 
 
-  const handleRunSwapSpike = useCallback(async (): Promise<void> => {
-    if (!__DEV__) return;
-
-    setSnackbarMessage('Running BTC⇄USDB swap spike. Check Metro logs.');
-    setSnackbarVisible(true);
-
-    const result = await runSwapSpike();
-    setSnackbarMessage(result.ok ? 'Swap spike finished. Review logs for result shape.' : 'Swap spike incomplete. Review logs for missing prerequisites.');
-    setSnackbarVisible(true);
-  }, []);
-
   // Render transaction item
   const renderTransaction = (tx: Transaction, index: number): React.JSX.Element => {
     const isReceived = tx.type === 'receive';
@@ -334,8 +322,6 @@ export function HomeScreen(): React.JSX.Element {
           <TouchableOpacity
             style={styles.walletSelector}
             onPress={handleManageWallets}
-            onLongPress={handleRunSwapSpike}
-            delayLongPress={800}
           >
             <View style={styles.walletIcon}>
               <Text style={styles.walletIconText}>💰</Text>
