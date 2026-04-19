@@ -525,35 +525,34 @@ export function HomeScreen(): React.JSX.Element {
             )}
           </View>
 
-          {/* Quick Actions */}
+          {/* Quick Actions — all four always available; asset context is
+              propagated via route params so each screen gates what applies.
+              For USDB tab the Receive screen accepts Spark invoices only
+              (on-chain tab is visibly disabled inside that screen). */}
           <View style={styles.quickActionsContainer}>
-            {activeAsset === 'USDB' ? (
-              <QuickAction
-                icon="⇄"
-                label={t('swap.title')}
-                onPress={handleSwap}
-                color="#FFB300"
-              />
-            ) : null}
             <QuickAction
               icon="↑"
               label={t('wallet.send')}
               onPress={handleSend}
               color="#FF6B6B"
             />
-            {showUsdbEmptyState ? null : (
-              <QuickAction
-                icon="↓"
-                label={t('wallet.receive')}
-                onPress={handleReceive}
-                color="#4CAF50"
-              />
-            )}
+            <QuickAction
+              icon="↓"
+              label={t('wallet.receive')}
+              onPress={handleReceive}
+              color="#4CAF50"
+            />
             <QuickAction
               icon="⬡"
               label={t('payments.scanQR')}
               onPress={handleScan}
               color="#2196F3"
+            />
+            <QuickAction
+              icon="⇄"
+              label={t('swap.title')}
+              onPress={handleSwap}
+              color="#FFB300"
             />
           </View>
 
