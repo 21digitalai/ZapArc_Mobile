@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import type { SwapDirection, SwapOutcome, SwapQuote } from '../services/breezSparkService';
-import { executeSwap, fetchSwapLimits, listPayments, prepareSwap } from '../services/breezSparkService';
+import { executeSwap, fetchSwapLimits, listPayments, prepareSwap, syncWallet } from '../services/breezSparkService';
 import { settingsService } from '../services/settingsService';
 
 export type SwapStatus =
@@ -52,6 +52,12 @@ function toPositiveBigint(input: string): bigint | null {
   }
 }
 
+function toPaymentId(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const id = (value as Record<string, unknown>).id;
+  return typeof id === 'string' && id.length > 0 ? id : null;
+}
+
 export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
   const [direction, setDirection] = useState<SwapDirection>(initialDirection);
   const [amountInput, setAmountInput] = useState('');
@@ -64,6 +70,9 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
   const requestSeqRef = useRef(0);
   const confirmInFlightRef = useRef(false);
   const lastQuoteRef = useRef<SwapQuote | null>(null);
+  const lastInputRef = useRef('');
+  const lastDirectionRef = useRef<SwapDirection>(initialDirection);
+  const inFlightPaymentIdRef = useRef<string | null>(null);
 
   const amountBaseUnits = useMemo(() => toPositiveBigint(amountInput), [amountInput]);
 
@@ -108,11 +117,7 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
         return;
       }
 
-      const quote = await prepareSwap({
-        direction,
-        amount: amountBaseUnits,
-        slippageBps,
-      });
+      const quote = await prepareSwap({ direction, amount: amountBaseUnits, slippageBps });
       if (seq !== requestSeqRef.current) return;
 
       if (availableBalance !== null && quote.amount > availableBalance) {
@@ -124,6 +129,10 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
       setState({ status: 'quoteLoaded', quote });
     } catch (error) {
       if (seq !== requestSeqRef.current) return;
+      if (isRefresh && lastQuoteRef.current) {
+        setState({ status: 'quoteLoaded', quote: lastQuoteRef.current });
+        return;
+      }
       setState({
         status: 'error',
         message: error instanceof Error ? error.message : 'Failed to prepare quote',
@@ -182,15 +191,33 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
 
       void (async () => {
         try {
-          await listPayments();
+          await syncWallet();
+          const payments = await listPayments();
+          const paymentId = inFlightPaymentIdRef.current;
+          if (!paymentId) return;
+
+          const match = payments.find((payment) => payment.id === paymentId);
+          if (!match) return;
+
+          if (match.status === 'completed') {
+            setState({ status: 'success', result: { paymentId: match.id } });
+            return;
+          }
+          if (match.status === 'failed') {
+            setState({
+              status: 'error',
+              message: match.failureReason || 'Swap failed',
+              retryable: true,
+            });
+          }
         } catch {
-          // Recovery signal only, keep current state.
+          // Best-effort recovery only, remain in confirming.
         }
       })();
     });
 
     return () => {
-      sub.remove();
+      sub?.remove?.();
     };
   }, [state.status]);
 
@@ -200,7 +227,11 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
 
   const flipDirection = useCallback(() => {
     requestSeqRef.current += 1;
-    setDirection((current) => (current === 'BTC_TO_USDB' ? 'USDB_TO_BTC' : 'BTC_TO_USDB'));
+    setDirection((current) => {
+      const next = current === 'BTC_TO_USDB' ? 'USDB_TO_BTC' : 'BTC_TO_USDB';
+      lastDirectionRef.current = next;
+      return next;
+    });
     setAmountInput('');
     setState({ status: 'idle' });
   }, []);
@@ -221,10 +252,15 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
     }
 
     confirmInFlightRef.current = true;
-    setState({ status: 'confirming', quote: state.quote });
+    const activeQuote = state.quote;
+    lastQuoteRef.current = activeQuote;
+    lastInputRef.current = String(activeQuote.amount);
+    lastDirectionRef.current = activeQuote.direction;
+    inFlightPaymentIdRef.current = toPaymentId(activeQuote.preparedPayment);
+    setState({ status: 'confirming', quote: activeQuote });
 
     try {
-      const outcome = await executeSwap(state.quote);
+      const outcome = await executeSwap(activeQuote);
       if (outcome.kind === 'success') {
         setState({ status: 'success', result: outcome.result });
       } else if (outcome.kind === 'dustResidual') {
@@ -234,7 +270,7 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
           residualUsdbBaseUnits: outcome.residualUsdbBaseUnits,
         });
       } else if (outcome.kind === 'refunded') {
-        setState({ status: 'refunded', latestQuote: state.quote });
+        setState({ status: 'refunded', latestQuote: activeQuote });
       } else {
         setState({ status: 'error', message: outcome.message, retryable: outcome.retryable });
       }
@@ -252,18 +288,14 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
   }, [state]);
 
   const retry = useCallback(() => {
-    const quote = lastQuoteRef.current;
-    if (quote) {
-      setDirection(quote.direction);
-      setAmountInput(String(quote.amount));
+    const preservedAmount = lastInputRef.current || amountInput;
+    setDirection(lastDirectionRef.current);
+    if (preservedAmount) {
+      setAmountInput(preservedAmount);
+      setState({ status: 'typing' });
       return;
     }
-
-    if (amountInput) {
-      setState({ status: 'typing' });
-    } else {
-      setState({ status: 'idle' });
-    }
+    setState({ status: 'idle' });
   }, [amountInput]);
 
   const tryRefundedAgain = useCallback(() => {

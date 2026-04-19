@@ -1448,6 +1448,14 @@ export async function listPayments(): Promise<TransactionInfo[]> {
 /**
  * Get a specific payment by ID
  */
+export async function syncWallet(): Promise<void> {
+  if (!sdkInstance) {
+    return;
+  }
+
+  await sdkInstance.syncWallet();
+}
+
 export async function getPayment(paymentId: string): Promise<TransactionInfo | null> {
   if (!_isNativeAvailable || !sdkInstance) {
     return null;
@@ -2123,6 +2131,7 @@ export const BreezSparkService = {
   claimDeposit,
   getSparkAddress,
   listPayments,
+  syncWallet,
   getPayment,
   payLightningAddress,
   parsePaymentRequest,
