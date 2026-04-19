@@ -234,6 +234,17 @@ export function isSDKInitialized(): boolean {
 }
 
 /**
+ * DEVTOOLS ONLY: expose the connected raw SDK instance for local diagnostics.
+ * Never use this in production application flows.
+ */
+export function getRawSdkInstanceForDevtools(): unknown {
+  if (!__DEV__) {
+    return null;
+  }
+  return sdkInstance;
+}
+
+/**
  * Generate a wallet-specific storage directory from mnemonic
  * Uses a simple hash of first 3 words to create unique storage per wallet
  */
@@ -1703,6 +1714,7 @@ export const BreezSparkService = {
   disconnectSDK,
   beginDisconnectSDK,
   isSDKInitialized,
+  getRawSdkInstanceForDevtools,
   getBalance,
   prepareSendPayment,
   sendPayment,
