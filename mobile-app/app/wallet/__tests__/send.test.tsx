@@ -46,7 +46,10 @@ jest.mock('expo-router', () => ({
   router: {
     back: jest.fn(),
     navigate: jest.fn(),
+    setParams: jest.fn(),
   },
+  useLocalSearchParams: jest.fn(() => ({})),
+  useFocusEffect: jest.fn((callback: () => void) => callback()),
 }));
 
 jest.mock('expo-camera', () => ({
@@ -84,7 +87,7 @@ jest.mock('../../../src/hooks/useLightningAddress', () => ({
 }));
 
 jest.mock('../../../src/features/addressBook/hooks/useContacts', () => ({
-  useContacts: () => ({ contacts: [] }),
+  useContacts: () => ({ contacts: [], refreshContacts: jest.fn() }),
 }));
 
 jest.mock('../../../src/features/addressBook/components/ContactSelectionModal', () => ({
@@ -95,9 +98,12 @@ jest.mock('../../../src/components', () => {
   const React = require('react');
   const { TextInput } = require('react-native');
   return {
-    StyledTextInput: ({ value, onChangeText }: { value: string; onChangeText: (v: string) => void }) => (
-      React.createElement(TextInput, { testID: 'amount-input', value, onChangeText })
-    ),
+    StyledTextInput: ({ value, onChangeText, placeholder, label, testID, ...props }: { value?: string; onChangeText?: (v: string) => void; placeholder?: string; label?: string; testID?: string }) => {
+      const resolvedTestId = testID
+        || (placeholder ? 'destination-input' : undefined)
+        || (typeof label === 'string' && label.toLowerCase().includes('amount') ? 'amount-input' : undefined);
+      return React.createElement(TextInput, { value, onChangeText, placeholder, testID: resolvedTestId, ...props });
+    },
   };
 });
 
@@ -178,7 +184,7 @@ describe('SendScreen on-chain flow', () => {
       expect(screen.getByText('Fast')).toBeTruthy();
       expect(screen.getByText('Medium')).toBeTruthy();
       expect(screen.getByText('Slow')).toBeTruthy();
-      expect(screen.getByText('Network Fee:')).toBeTruthy();
+      expect(screen.getByText('Fee:')).toBeTruthy();
       expect(screen.getAllByText('20 sats').length).toBeGreaterThan(0);
     });
 
@@ -200,7 +206,7 @@ describe('SendScreen on-chain flow', () => {
 
     await waitFor(() => {
       expect(Alert.alert).toHaveBeenCalledWith(
-        'Invalid Payment Request',
+        'Payment Error',
         expect.stringContaining('valid Lightning invoice')
       );
     });
