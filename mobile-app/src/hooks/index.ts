@@ -8,6 +8,7 @@ export * from './useGoogleAuth';
 // Wallet hooks
 export * from './useWallet';
 export * from './useWalletAuth';
+export * from './useSwap';
 
 // Language and i18n
 export * from './useLanguage';
