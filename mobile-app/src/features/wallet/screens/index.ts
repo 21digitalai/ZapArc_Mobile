@@ -10,6 +10,7 @@ export { WalletSelectionScreen } from './WalletSelectionScreen';
 
 // Main tab screens
 export { HomeScreen } from './HomeScreen';
+export { SwapScreen } from './SwapScreen';
 export { QRScannerScreen } from './QRScannerScreen';
 export { TransactionHistoryScreen } from './TransactionHistoryScreen';
 export { WalletManagementScreen } from './WalletManagementScreen';
