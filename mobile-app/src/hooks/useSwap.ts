@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import NetInfo from '@react-native-community/netinfo';
 import { AppState } from 'react-native';
 
 import type { SwapDirection, SwapOutcome, SwapQuote } from '../services/breezSparkService';
@@ -41,6 +42,10 @@ const DEFAULT_SLIPPAGE_BPS = 50;
 const INPUT_DEBOUNCE_MS = 400;
 const REQUOTE_IDLE_MS = 10000;
 
+type UseSwapOptions = {
+  authenticate?: () => Promise<boolean>;
+};
+
 function toPositiveBigint(input: string): bigint | null {
   if (!input.trim()) return null;
   if (!/^\d+$/.test(input.trim())) return null;
@@ -58,12 +63,14 @@ function toPaymentId(value: unknown): string | null {
   return typeof id === 'string' && id.length > 0 ? id : null;
 }
 
-export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
-  const [direction, setDirection] = useState<SwapDirection>(initialDirection);
+export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB', options: UseSwapOptions = {}) {
+  const [direction, setDirectionState] = useState<SwapDirection>(initialDirection);
   const [amountInput, setAmountInput] = useState('');
   const [slippageBps, setSlippageBps] = useState(DEFAULT_SLIPPAGE_BPS);
   const [state, setState] = useState<SwapState>({ status: 'idle' });
   const [availableBalance, setAvailableBalance] = useState<bigint | null>(null);
+  const [isOffline, setIsOffline] = useState(false);
+  const [limitsUnavailable, setLimitsUnavailable] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requoteRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -92,9 +99,24 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
     setSlippageBps(settings.slippageBps);
   }, []);
 
+  const loadLimits = useCallback(async () => {
+    try {
+      await fetchSwapLimits(direction);
+      setLimitsUnavailable(false);
+      return true;
+    } catch {
+      setLimitsUnavailable(true);
+      return false;
+    }
+  }, [direction]);
+
   const runQuote = useCallback(async (isRefresh: boolean) => {
     if (!amountBaseUnits) {
       setState({ status: 'idle' });
+      return;
+    }
+    if (isOffline) {
+      setState({ status: 'error', message: 'Offline', retryable: true });
       return;
     }
 
@@ -108,6 +130,7 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
 
     try {
       const limits = await fetchSwapLimits(direction);
+      setLimitsUnavailable(false);
       if (amountBaseUnits < limits.min) {
         if (seq === requestSeqRef.current) setState({ status: 'belowMin', min: limits.min });
         return;
@@ -129,6 +152,7 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
       setState({ status: 'quoteLoaded', quote });
     } catch (error) {
       if (seq !== requestSeqRef.current) return;
+      setLimitsUnavailable(true);
       if (isRefresh && lastQuoteRef.current) {
         setState({ status: 'quoteLoaded', quote: lastQuoteRef.current });
         return;
@@ -139,7 +163,7 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
         retryable: true,
       });
     }
-  }, [amountBaseUnits, availableBalance, direction, slippageBps]);
+  }, [amountBaseUnits, availableBalance, direction, isOffline, slippageBps]);
 
   const scheduleRequote = useCallback(() => {
     if (requoteRef.current) clearTimeout(requoteRef.current);
@@ -151,6 +175,23 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
   useEffect(() => {
     void loadSlippage();
   }, [loadSlippage]);
+
+  useEffect(() => {
+    let mounted = true;
+    void NetInfo.fetch().then((state) => {
+      if (mounted) setIsOffline(!(state.isConnected ?? true));
+    });
+
+    const unsubscribe = NetInfo.addEventListener((next) => {
+      const offline = !(next.isConnected ?? true);
+      setIsOffline(offline);
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     if (!amountBaseUnits) {
@@ -225,23 +266,24 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
     return () => clearTimers();
   }, [clearTimers]);
 
-  const flipDirection = useCallback(() => {
+  const setDirection = useCallback((next: SwapDirection) => {
     requestSeqRef.current += 1;
-    setDirection((current) => {
-      const next = current === 'BTC_TO_USDB' ? 'USDB_TO_BTC' : 'BTC_TO_USDB';
-      lastDirectionRef.current = next;
-      return next;
-    });
+    lastDirectionRef.current = next;
+    setDirectionState(next);
     setAmountInput('');
     setState({ status: 'idle' });
   }, []);
+
+  const flipDirection = useCallback(() => {
+    setDirection(direction === 'BTC_TO_USDB' ? 'USDB_TO_BTC' : 'BTC_TO_USDB');
+  }, [direction, setDirection]);
 
   const openReview = useCallback(() => {
     if (state.status !== 'quoteLoaded') return;
     setState({ status: 'reviewing', quote: state.quote });
   }, [state]);
 
-  const cancelReview = useCallback(() => {
+  const closeReview = useCallback(() => {
     if (state.status !== 'reviewing') return;
     setState({ status: 'quoteLoaded', quote: state.quote });
   }, [state]);
@@ -249,6 +291,14 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
   const confirmSwap = useCallback(async (): Promise<SwapOutcome | null> => {
     if (state.status !== 'reviewing' || confirmInFlightRef.current) {
       return null;
+    }
+
+    if (options.authenticate) {
+      const authOk = await options.authenticate();
+      if (!authOk) {
+        setState({ status: 'reviewing', quote: state.quote, authError: 'Authentication failed' });
+        return null;
+      }
     }
 
     confirmInFlightRef.current = true;
@@ -285,11 +335,11 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
     } finally {
       confirmInFlightRef.current = false;
     }
-  }, [state]);
+  }, [options, state]);
 
-  const retry = useCallback(() => {
+  const retrySwap = useCallback(() => {
     const preservedAmount = lastInputRef.current || amountInput;
-    setDirection(lastDirectionRef.current);
+    setDirectionState(lastDirectionRef.current);
     if (preservedAmount) {
       setAmountInput(preservedAmount);
       setState({ status: 'typing' });
@@ -298,11 +348,15 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
     setState({ status: 'idle' });
   }, [amountInput]);
 
-  const tryRefundedAgain = useCallback(() => {
+  const tryAgainFromRefund = useCallback(() => {
     if (state.status !== 'refunded') return;
     setAmountInput(String(state.latestQuote.amount));
     setState({ status: 'typing' });
   }, [state]);
+
+  const refreshQuote = useCallback(() => {
+    void runQuote(true);
+  }, [runQuote]);
 
   const updateSlippage = useCallback(async (next: number) => {
     const clamped = Math.min(1000, Math.max(1, Math.round(next)));
@@ -316,15 +370,25 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB') {
     amountBaseUnits,
     slippageBps,
     state,
+    isOffline,
+    limitsUnavailable,
+    setAmount: setAmountInput,
     setAmountInput,
     setAvailableBalance,
     setDirection,
     flipDirection,
+    loadLimits,
+    retryLimits: loadLimits,
+    refreshQuote,
     openReview,
-    cancelReview,
+    closeReview,
+    cancelReview: closeReview,
     confirmSwap,
-    retry,
-    tryRefundedAgain,
+    retrySwap,
+    retry: retrySwap,
+    tryAgainFromRefund,
+    tryRefundedAgain: tryAgainFromRefund,
+    setSlippageBps: updateSlippage,
     updateSlippage,
   };
 }
