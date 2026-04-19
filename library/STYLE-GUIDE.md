@@ -69,3 +69,10 @@
 - Reusable amount-entry card for swap flows with plain text currency label (no dropdown).
 - Loading state uses animated opacity pulse skeleton rows (no `ActivityIndicator`).
 - Max control supports disabled state with helper tooltip text.
+
+### Swap screen integration shell
+
+`src/features/wallet/screens/SwapScreen.tsx`
+- Compose swap flow from shared parts: `SwapAmountCard` (pay/receive), `SwapRateLine`, `SwapReviewModal`, and `SwapResultView`.
+- Keep connectivity status visible with inline top banners for offline and limits-unavailable states.
+- During `confirming`, block navigation gestures/back and show a dedicated confirming state block instead of actionable CTAs.
