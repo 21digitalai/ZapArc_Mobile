@@ -23,6 +23,9 @@ import { useWalletAuth } from '../../../hooks/useWalletAuth';
 import { useLanguage } from '../../../hooks/useLanguage';
 import { useCurrency } from '../../../hooks/useCurrency';
 import { onPaymentReceived } from '../../../services/breezSparkService';
+import { settingsService } from '../../../services/settingsService';
+import { formatFiat, usdbToFiat } from '../../../utils/currency';
+import { AssetTabBar } from '../components/AssetTabBar';
 import type { Transaction } from '../types';
 import {
   enableNotificationsIfNeeded,
@@ -43,6 +46,8 @@ interface QuickActionProps {
   color?: string;
 }
 
+type WalletAsset = 'BTC' | 'USDB';
+
 // =============================================================================
 // Component
 // =============================================================================
@@ -51,21 +56,25 @@ export function HomeScreen(): React.JSX.Element {
   const {
     balance,
     transactions,
+    usdbBalance,
     isLoading,
     isConnected,
     refreshBalance,
     refreshTransactions,
+    getBalanceForAsset,
+    getTransactionsForAsset,
     activeWalletInfo,
     loadWalletData,
   } = useWallet();
   const { lock, enableBiometric } = useWalletAuth();
   const { t } = useLanguage();
-  const { format, formatTx, refreshSettings } = useCurrency();
+  const { format, formatTx, refreshSettings, rates, secondaryFiatCurrency } = useCurrency();
 
   // Get navigation params (for payment success toast)
   const params = useLocalSearchParams<{
     paymentSuccess?: string;
     paymentAmount?: string;
+    asset?: string;
   }>();
 
   const { themeMode } = useAppTheme();
@@ -81,6 +90,11 @@ export function HomeScreen(): React.JSX.Element {
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [activeReminder, setActiveReminder] = useState<SecurityReminderKind>(null);
+  const [activeAsset, setActiveAsset] = useState<WalletAsset>('BTC');
+
+  const displayBalance = getBalanceForAsset(activeAsset);
+  const displayTransactions = getTransactionsForAsset(activeAsset);
+  const showUsdbEmptyState = activeAsset === 'USDB' && usdbBalance <= 0 && displayTransactions.length === 0;
 
   // Decide which security banner (if any) to show above the balance.
   // Biometric has priority; notifications only takes over once biometric
@@ -97,6 +111,19 @@ export function HomeScreen(): React.JSX.Element {
   useEffect(() => {
     void refreshSecurityBanner();
   }, [refreshSecurityBanner]);
+
+  useEffect(() => {
+    let mounted = true;
+    void settingsService.getActiveAsset().then((stored) => {
+      if (mounted) {
+        setActiveAsset(stored);
+      }
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handleEnableBiometric = useCallback(async (): Promise<void> => {
     // The banner tap IS the user's opt-in, so we skip any confirm alert.
@@ -230,21 +257,40 @@ export function HomeScreen(): React.JSX.Element {
     }
   }, [params.paymentSuccess, params.paymentAmount]);
 
+  useEffect(() => {
+    const targetAsset = params.asset === 'USDB' ? 'USDB' : null;
+    if (!targetAsset || targetAsset === activeAsset) return;
+
+    setActiveAsset(targetAsset);
+    void settingsService.setActiveAsset(targetAsset);
+    router.setParams({ asset: undefined });
+  }, [params.asset, activeAsset]);
+
   // Navigation handlers
+  const handleAssetChange = (asset: WalletAsset): void => {
+    setActiveAsset(asset);
+    void settingsService.setActiveAsset(asset);
+  };
+
   const handleSend = (): void => {
-    router.push('/wallet/send');
+    router.push({ pathname: '/wallet/send', params: { asset: activeAsset } });
   };
 
   const handleReceive = (): void => {
-    router.push('/wallet/receive');
+    router.push({ pathname: '/wallet/receive', params: { asset: activeAsset } });
   };
 
   const handleScan = (): void => {
-    router.push('/wallet/scan');
+    router.push({ pathname: '/wallet/scan', params: { asset: activeAsset } });
+  };
+
+  const handleSwap = (): void => {
+    const direction = activeAsset === 'USDB' ? 'USDB_TO_BTC' : 'BTC_TO_USDB';
+    router.push({ pathname: '/wallet/swap', params: { direction } });
   };
 
   const handleViewHistory = (): void => {
-    router.push('/wallet/history');
+    router.push({ pathname: '/wallet/history', params: { asset: activeAsset } });
   };
 
   const handleManageWallets = (): void => {
@@ -374,6 +420,13 @@ export function HomeScreen(): React.JSX.Element {
             />
           }
         >
+          <AssetTabBar
+            assets={[t('home.assetTab.btc'), t('home.assetTab.usdb')]}
+            active={activeAsset}
+            onChange={(asset) => handleAssetChange(asset as WalletAsset)}
+            primaryTextColor={primaryTextColor}
+          />
+
           {/* Security reminder banner — only one at a time.
               Biometric has priority; notifications takes over once
               biometric is enabled, dismissed, or unavailable. */}
@@ -437,17 +490,24 @@ export function HomeScreen(): React.JSX.Element {
 
           {/* Balance Card */}
           <View style={styles.balanceCard}>
-            <Text style={[styles.balanceLabel, { color: secondaryTextColor }]}>{t('wallet.balance')}</Text>
-            {isLoading && !balance ? (
+            <Text style={[styles.balanceLabel, { color: secondaryTextColor }]}>
+              {activeAsset === 'USDB' ? 'USDB Balance' : t('wallet.balance')}
+            </Text>
+            {isLoading && !displayBalance ? (
               <ActivityIndicator color={BRAND_COLOR} size="large" />
             ) : (
               <>
                 <Text style={[styles.balanceAmount, { color: primaryTextColor }]}>
-                  {getFormattedBalance(balance).primary}
+                  {activeAsset === 'USDB' ? `${displayBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDB` : getFormattedBalance(displayBalance).primary}
                 </Text>
-                {showBalance && getFormattedBalance(balance).secondary && (
+                {showBalance && activeAsset === 'USDB' && rates && (
                   <Text style={[styles.balanceSecondary, { color: secondaryTextColor }]}>
-                    {getFormattedBalance(balance).secondary}
+                    {formatFiat(usdbToFiat(displayBalance, secondaryFiatCurrency, rates), secondaryFiatCurrency)}
+                  </Text>
+                )}
+                {showBalance && activeAsset === 'BTC' && getFormattedBalance(displayBalance).secondary && (
+                  <Text style={[styles.balanceSecondary, { color: secondaryTextColor }]}>
+                    {getFormattedBalance(displayBalance).secondary}
                   </Text>
                 )}
               </>
@@ -461,18 +521,28 @@ export function HomeScreen(): React.JSX.Element {
 
           {/* Quick Actions */}
           <View style={styles.quickActionsContainer}>
+            {activeAsset === 'USDB' ? (
+              <QuickAction
+                icon="⇄"
+                label={t('swap.title')}
+                onPress={handleSwap}
+                color="#FFB300"
+              />
+            ) : null}
             <QuickAction
               icon="↑"
               label={t('wallet.send')}
               onPress={handleSend}
               color="#FF6B6B"
             />
-            <QuickAction
-              icon="↓"
-              label={t('wallet.receive')}
-              onPress={handleReceive}
-              color="#4CAF50"
-            />
+            {showUsdbEmptyState ? null : (
+              <QuickAction
+                icon="↓"
+                label={t('wallet.receive')}
+                onPress={handleReceive}
+                color="#4CAF50"
+              />
+            )}
             <QuickAction
               icon="⬡"
               label={t('payments.scanQR')}
@@ -480,6 +550,19 @@ export function HomeScreen(): React.JSX.Element {
               color="#2196F3"
             />
           </View>
+
+          {showUsdbEmptyState && (
+            <View style={styles.usdbEmptyStateCard}>
+              <Text style={[styles.usdbEmptyStateTitle, { color: primaryTextColor }]}>No USDB yet</Text>
+              <Text style={[styles.usdbEmptyStateSubtitle, { color: secondaryTextColor }]}>Swap sats to get started.</Text>
+              <TouchableOpacity
+                onPress={handleSwap}
+                style={[styles.usdbEmptyStateButton, { backgroundColor: BRAND_COLOR }]}
+              >
+                <Text style={styles.usdbEmptyStateButtonText}>Swap sats → USDB</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* Recent Transactions */}
           <View style={styles.sectionHeader}>
@@ -495,7 +578,7 @@ export function HomeScreen(): React.JSX.Element {
                 <ActivityIndicator color={BRAND_COLOR} />
                 <Text style={[styles.loadingText, { color: secondaryTextColor }]}>{t('common.loading')}</Text>
               </View>
-            ) : transactions.length === 0 ? (
+            ) : displayTransactions.length === 0 ? (
               <View style={styles.emptyTransactions}>
                 <Text style={styles.emptyIcon}>📭</Text>
                 <Text style={[styles.emptyText, { color: secondaryTextColor }]}>{t('wallet.noTransactions')}</Text>
@@ -504,7 +587,7 @@ export function HomeScreen(): React.JSX.Element {
                 </Text>
               </View>
             ) : (
-              transactions.slice(0, 5).map(renderTransaction)
+              displayTransactions.slice(0, 5).map(renderTransaction)
             )}
           </View>
         </ScrollView>
@@ -803,6 +886,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 32,
+  },
+  usdbEmptyStateCard: {
+    marginBottom: 18,
+    borderRadius: 14,
+    padding: 16,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  usdbEmptyStateTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  usdbEmptyStateSubtitle: {
+    marginTop: 6,
+    fontSize: 13,
+  },
+  usdbEmptyStateButton: {
+    marginTop: 12,
+    borderRadius: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  usdbEmptyStateButtonText: {
+    color: '#1a1a2e',
+    fontWeight: '700',
   },
   quickAction: {
     alignItems: 'center',
