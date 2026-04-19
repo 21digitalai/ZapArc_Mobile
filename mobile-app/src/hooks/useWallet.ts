@@ -884,7 +884,7 @@ export function useWallet(): WalletState & WalletActions {
   // This ensures balance loads after SDK becomes available
   useEffect(() => {
     let isMounted = true;
-    let interval: number | null = null;
+    let interval: ReturnType<typeof global.setInterval> | null = null;
 
     const checkAndSync = async (): Promise<void> => {
       try {

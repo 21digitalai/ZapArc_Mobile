@@ -92,7 +92,7 @@ export function FeedbackProvider({ children }: FeedbackProviderProps): React.JSX
   }>({ visible: false, options: null, resolve: null });
 
   const insets = useSafeAreaInsets();
-  const loadingTimeoutRef = useRef<ReturnType<typeof global.setTimeout>>();
+  const loadingTimeoutRef = useRef<ReturnType<typeof global.setTimeout> | null>(null);
 
   // ========================================
   // Toast Functions

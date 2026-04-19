@@ -25,6 +25,8 @@ Notifications.setNotificationHandler({
         shouldShowAlert: false,
         shouldPlaySound: true,
         shouldSetBadge: false,
+        shouldShowBanner: false,
+        shouldShowList: false,
       };
     }
 
@@ -33,6 +35,8 @@ Notifications.setNotificationHandler({
       shouldShowAlert: true,
       shouldPlaySound: true,
       shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
     };
   },
 });
