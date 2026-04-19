@@ -187,15 +187,19 @@ export default function SendScreen() {
   const [contactModalVisible, setContactModalVisible] = useState(false);
   const [isFetchingFees, setIsFetchingFees] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
+  const [usdbLightningError, setUsdbLightningError] = useState<string | null>(null);
+
+  const isUsdbAsset = activeAsset === 'USDB';
 
   useEffect(() => {
     const incomingInput = typeof params.paymentInput === 'string' ? params.paymentInput.trim() : '';
     const incomingAsset = typeof params.asset === 'string' ? params.asset.toUpperCase() : 'BTC';
-    setActiveAsset(incomingAsset === 'USDB' ? 'USDB' : 'BTC');
+    const resolvedAsset = incomingAsset === 'USDB' ? 'USDB' : 'BTC';
+    setActiveAsset(resolvedAsset);
     if (!incomingInput) return;
 
     const incomingTab = typeof params.tab === 'string' ? params.tab.toLowerCase() : '';
-    if (incomingTab === 'onchain') {
+    if (incomingTab === 'onchain' && resolvedAsset !== 'USDB') {
       setActiveTab('onchain');
     } else {
       setActiveTab('lightning');
@@ -224,6 +228,12 @@ export default function SendScreen() {
   useEffect(() => {
     setInputCurrency(displayCurrency);
   }, [displayCurrency]);
+
+  useEffect(() => {
+    if (isUsdbAsset && activeTab === 'onchain') {
+      setActiveTab('lightning');
+    }
+  }, [activeTab, isUsdbAsset]);
 
   const previewSats = useMemo(() => {
     const numAmount = parseFloat(amount);
@@ -268,15 +278,17 @@ export default function SendScreen() {
     setSelectedContact(null);
     setInputCurrency('sats');
     setAddressError(null);
+    setUsdbLightningError(null);
   }, []);
 
   const handleTabChange = useCallback(
     (tab: SendTab) => {
+      if (isUsdbAsset && tab === 'onchain') return;
       if (activeTab === tab) return;
       setActiveTab(tab);
       resetFormState();
     },
-    [activeTab, resetFormState]
+    [activeTab, isUsdbAsset, resetFormState]
   );
 
   const handleCycleCurrency = useCallback(() => {
@@ -296,6 +308,19 @@ export default function SendScreen() {
   const handleClearContact = useCallback(() => {
     setSelectedContact(null);
     setPaymentInput('');
+    setUsdbLightningError(null);
+  }, []);
+
+  const handlePaymentInputChange = useCallback((value: string) => {
+    setPaymentInput(value);
+    if (usdbLightningError) {
+      setUsdbLightningError(null);
+    }
+  }, [usdbLightningError]);
+
+  const handleSwitchToBtc = useCallback(() => {
+    setActiveAsset('BTC');
+    setUsdbLightningError(null);
   }, []);
 
   useEffect(() => {
@@ -342,6 +367,10 @@ export default function SendScreen() {
       if (activeTab !== 'lightning') return;
       try {
         const parsed = await BreezSparkService.parsePaymentRequest(trimmedInput);
+        if (isUsdbAsset && parsed.type === 'bolt11') {
+          setUsdbLightningError('USDB transfers stay on Spark. Lightning invoices are BTC-only.');
+          return;
+        }
         if (parsed.isValid && parsed.type === 'bolt11' && parsed.amountSat !== undefined) {
           setAmount(parsed.amountSat.toString());
         }
@@ -353,7 +382,7 @@ export default function SendScreen() {
     }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [paymentInput, activeTab]);
+  }, [paymentInput, activeTab, isUsdbAsset]);
 
   // Auto-fetch on-chain fee quotes when address + amount are filled
   useEffect(() => {
@@ -564,6 +593,11 @@ export default function SendScreen() {
       const parsedRequest = await BreezSparkService.parsePaymentRequest(resolvedInput);
       const isOnchainFlow = activeTab === 'onchain';
 
+      if (isUsdbAsset && parsedRequest.type === 'bolt11') {
+        setUsdbLightningError('USDB transfers stay on Spark. Lightning invoices are BTC-only.');
+        return;
+      }
+
       if (!parsedRequest.isValid) {
         Alert.alert(t('send.paymentError'), t('send.invalidPaymentRequest'));
         return;
@@ -730,7 +764,7 @@ export default function SendScreen() {
     } finally {
       setIsPreparing(false);
     }
-  }, [paymentInput, amount, comment, balance, inputCurrency, convertToSats, getOnchainFeeQuote, selectedSpeed, activeTab, t]);
+  }, [paymentInput, amount, comment, balance, inputCurrency, convertToSats, getOnchainFeeQuote, selectedSpeed, activeTab, isUsdbAsset, t]);
 
   const handleSendPayment = useCallback(async () => {
     if (!preview || !prepareResponse) {
@@ -1026,9 +1060,11 @@ export default function SendScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => handleTabChange('onchain')}
+            disabled={isUsdbAsset}
             style={[
               styles.tabButton,
               !isLightningTab && styles.tabButtonActive,
+              isUsdbAsset && styles.tabButtonDisabled,
               { borderColor: BRAND_COLOR },
             ]}
           >
@@ -1037,6 +1073,13 @@ export default function SendScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+
+        {isUsdbAsset && (
+          <View style={styles.usdbBanner}>
+            <Text style={styles.usdbBannerText}>USDB transfers stay on Spark.</Text>
+            <Text onPress={handleSwitchToBtc} style={styles.usdbBannerAction}>Swap to BTC →</Text>
+          </View>
+        )}
 
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           <View style={styles.balanceContainer}>
@@ -1079,7 +1122,7 @@ export default function SendScreen() {
               <StyledTextInput
                 placeholder={t('send.lightningInputPlaceholder')}
                 value={paymentInput}
-                onChangeText={setPaymentInput}
+                onChangeText={handlePaymentInputChange}
                 style={[styles.input, styles.inputWithButton]}
                 multiline
                 numberOfLines={2}
@@ -1097,7 +1140,7 @@ export default function SendScreen() {
             <StyledTextInput
               placeholder={t('send.onchainInputPlaceholder')}
               value={paymentInput}
-              onChangeText={setPaymentInput}
+              onChangeText={handlePaymentInputChange}
               style={styles.input}
               multiline={false}
               error={!!addressError}
@@ -1106,6 +1149,13 @@ export default function SendScreen() {
 
           {addressError && activeTab === 'onchain' && (
             <Text style={styles.addressErrorText}>{addressError}</Text>
+          )}
+
+          {!!usdbLightningError && isLightningTab && isUsdbAsset && (
+            <View style={styles.usdbInlineErrorContainer}>
+              <Text style={styles.usdbInlineErrorText}>{usdbLightningError}</Text>
+              <Text onPress={handleSwitchToBtc} style={styles.usdbInlineErrorAction}>Switch to BTC</Text>
+            </View>
           )}
 
           <Button
@@ -1342,6 +1392,34 @@ const styles = StyleSheet.create({
   tabButtonActive: {
     backgroundColor: BRAND_COLOR,
   },
+  tabButtonDisabled: {
+    opacity: 0.4,
+  },
+  usdbBanner: {
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  usdbBannerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    flex: 1,
+    marginRight: 8,
+  },
+  usdbBannerAction: {
+    color: BRAND_COLOR,
+    fontSize: 12,
+    fontWeight: '700',
+  },
   tabText: {
     fontSize: 14,
     fontWeight: '700',
@@ -1408,6 +1486,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
     marginBottom: 4,
+  },
+  usdbInlineErrorContainer: {
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  usdbInlineErrorText: {
+    color: '#ef4444',
+    fontSize: 12,
+  },
+  usdbInlineErrorAction: {
+    marginTop: 4,
+    color: BRAND_COLOR,
+    fontSize: 12,
+    fontWeight: '700',
   },
   scanButton: {
     borderColor: BRAND_COLOR,

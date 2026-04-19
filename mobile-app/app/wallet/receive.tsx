@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Modal, Linking } from 'react-native';
 import { Text, Button, Snackbar, IconButton, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
@@ -44,6 +44,7 @@ const currencyLabels: Record<DisplayCurrency, string> = {
 };
 
 export default function ReceiveScreen() {
+  const params = useLocalSearchParams<{ asset?: string; tab?: string }>();
   const { themeMode } = useAppTheme();
   const gradientColors = getGradientColors(themeMode);
   const primaryTextColor = getPrimaryTextColor(themeMode);
@@ -63,6 +64,7 @@ export default function ReceiveScreen() {
   );
 
   const [activeTab, setActiveTab] = useState<ReceiveTab>('lightning');
+  const [activeAsset, setActiveAsset] = useState<'BTC' | 'USDB'>('BTC');
 
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
@@ -83,6 +85,24 @@ export default function ReceiveScreen() {
   useEffect(() => {
     setInputCurrency(displayCurrency);
   }, [displayCurrency]);
+
+  useEffect(() => {
+    const incomingAsset = typeof params.asset === 'string' ? params.asset.toUpperCase() : 'BTC';
+    const resolvedAsset = incomingAsset === 'USDB' ? 'USDB' : 'BTC';
+    setActiveAsset(resolvedAsset);
+
+    const incomingTab = typeof params.tab === 'string' ? params.tab.toLowerCase() : '';
+    if (incomingTab === 'onchain' && resolvedAsset !== 'USDB') {
+      setActiveTab('onchain');
+    } else if (incomingTab === 'lightning' || resolvedAsset === 'USDB') {
+      setActiveTab('lightning');
+    }
+
+    router.setParams({
+      tab: undefined,
+      asset: undefined,
+    });
+  }, [params.asset, params.tab]);
 
   const previewSats = useMemo(() => {
     const numAmount = parseFloat(amount);
@@ -233,10 +253,17 @@ export default function ReceiveScreen() {
     }
   }, [activeTab, handleGenerateOnchainAddress]);
 
+  const isUsdbAsset = activeAsset === 'USDB';
+
   const handleTabChange = useCallback((tab: ReceiveTab) => {
+    if (isUsdbAsset && tab === 'onchain') return;
     if (activeTab === tab) return;
     setActiveTab(tab);
-  }, [activeTab]);
+  }, [activeTab, isUsdbAsset]);
+
+  const handleSwitchToBtc = useCallback(() => {
+    setActiveAsset('BTC');
+  }, []);
 
   const handleCycleCurrency = useCallback(() => {
     const nextCurrency = cycleDisplayCurrency(inputCurrency);
@@ -533,9 +560,11 @@ export default function ReceiveScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => handleTabChange('onchain')}
+            disabled={isUsdbAsset}
             style={[
               styles.tabButton,
               !isLightningTab && styles.tabButtonActive,
+              isUsdbAsset && styles.tabButtonDisabled,
               { borderColor: BRAND_COLOR },
             ]}
           >
@@ -544,6 +573,13 @@ export default function ReceiveScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+
+        {isUsdbAsset && (
+          <View style={styles.usdbBanner}>
+            <Text style={styles.usdbBannerText}>USDB transfers stay on Spark.</Text>
+            <Text onPress={handleSwitchToBtc} style={styles.usdbBannerAction}>Swap to BTC →</Text>
+          </View>
+        )}
 
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           {isLightningTab ? (
@@ -838,6 +874,34 @@ const styles = StyleSheet.create({
   },
   tabButtonActive: {
     backgroundColor: BRAND_COLOR,
+  },
+  tabButtonDisabled: {
+    opacity: 0.4,
+  },
+  usdbBanner: {
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  usdbBannerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    flex: 1,
+    marginRight: 8,
+  },
+  usdbBannerAction: {
+    color: BRAND_COLOR,
+    fontSize: 12,
+    fontWeight: '700',
   },
   tabText: {
     fontSize: 14,
