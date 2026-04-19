@@ -314,6 +314,9 @@ export function HomeScreen(): React.JSX.Element {
     const tx = row.transaction;
     const isReceived = row.displayType === 'receive';
     const method = row.isSwap ? 'swap' : (tx.method || (tx.txid ? 'onchain' : 'lightning'));
+    const isDirectUsdbTransfer = !row.isSwap && tx.asset === 'USDB';
+    const txIcon = isDirectUsdbTransfer ? (isReceived ? '$↓' : '$↑') : (method === 'swap' ? '⇄' : method === 'onchain' ? '⛓️' : '⚡');
+    const txIconColor = isDirectUsdbTransfer ? '#4CAF50' : primaryTextColor;
     const amount = row.displayAmount;
     const timestamp = typeof tx.timestamp === 'number' && tx.timestamp > 0 ? tx.timestamp : Date.now();
     const dateObj = new Date(timestamp);
