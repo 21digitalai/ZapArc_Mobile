@@ -5,6 +5,7 @@
 // - Development builds (npx expo run:android)
 // - Production builds
 import { BREEZ_API_KEY, BREEZ_STORAGE_DIR } from '../config';
+import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
 // expo-notifications and expo-constants imports removed —
 // push token handling moved to notificationSubscriptionService.ts
 // Note: Local notifications disabled - FCM push handles payment notifications
@@ -137,6 +138,13 @@ export interface LightningAddressInfo {
   lnurl: string;            // LNURL representation
 }
 
+export type SwapDirection = 'BTC_TO_USDB' | 'USDB_TO_BTC';
+
+export interface SwapLimits {
+  min: bigint;
+  max: bigint;
+}
+
 // =============================================================================
 // Native Module Detection
 // =============================================================================
@@ -165,6 +173,7 @@ try {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let sdkInstance: any = null;
 let _isInitialized = false;
+let cachedResolvedSwapTokens: ResolvedSwapToken[] | null = null;
 
 // Event listeners
 type PaymentEventCallback = (payment: TransactionInfo) => void;
@@ -176,6 +185,62 @@ let activeEventListenerId: string | null = null;
 // Track recently sent payment IDs to avoid sending "Payment Received" notifications for our own sends
 const recentlySentPaymentIds: Set<string> = new Set();
 const SENT_PAYMENT_TRACKING_MS = 60000; // Track for 1 minute
+
+function toBigIntOrNull(value: unknown): bigint | null {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return BigInt(Math.trunc(value));
+  if (typeof value === 'string' && value.trim().length > 0) {
+    try {
+      return BigInt(value);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function walkObjectForIdentifiers(value: unknown, out: Set<string>): void {
+  if (!value || typeof value !== 'object') return;
+
+  if (Array.isArray(value)) {
+    for (const entry of value) walkObjectForIdentifiers(entry, out);
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  const maybeTicker = String(record.ticker || record.symbol || '').toUpperCase();
+  const maybeIdentifier = record.tokenIdentifier || record.identifier || record.tokenId || record.id;
+
+  if (maybeTicker === 'USDB' && typeof maybeIdentifier === 'string' && maybeIdentifier.length > 0) {
+    out.add(maybeIdentifier);
+  }
+
+  for (const child of Object.values(record)) walkObjectForIdentifiers(child, out);
+}
+
+function extractLimitsFromResponse(response: unknown): SwapLimits {
+  const source = (response || {}) as Record<string, unknown>;
+
+  const min =
+    toBigIntOrNull(source.min) ??
+    toBigIntOrNull(source.minAmount) ??
+    toBigIntOrNull(source.minAmountSat) ??
+    toBigIntOrNull(source.minSendable) ??
+    toBigIntOrNull((source.limits as Record<string, unknown> | undefined)?.min);
+
+  const max =
+    toBigIntOrNull(source.max) ??
+    toBigIntOrNull(source.maxAmount) ??
+    toBigIntOrNull(source.maxAmountSat) ??
+    toBigIntOrNull(source.maxSendable) ??
+    toBigIntOrNull((source.limits as Record<string, unknown> | undefined)?.max);
+
+  if (min === null || max === null) {
+    throw new Error('Failed to parse conversion limits from SDK response');
+  }
+
+  return { min, max };
+}
 
 // =============================================================================
 // Public API
@@ -216,6 +281,97 @@ const SENT_PAYMENT_TRACKING_MS = 60000; // Track for 1 minute
     console.warn('⚠️ [BreezSparkService] Failed to get node ID:', err);
     return null;
   }
+}
+
+
+export async function resolveSwapTokens(): Promise<ResolvedSwapToken[]> {
+  if (!_isNativeAvailable || !sdkInstance) {
+    throw new Error('SDK not available');
+  }
+
+  if (cachedResolvedSwapTokens) return cachedResolvedSwapTokens;
+
+  const tokenIdentifiers = new Set<string>();
+
+  try {
+    const issuer = await sdkInstance.getTokenIssuer?.();
+    if (typeof issuer === 'string' && issuer.length > 0) {
+      tokenIdentifiers.add(issuer);
+    } else {
+      walkObjectForIdentifiers(issuer, tokenIdentifiers);
+    }
+  } catch (error) {
+    console.warn('⚠️ [BreezSparkService] getTokenIssuer discovery failed:', error);
+  }
+
+  try {
+    const info = await sdkInstance.getInfo?.({ ensureSynced: true });
+    walkObjectForIdentifiers(info?.tokenBalances, tokenIdentifiers);
+  } catch (error) {
+    console.warn('⚠️ [BreezSparkService] getInfo token discovery failed:', error);
+  }
+
+  if (tokenIdentifiers.size === 0) {
+    throw new Error('USDB token discovery failed (no token identifiers found)');
+  }
+
+  const metadataResponse = await sdkInstance.getTokensMetadata?.({
+    tokenIdentifiers: Array.from(tokenIdentifiers),
+  });
+
+  const metadataList: Array<Record<string, unknown>> =
+    metadataResponse?.tokensMetadata ||
+    metadataResponse?.metadata ||
+    metadataResponse ||
+    [];
+
+  if (!Array.isArray(metadataList) || metadataList.length === 0) {
+    throw new Error('USDB token metadata unavailable');
+  }
+
+  cachedResolvedSwapTokens = SWAP_TOKENS.map((token) => {
+    const match = metadataList.find((entry) => {
+      const ticker = String(entry.ticker || entry.symbol || '').toUpperCase();
+      return ticker === token.ticker.toUpperCase();
+    });
+
+    if (!match) throw new Error(`Swap token ${token.ticker} not found in Spark metadata`);
+
+    const tokenIdentifier = String(match.identifier || match.tokenIdentifier || '').trim();
+    const internalDecimals = Number(match.decimals);
+
+    if (!tokenIdentifier) throw new Error(`Swap token ${token.ticker} missing tokenIdentifier`);
+    if (!Number.isFinite(internalDecimals)) throw new Error(`Swap token ${token.ticker} missing decimals`);
+
+    return { ...token, tokenIdentifier, internalDecimals };
+  });
+
+  return cachedResolvedSwapTokens;
+}
+
+export async function fetchSwapLimits(direction: SwapDirection): Promise<SwapLimits> {
+  if (!_isNativeAvailable || !sdkInstance) {
+    throw new Error('SDK not available');
+  }
+
+  const [usdbToken] = await resolveSwapTokens();
+  if (!usdbToken) throw new Error('USDB token unavailable');
+
+  let response: unknown;
+  if (direction === 'BTC_TO_USDB') {
+    response = await sdkInstance.fetchConversionLimits?.({
+      conversionType: { tag: 'FromBitcoin' },
+    });
+  } else {
+    response = await sdkInstance.fetchConversionLimits?.({
+      conversionType: {
+        tag: 'ToBitcoin',
+        fromTokenIdentifier: usdbToken.tokenIdentifier,
+      },
+    });
+  }
+
+  return extractLimitsFromResponse(response);
 }
 
 
@@ -435,6 +591,7 @@ export async function disconnectSDK(): Promise<void> {
         await sdkInstance.disconnect();
         sdkInstance = null;
         _isInitialized = false;
+        cachedResolvedSwapTokens = null;
         console.log('✅ [BreezSparkService] Breez SDK disconnected');
       }
     } catch (error) {
@@ -1715,6 +1872,8 @@ export const BreezSparkService = {
   beginDisconnectSDK,
   isSDKInitialized,
   getRawSdkInstanceForDevtools,
+  resolveSwapTokens,
+  fetchSwapLimits,
   getBalance,
   prepareSendPayment,
   sendPayment,
