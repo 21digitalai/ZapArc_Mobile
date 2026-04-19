@@ -25,6 +25,10 @@ import type {
 // Types
 // =============================================================================
 
+type WalletAsset = 'BTC' | 'USDB';
+
+export type TokenBalanceEntry = Record<string, unknown>;
+
 export interface WalletState {
   // Status
   isLoading: boolean; // Initial load or no cached data
@@ -36,6 +40,8 @@ export interface WalletState {
   activeWalletInfo: ActiveWalletInfo | null;
   balance: number;
   transactions: Transaction[];
+  tokenBalances: TokenBalanceEntry[];
+  usdbBalance: number;
 
   // Multi-wallet data
   masterKeys: MasterKeyEntry[];
@@ -67,6 +73,8 @@ export interface WalletActions {
   // Balance and transactions
   refreshBalance: () => Promise<void>;
   refreshTransactions: () => Promise<void>;
+  getBalanceForAsset: (asset: WalletAsset) => number;
+  getTransactionsForAsset: (asset: WalletAsset) => Transaction[];
 
   // Payment operations
   sendPayment: (bolt11: string) => Promise<boolean>;
@@ -100,6 +108,7 @@ export function useWallet(): WalletState & WalletActions {
     console.log('🏗️ [useWallet] Initial transactions from preload:', preloaded?.length ?? 0);
     return preloaded ?? [];
   });
+  const [tokenBalances, setTokenBalances] = useState<TokenBalanceEntry[]>([]);
   const [storage, setStorage] = useState<MultiWalletStorage | null>(null);
 
   // Refs for stable access in callbacks without triggering identity changes
@@ -192,9 +201,11 @@ export function useWallet(): WalletState & WalletActions {
         console.log('📦 [useWallet] loadWalletData: setting balance =', cachedBal?.balance ?? 0, 'txns =', cachedTx?.transactions?.length ?? 0);
         setBalance(cachedBal?.balance ?? 0);
         setTransactions(cachedTx?.transactions ?? []);
+        setTokenBalances([]);
       } else {
         setBalance(0);
         setTransactions([]);
+        setTokenBalances([]);
       }
 
       if (data && BreezSparkService.isSDKInitialized()) {
@@ -669,6 +680,13 @@ export function useWallet(): WalletState & WalletActions {
         }
 
         // Update activity flag
+        try {
+          const tokenBalancesRaw = await BreezSparkService.getTokenBalances();
+          setTokenBalances(tokenBalancesRaw as TokenBalanceEntry[]);
+        } catch (tokenErr) {
+          console.warn('⚠️ [useWallet] Failed to refresh token balances:', tokenErr);
+        }
+
         const hasActivity = walletBalance.balanceSat > 0 || transactionsRef.current.length > 0;
         storageService.updateSubWalletActivity(
           walletInfo.masterKeyId,
@@ -1137,6 +1155,40 @@ export function useWallet(): WalletState & WalletActions {
     [getSubWalletKey, loadWalletData, masterKeys]
   );
 
+
+
+  const usdbBalance = useMemo((): number => {
+    const usdb = tokenBalances.find((entry) => {
+      const ticker = String((entry as Record<string, unknown>).ticker || (entry as Record<string, unknown>).symbol || '').toUpperCase();
+      return ticker === 'USDB';
+    }) as Record<string, unknown> | undefined;
+
+    if (!usdb) return 0;
+
+    const raw = usdb.balance ?? usdb.amount ?? usdb.baseUnits ?? 0;
+    const decimals = Number(usdb.decimals);
+    const n = typeof raw === 'bigint' ? Number(raw) : Number(raw);
+    if (!Number.isFinite(n)) return 0;
+    if (Number.isFinite(decimals) && decimals >= 0) {
+      return n / (10 ** decimals);
+    }
+    return n;
+  }, [tokenBalances]);
+
+  const getBalanceForAsset = useCallback((asset: WalletAsset): number => {
+    return asset === 'USDB' ? usdbBalance : balance;
+  }, [balance, usdbBalance]);
+
+  const getTransactionsForAsset = useCallback((asset: WalletAsset): Transaction[] => {
+    if (asset === 'BTC') return transactions;
+    return transactions.filter((tx) => {
+      const rec = tx as unknown as Record<string, unknown>;
+      const currency = String(rec.currency || rec.asset || '').toUpperCase();
+      const paymentType = String(rec.paymentType || '').toLowerCase();
+      return currency === 'USDB' || paymentType === 'conversion' || paymentType === 'spark';
+    });
+  }, [transactions]);
+
   const canAddSubWallet = useCallback(
     (masterKeyId: string): boolean => {
       return getAddSubWalletDisabledReason(masterKeyId) === null;
@@ -1159,6 +1211,8 @@ export function useWallet(): WalletState & WalletActions {
     activeWalletInfo,
     balance,
     transactions,
+    tokenBalances,
+    usdbBalance,
     masterKeys,
     activeMasterKey,
     activeSubWallet,
@@ -1175,6 +1229,8 @@ export function useWallet(): WalletState & WalletActions {
     renameSubWallet,
     refreshBalance,
     refreshTransactions,
+    getBalanceForAsset,
+    getTransactionsForAsset,
     sendPayment,
     receivePayment,
     syncSubWalletActivity,

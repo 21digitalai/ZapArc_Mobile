@@ -20,6 +20,7 @@ const SETTINGS_KEYS = {
   DOMAIN_SETTINGS: '@zap_arc/domain_settings',
   BLACKLIST_DATA: '@zap_arc/blacklist_data',
   SWAP_SETTINGS: '@zap_arc/swap_settings',
+  ACTIVE_ASSET: '@zap_arc/active_asset',
   ONBOARDING_COMPLETE: '@zap_arc/onboarding_complete',
   LAST_SYNC_TIME: '@zap_arc/last_sync_time',
 } as const;
@@ -27,6 +28,8 @@ const SETTINGS_KEYS = {
 type SwapSettings = {
   slippageBps: number;
 };
+
+type WalletAsset = 'BTC' | 'USDB';
 
 const DEFAULT_SWAP_SETTINGS: SwapSettings = {
   slippageBps: 50,
@@ -150,6 +153,29 @@ class SettingsService {
       return next;
     } catch (error) {
       console.error('❌ [SettingsService] Failed to update swap settings:', error);
+      throw error;
+    }
+  }
+
+
+
+  async getActiveAsset(): Promise<WalletAsset> {
+    try {
+      const stored = await AsyncStorage.getItem(SETTINGS_KEYS.ACTIVE_ASSET);
+      return stored === 'USDB' ? 'USDB' : 'BTC';
+    } catch (error) {
+      console.error('❌ [SettingsService] Failed to get active asset:', error);
+      return 'BTC';
+    }
+  }
+
+  async setActiveAsset(asset: WalletAsset): Promise<WalletAsset> {
+    const next: WalletAsset = asset === 'USDB' ? 'USDB' : 'BTC';
+    try {
+      await AsyncStorage.setItem(SETTINGS_KEYS.ACTIVE_ASSET, next);
+      return next;
+    } catch (error) {
+      console.error('❌ [SettingsService] Failed to set active asset:', error);
       throw error;
     }
   }

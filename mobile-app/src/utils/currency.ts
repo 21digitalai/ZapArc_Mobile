@@ -372,3 +372,16 @@ export function formatTransactionAmountWithSettings(
     secondaryCompact: formatted.secondaryCompact,
   };
 }
+
+
+/**
+ * Convert USDB amount to fiat (design assumption: 1 USDB ≈ 1 USD).
+ * EUR uses current USD->EUR FX from cached BTC rates when available.
+ */
+export function usdbToFiat(usdbAmount: number, currency: 'usd' | 'eur', rates: ExchangeRates | null): number {
+  const safe = typeof usdbAmount === 'number' && Number.isFinite(usdbAmount) ? usdbAmount : 0;
+  if (currency === 'usd') return safe;
+  if (!rates || rates.usd <= 0 || rates.eur <= 0) return safe;
+  const usdToEur = rates.eur / rates.usd;
+  return safe * usdToEur;
+}

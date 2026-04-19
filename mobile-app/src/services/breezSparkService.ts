@@ -462,6 +462,17 @@ export async function resolveSwapTokens(): Promise<ResolvedSwapToken[]> {
   return cachedResolvedSwapTokens;
 }
 
+
+
+export async function getTokenBalances(): Promise<Array<Record<string, unknown>>> {
+  if (!_isNativeAvailable || !sdkInstance) {
+    throw new Error('SDK not available');
+  }
+  const info = await sdkInstance.getInfo?.({ ensureSynced: true });
+  const tokenBalances = info?.tokenBalances;
+  return Array.isArray(tokenBalances) ? tokenBalances : [];
+}
+
 export async function fetchSwapLimits(direction: SwapDirection): Promise<SwapLimits> {
   if (!_isNativeAvailable || !sdkInstance) {
     throw new Error('SDK not available');
@@ -2097,6 +2108,7 @@ export const BreezSparkService = {
   isSDKInitialized,
   getRawSdkInstanceForDevtools,
   resolveSwapTokens,
+  getTokenBalances,
   fetchSwapLimits,
   prepareSwap,
   executeSwap,
