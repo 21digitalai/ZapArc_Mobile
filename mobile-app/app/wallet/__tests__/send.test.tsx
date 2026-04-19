@@ -42,13 +42,15 @@ const mockPrepareSendPayment = jest.fn();
 const mockSendOnchainPayment = jest.fn();
 const mockSendPayment = jest.fn();
 
+const mockUseLocalSearchParams = jest.fn(() => ({}));
+
 jest.mock('expo-router', () => ({
   router: {
     back: jest.fn(),
     navigate: jest.fn(),
     setParams: jest.fn(),
   },
-  useLocalSearchParams: jest.fn(() => ({})),
+  useLocalSearchParams: () => mockUseLocalSearchParams(),
   useFocusEffect: jest.fn((callback: () => void) => callback()),
 }));
 
@@ -114,6 +116,7 @@ jest.mock('../../../src/services/breezSparkService', () => ({
     prepareSendPayment: (...args: unknown[]) => mockPrepareSendPayment(...args),
     sendOnchainPayment: (...args: unknown[]) => mockSendOnchainPayment(...args),
     sendPayment: (...args: unknown[]) => mockSendPayment(...args),
+    resolveSwapTokens: jest.fn().mockResolvedValue([{ tokenIdentifier: 'usdb-token', decimals: 2 }]),
   },
 }));
 
@@ -135,6 +138,7 @@ describe('SendScreen on-chain flow', () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
+    mockUseLocalSearchParams.mockReturnValue({});
 
     mockParsePaymentRequest.mockResolvedValue({ type: 'bitcoinAddress', isValid: true });
     mockPrepareSendPayment.mockResolvedValue({
@@ -219,6 +223,29 @@ describe('SendScreen on-chain flow', () => {
 
     await waitFor(() => {
       expect(Alert.alert).toHaveBeenCalledWith('Error', 'Please enter a valid amount in sats');
+    });
+  });
+
+
+  it('shows USDB bolt11 parse error and allows switching to BTC', async () => {
+    mockUseLocalSearchParams.mockReturnValue({ asset: 'USDB' });
+    mockParsePaymentRequest.mockResolvedValue({ type: 'bolt11', isValid: true });
+
+    renderScreen();
+
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'lnbc1exampleinvoice');
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1.25');
+    fireEvent.press(screen.getByText('Preview Payment'));
+
+    await waitFor(() => {
+      expect(screen.getByText('USDB transfers stay on Spark. Lightning invoices are BTC-only.')).toBeTruthy();
+      expect(screen.getByText('Switch to BTC')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByText('Switch to BTC'));
+
+    await waitFor(() => {
+      expect(screen.getByText('500,000 sats')).toBeTruthy();
     });
   });
 
