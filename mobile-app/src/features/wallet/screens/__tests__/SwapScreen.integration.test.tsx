@@ -103,7 +103,7 @@ describe('SwapScreen integration', () => {
 
     render(<SwapScreen />);
 
-    expect(screen.getByText('You pay: BTC')).toBeTruthy();
+    expect(screen.getByText('You pay: sats')).toBeTruthy();
     expect(screen.getByText('You receive: USDB')).toBeTruthy();
   });
 
@@ -113,7 +113,7 @@ describe('SwapScreen integration', () => {
     render(<SwapScreen />);
 
     expect(screen.getByText('You pay: USDB')).toBeTruthy();
-    expect(screen.getByText('You receive: BTC')).toBeTruthy();
+    expect(screen.getByText('You receive: sats')).toBeTruthy();
   });
 
   it('swapsCards_onFlipButtonTap', () => {

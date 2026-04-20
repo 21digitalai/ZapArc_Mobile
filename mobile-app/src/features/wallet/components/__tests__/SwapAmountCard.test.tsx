@@ -32,7 +32,7 @@ describe('SwapAmountCard', () => {
   it('calls onAmountChange when text input changes', () => {
     const { getByLabelText } = render(<SwapAmountCard {...baseProps} />);
 
-    fireEvent.changeText(getByLabelText('Swap amount'), '12.5');
+    fireEvent.changeText(getByLabelText('You pay amount'), '12.5');
     expect(baseProps.onAmountChange).toHaveBeenCalledWith('12.5');
   });
 
@@ -66,7 +66,7 @@ describe('SwapAmountCard', () => {
   it('disables input when isReadOnly=true', () => {
     const { getByLabelText } = render(<SwapAmountCard {...baseProps} isReadOnly />);
 
-    expect(getByLabelText('Swap amount').props.editable).toBe(false);
+    expect(getByLabelText('You pay amount').props.editable).toBe(false);
   });
 
   it('has accessibilityLabel on max button', () => {
