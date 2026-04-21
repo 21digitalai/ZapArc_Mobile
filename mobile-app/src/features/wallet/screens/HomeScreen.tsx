@@ -139,7 +139,7 @@ export function HomeScreen(): React.JSX.Element {
   const handleEnableBiometric = useCallback(async (): Promise<void> => {
     // The banner tap IS the user's opt-in, so we skip any confirm alert.
     // If the user cancels the OS prompt, enableBiometric returns false and
-    // the banner simply stays — refreshSecurityBanner re-derives state.
+    // the banner simply stays - refreshSecurityBanner re-derives state.
     await enableBiometric();
     await refreshSecurityBanner();
   }, [enableBiometric, refreshSecurityBanner]);
@@ -344,7 +344,7 @@ export function HomeScreen(): React.JSX.Element {
     const isReceived = row.displayType === 'receive';
     const method = row.isSwap ? 'swap' : (tx.method || (tx.txid ? 'onchain' : 'lightning'));
     const isDirectUsdbTransfer = !row.isSwap && tx.asset === 'USDB';
-    // For swap rows, the display asset equals the current tab — the row's
+    // For swap rows, the display asset equals the current tab - the row's
     // `displayAmount` is already the amount in that tab's units. For regular
     // rows, trust tx.asset.
     const rowAsset: 'BTC' | 'USDB' = row.isSwap ? activeAsset : (tx.asset === 'USDB' ? 'USDB' : 'BTC');
@@ -469,17 +469,17 @@ export function HomeScreen(): React.JSX.Element {
             primaryTextColor={primaryTextColor}
           />
 
-          {/* Security reminder banner — only one at a time.
+          {/* Security reminder banner - only one at a time.
               Biometric has priority; notifications takes over once
               biometric is enabled, dismissed, or unavailable. */}
           {activeReminder === 'biometric' && (
             <View style={styles.securityBanner}>
               <View style={styles.securityBannerTextWrap}>
-                <Text style={[styles.securityBannerTitle, { color: primaryTextColor }]}>
-                  Enable fingerprint unlock
+                <Text style={[styles.securityBannerTitle, { color: primaryTextColor }]}> 
+                  {t('home.securityBanner.biometricTitle')}
                 </Text>
-                <Text style={[styles.securityBannerSubtitle, { color: secondaryTextColor }]}>
-                  Unlock your wallet with a fingerprint for faster, safer access.
+                <Text style={[styles.securityBannerSubtitle, { color: secondaryTextColor }]}> 
+                  {t('home.securityBanner.biometricSubtitle')}
                 </Text>
               </View>
               <View style={styles.securityBannerActions}>
@@ -487,14 +487,14 @@ export function HomeScreen(): React.JSX.Element {
                   onPress={handleEnableBiometric}
                   style={[styles.securityBannerPrimary, { backgroundColor: BRAND_COLOR }]}
                 >
-                  <Text style={styles.securityBannerPrimaryText}>Enable</Text>
+                  <Text style={styles.securityBannerPrimaryText}>{t('home.securityBanner.enable')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={handleDismissBiometric}
                   style={styles.securityBannerDismiss}
                 >
-                  <Text style={[styles.securityBannerDismissText, { color: secondaryTextColor }]}>
-                    Not now
+                  <Text style={[styles.securityBannerDismissText, { color: secondaryTextColor }]}> 
+                    {t('home.securityBanner.notNow')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -504,11 +504,11 @@ export function HomeScreen(): React.JSX.Element {
           {activeReminder === 'notifications' && (
             <View style={styles.securityBanner}>
               <View style={styles.securityBannerTextWrap}>
-                <Text style={[styles.securityBannerTitle, { color: primaryTextColor }]}>
-                  Turn on payment alerts
+                <Text style={[styles.securityBannerTitle, { color: primaryTextColor }]}> 
+                  {t('home.securityBanner.notificationsTitle')}
                 </Text>
-                <Text style={[styles.securityBannerSubtitle, { color: secondaryTextColor }]}>
-                  Get notified instantly when payments arrive.
+                <Text style={[styles.securityBannerSubtitle, { color: secondaryTextColor }]}> 
+                  {t('home.securityBanner.notificationsSubtitle')}
                 </Text>
               </View>
               <View style={styles.securityBannerActions}>
@@ -516,14 +516,14 @@ export function HomeScreen(): React.JSX.Element {
                   onPress={handleEnableNotifications}
                   style={[styles.securityBannerPrimary, { backgroundColor: BRAND_COLOR }]}
                 >
-                  <Text style={styles.securityBannerPrimaryText}>Enable</Text>
+                  <Text style={styles.securityBannerPrimaryText}>{t('home.securityBanner.enable')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={handleDismissNotifications}
                   style={styles.securityBannerDismiss}
                 >
-                  <Text style={[styles.securityBannerDismissText, { color: secondaryTextColor }]}>
-                    Not now
+                  <Text style={[styles.securityBannerDismissText, { color: secondaryTextColor }]}> 
+                    {t('home.securityBanner.notNow')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -561,7 +561,7 @@ export function HomeScreen(): React.JSX.Element {
             )}
           </View>
 
-          {/* Quick Actions — all four always available; asset context is
+          {/* Quick Actions - all four always available; asset context is
               propagated via route params so each screen gates what applies.
               For USDB tab the Receive screen accepts Spark invoices only
               (on-chain tab is visibly disabled inside that screen). */}
@@ -594,13 +594,13 @@ export function HomeScreen(): React.JSX.Element {
 
           {showUsdbEmptyState && (
             <View style={styles.usdbEmptyStateCard}>
-              <Text style={[styles.usdbEmptyStateTitle, { color: primaryTextColor }]}>No USDB yet</Text>
-              <Text style={[styles.usdbEmptyStateSubtitle, { color: secondaryTextColor }]}>Swap sats to get started.</Text>
+              <Text style={[styles.usdbEmptyStateTitle, { color: primaryTextColor }]}>{t('home.usdbEmptyState.title')}</Text>
+              <Text style={[styles.usdbEmptyStateSubtitle, { color: secondaryTextColor }]}>{t('home.usdbEmptyState.subtitle')}</Text>
               <TouchableOpacity
                 onPress={handleSwap}
                 style={[styles.usdbEmptyStateButton, { backgroundColor: BRAND_COLOR }]}
               >
-                <Text style={styles.usdbEmptyStateButtonText}>Swap sats → USDB</Text>
+                <Text style={styles.usdbEmptyStateButtonText}>{t('home.usdbEmptyState.cta')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -690,7 +690,7 @@ export function HomeScreen(): React.JSX.Element {
             {/* Amount */}
             <View style={styles.modalAmountContainer}>
               <View style={styles.modalIcon}>
-                <Text style={[styles.modalIconText, { color: primaryTextColor }]}> 
+                <Text style={[styles.modalIconText, { color: primaryTextColor }]}>
                   {method === 'onchain' ? '⛓️' : '⚡'}
                 </Text>
               </View>

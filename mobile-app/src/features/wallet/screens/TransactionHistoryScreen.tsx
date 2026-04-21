@@ -339,7 +339,7 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                     fullValue={tx.txid}
                   />
                   <TouchableOpacity onPress={() => Linking.openURL(`https://mempool.space/tx/${tx.txid}`)}>
-                    <Text style={styles.mempoolLink}>View on mempool.space</Text>
+                    <Text style={styles.mempoolLink}>{t('wallet.viewOnMempool')}</Text>
                   </TouchableOpacity>
                 </>
               )}

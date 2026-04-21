@@ -233,6 +233,19 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
         usdb: 'USDB',
         accessibilityLabel: '{{asset}} tab',
       },
+      securityBanner: {
+        biometricTitle: 'Enable fingerprint unlock',
+        biometricSubtitle: 'Unlock your wallet with a fingerprint for faster, safer access.',
+        notificationsTitle: 'Turn on payment alerts',
+        notificationsSubtitle: 'Get notified instantly when payments arrive.',
+        enable: 'Enable',
+        notNow: 'Not now',
+      },
+      usdbEmptyState: {
+        title: 'No USDB yet',
+        subtitle: 'Swap sats to get started.',
+        cta: 'Swap sats → USDB',
+      },
     },
 
     swap: {
@@ -829,6 +842,19 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
         btc: 'BTC',
         usdb: 'USDB',
         accessibilityLabel: 'Таб {{asset}}',
+      },
+      securityBanner: {
+        biometricTitle: 'Включи отключване с пръстов отпечатък',
+        biometricSubtitle: 'Отключвайте портфейла с пръстов отпечатък за по-бърз и по-сигурен достъп.',
+        notificationsTitle: 'Включи известия за плащания',
+        notificationsSubtitle: 'Получавайте известие веднага щом пристигне плащане.',
+        enable: 'Включи',
+        notNow: 'Не сега',
+      },
+      usdbEmptyState: {
+        title: 'Все още нямате USDB',
+        subtitle: 'Суапнете сатошита, за да започнете.',
+        cta: 'Суапни сатошита → USDB',
       },
     },
 
