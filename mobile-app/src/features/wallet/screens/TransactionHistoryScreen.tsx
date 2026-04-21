@@ -10,7 +10,9 @@ import {
   RefreshControl,
   Modal,
   Linking,
+  ToastAndroid,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Text, IconButton, Chip, Button, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -51,6 +53,7 @@ export function TransactionHistoryScreen(): React.JSX.Element {
   const [filter, setFilter] = useState<FilterType>('all');
   const [refreshing, setRefreshing] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [selectedSwapRow, setSelectedSwapRow] = useState<TransactionRow | null>(null);
 
   // Filtered transactions
   const transactionRows = useMemo(() => buildTransactionRows(transactions, activeAsset), [transactions, activeAsset]);
@@ -126,15 +129,18 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     const isDirectUsdbTransfer = !row.isSwap && tx.asset === 'USDB';
     const txIcon = isDirectUsdbTransfer ? (isReceived ? '$↓' : '$↑') : (method === 'swap' ? '⇄' : method === 'onchain' ? '⛓️' : '⚡');
     const txIconColor = isDirectUsdbTransfer ? '#4CAF50' : primaryTextColor;
+    const rowAsset: 'BTC' | 'USDB' = row.isSwap ? activeAsset : (tx.asset === 'USDB' ? 'USDB' : 'BTC');
     const formattedAmount = formatTx(row.displayAmount ?? 0, isReceived, {
-      asset: tx.asset === 'USDB' ? 'USDB' : 'BTC',
+      asset: rowAsset,
     });
 
     return (
       <TouchableOpacity
         style={styles.transactionItem}
-        onPress={row.isSwap ? undefined : () => setSelectedTransaction(tx)}
-        disabled={row.isSwap}
+        onPress={() => {
+          setSelectedTransaction(tx);
+          setSelectedSwapRow(row.isSwap ? row : null);
+        }}
       >
         <View
           style={[
@@ -205,7 +211,7 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                 icon="close"
                 iconColor={iconColor}
                 size={24}
-                onPress={() => setSelectedTransaction(null)}
+                onPress={() => { setSelectedTransaction(null); setSelectedSwapRow(null); }}
               />
             </View>
 
@@ -258,7 +264,71 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                 <DetailRow label={t('payments.description')} value={tx.description} />
               )}
               {tx.feeSats !== undefined && tx.feeSats > 0 && (
-                <DetailRow label={t('wallet.fee')} value={`${tx.feeSats.toLocaleString()} ${t('wallet.sats')}`} />
+                <DetailRow
+                  label={t('wallet.fee')}
+                  value={
+                    tx.asset === 'USDB'
+                      ? `${(tx.feeSats / 1e6).toFixed(6)} USDB`
+                      : `${tx.feeSats.toLocaleString()} ${t('wallet.sats')}`
+                  }
+                />
+              )}
+              {(tx.paymentType === 'conversion' || selectedSwapRow?.isSwap) && (
+                <DetailRow
+                  label={t('wallet.type')}
+                  value={
+                    selectedSwapRow?.swapDirection === 'USDB_TO_BTC'
+                      ? `${t('swap.history.label')} (${t('swap.history.usdbToBtc')})`
+                      : `${t('swap.history.label')} (${t('swap.history.btcToUsdb')})`
+                  }
+                />
+              )}
+              {selectedSwapRow?.isSwap && selectedSwapRow.btcSide && selectedSwapRow.usdbSide && (
+                selectedSwapRow.swapDirection === 'BTC_TO_USDB' ? (
+                  <>
+                    <DetailRow
+                      label={t('swap.youPay')}
+                      value={`${Number(selectedSwapRow.btcSide.amount || 0).toLocaleString()} sats`}
+                    />
+                    <DetailRow
+                      label={t('swap.youReceive')}
+                      value={`${(Number(selectedSwapRow.usdbSide.amount || 0) / 1e6).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 6,
+                      })} USDB`}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <DetailRow
+                      label={t('swap.youPay')}
+                      value={`${(Number(selectedSwapRow.usdbSide.amount || 0) / 1e6).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 6,
+                      })} USDB`}
+                    />
+                    <DetailRow
+                      label={t('swap.youReceive')}
+                      value={`${Number(selectedSwapRow.btcSide.amount || 0).toLocaleString()} sats`}
+                    />
+                  </>
+                )
+              )}
+              {tx.id && (
+                <DetailRow
+                  label={t('wallet.paymentId')}
+                  value={String(tx.id)}
+                  copyable
+                  fullValue={String(tx.id)}
+                />
+              )}
+              {tx.tokenIdentifier && (
+                <DetailRow
+                  label={t('wallet.token')}
+                  value={String(tx.tokenIdentifier)}
+                  copyable
+                  fullValue={String(tx.tokenIdentifier)}
+                />
               )}
               {method === 'onchain' && tx.txid && (
                 <>
@@ -406,21 +476,36 @@ interface DetailRowProps {
 }
 
 function DetailRow({ label, value, copyable, fullValue }: DetailRowProps): React.JSX.Element {
+  const { t } = useLanguage();
   const { themeMode } = useAppTheme();
   const primaryTextColor = getPrimaryTextColor(themeMode);
   const secondaryTextColor = getSecondaryTextColor(themeMode);
   const iconColor = getIconColor(themeMode);
 
-  const handleCopy = (): void => {
-    // TODO: Implement clipboard copy
-    console.log('Copy:', fullValue || value);
+  const handleCopy = async (): Promise<void> => {
+    try {
+      await Clipboard.setStringAsync(fullValue || value);
+      ToastAndroid && ToastAndroid.show?.(t('common.copied'), ToastAndroid.SHORT);
+    } catch {}
   };
 
+  // Whole row is tappable when copyable — tapping anywhere copies the
+  // full value to the clipboard. Also allows slightly longer visible text
+  // since users don't need to aim for the small copy icon.
   return (
-    <View style={styles.detailRow}>
+    <TouchableOpacity
+      style={styles.detailRow}
+      onPress={copyable ? handleCopy : undefined}
+      disabled={!copyable}
+      activeOpacity={copyable ? 0.6 : 1}
+    >
       <Text style={[styles.detailLabel, { color: secondaryTextColor }]}>{label}</Text>
       <View style={styles.detailValueContainer}>
-        <Text style={[styles.detailValue, { color: primaryTextColor }]} numberOfLines={1}>
+        <Text
+          style={[styles.detailValue, { color: primaryTextColor }]}
+          numberOfLines={1}
+          ellipsizeMode="middle"
+        >
           {value}
         </Text>
         {copyable && (
@@ -433,7 +518,7 @@ function DetailRow({ label, value, copyable, fullValue }: DetailRowProps): React
           />
         )}
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 

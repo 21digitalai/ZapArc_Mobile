@@ -11,7 +11,10 @@ import {
   Modal,
   BackHandler,
   Linking,
+  Platform,
+  ToastAndroid,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Text, IconButton, ActivityIndicator, Button, Divider, Snackbar } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -91,6 +94,9 @@ export function HomeScreen(): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false);
   const [showBalance, setShowBalance] = useState(true);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  // When the tapped row is a swap pair, keep both sides so the detail modal
+  // can show "paid X sats, received Y USDB" rather than just one leg.
+  const [selectedSwapRow, setSelectedSwapRow] = useState<import('../utils/transactionRows').TransactionRow | null>(null);
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [activeReminder, setActiveReminder] = useState<SecurityReminderKind>(null);
@@ -338,6 +344,10 @@ export function HomeScreen(): React.JSX.Element {
     const isReceived = row.displayType === 'receive';
     const method = row.isSwap ? 'swap' : (tx.method || (tx.txid ? 'onchain' : 'lightning'));
     const isDirectUsdbTransfer = !row.isSwap && tx.asset === 'USDB';
+    // For swap rows, the display asset equals the current tab — the row's
+    // `displayAmount` is already the amount in that tab's units. For regular
+    // rows, trust tx.asset.
+    const rowAsset: 'BTC' | 'USDB' = row.isSwap ? activeAsset : (tx.asset === 'USDB' ? 'USDB' : 'BTC');
     const txIcon = isDirectUsdbTransfer ? (isReceived ? '$↓' : '$↑') : (method === 'swap' ? '⇄' : method === 'onchain' ? '⛓️' : '⚡');
     const txIconColor = isDirectUsdbTransfer ? '#4CAF50' : primaryTextColor;
     const amount = row.displayAmount;
@@ -348,13 +358,16 @@ export function HomeScreen(): React.JSX.Element {
       hour: '2-digit',
       minute: '2-digit',
     });
-    const formattedTx = formatTx(amount, isReceived, { asset: tx.asset === 'USDB' ? 'USDB' : 'BTC' });
+    const formattedTx = formatTx(amount, isReceived, { asset: rowAsset });
 
     return (
       <TouchableOpacity
         key={row.id || tx.id || index}
         style={styles.transactionItem}
-        onPress={() => setSelectedTransaction(tx)}
+        onPress={() => {
+          setSelectedTransaction(tx);
+          setSelectedSwapRow(row.isSwap ? row : null);
+        }}
       >
         <View style={styles.transactionIcon}>
           <Text style={[styles.transactionIconText, { color: primaryTextColor }]}>
@@ -670,7 +683,7 @@ export function HomeScreen(): React.JSX.Element {
                 icon="close"
                 iconColor={iconColor}
                 size={24}
-                onPress={() => setSelectedTransaction(null)}
+                onPress={() => { setSelectedTransaction(null); setSelectedSwapRow(null); }}
               />
             </View>
 
@@ -726,7 +739,92 @@ export function HomeScreen(): React.JSX.Element {
                 <DetailRow label={t('payments.description')} value={tx.description} />
               )}
               {tx.feeSats !== undefined && tx.feeSats > 0 && (
-                <DetailRow label={t('wallet.fee')} value={`${tx.feeSats.toLocaleString()} ${t('wallet.sats')}`} />
+                <DetailRow
+                  label={t('wallet.fee')}
+                  value={
+                    tx.asset === 'USDB'
+                      ? `${(tx.feeSats / 1e6).toFixed(6)} USDB`
+                      : `${tx.feeSats.toLocaleString()} ${t('wallet.sats')}`
+                  }
+                />
+              )}
+              {/* Type: swap / lightning / on-chain */}
+              {(tx.paymentType === 'conversion' || selectedSwapRow?.isSwap) && (
+                <DetailRow
+                  label={t('wallet.type')}
+                  value={
+                    selectedSwapRow?.swapDirection === 'USDB_TO_BTC'
+                      ? `${t('swap.history.label')} (${t('swap.history.usdbToBtc')})`
+                      : `${t('swap.history.label')} (${t('swap.history.btcToUsdb')})`
+                  }
+                />
+              )}
+              {/* Swap-pair amounts: always show BOTH legs so the user can
+                  see how many sats were paid AND how many USDB were received
+                  (or vice versa). */}
+              {selectedSwapRow?.isSwap && selectedSwapRow.btcSide && selectedSwapRow.usdbSide && (
+                selectedSwapRow.swapDirection === 'BTC_TO_USDB' ? (
+                  <>
+                    <DetailRow
+                      label={t('swap.youPay')}
+                      value={`${Number(selectedSwapRow.btcSide.amount || 0).toLocaleString()} sats`}
+                    />
+                    <DetailRow
+                      label={t('swap.youReceive')}
+                      value={`${(Number(selectedSwapRow.usdbSide.amount || 0) / 1e6).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 6,
+                      })} USDB`}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <DetailRow
+                      label={t('swap.youPay')}
+                      value={`${(Number(selectedSwapRow.usdbSide.amount || 0) / 1e6).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 6,
+                      })} USDB`}
+                    />
+                    <DetailRow
+                      label={t('swap.youReceive')}
+                      value={`${Number(selectedSwapRow.btcSide.amount || 0).toLocaleString()} sats`}
+                    />
+                  </>
+                )
+              )}
+              {/* Non-swap single-leg amount (regular send/receive) */}
+              {!selectedSwapRow?.isSwap && tx.asset === 'USDB' && (
+                <DetailRow
+                  label={t('payments.amount')}
+                  value={`${(Number(tx.amount || 0) / 1e6).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 6,
+                  })} USDB`}
+                />
+              )}
+              {!selectedSwapRow?.isSwap && tx.asset !== 'USDB' && tx.amount !== undefined && (
+                <DetailRow
+                  label={t('payments.amount')}
+                  value={`${Number(tx.amount).toLocaleString()} sats`}
+                />
+              )}
+              {/* Payment ID (useful for swap + lightning debugging) */}
+              {tx.id && (
+                <DetailRow
+                  label={t('wallet.paymentId')}
+                  value={String(tx.id)}
+                  copyable
+                  fullValue={String(tx.id)}
+                />
+              )}
+              {tx.tokenIdentifier && (
+                <DetailRow
+                  label={t('wallet.token')}
+                  value={String(tx.tokenIdentifier)}
+                  copyable
+                  fullValue={String(tx.tokenIdentifier)}
+                />
               )}
               {method === 'onchain' && tx.txid && (
                 <>
@@ -753,15 +851,44 @@ export function HomeScreen(): React.JSX.Element {
     );
   }
 
-  // Detail row component
-  function DetailRow({ label, value }: { label: string; value: string }): React.JSX.Element {
+  // Detail row component. When `copyable` is set, tapping the row copies
+  // `fullValue ?? value` to the clipboard. Value text uses middle ellipsis
+  // so bech32-style identifiers remain identifiable at a glance.
+  function DetailRow({
+    label,
+    value,
+    copyable,
+    fullValue,
+  }: {
+    label: string;
+    value: string;
+    copyable?: boolean;
+    fullValue?: string;
+  }): React.JSX.Element {
+    const handleCopy = async (): Promise<void> => {
+      try {
+        await Clipboard.setStringAsync(fullValue || value);
+        if (Platform.OS === 'android' && ToastAndroid?.show) {
+          ToastAndroid.show(t('common.copied'), ToastAndroid.SHORT);
+        }
+      } catch {}
+    };
     return (
-      <View style={styles.detailRow}>
+      <TouchableOpacity
+        style={styles.detailRow}
+        onPress={copyable ? handleCopy : undefined}
+        disabled={!copyable}
+        activeOpacity={copyable ? 0.6 : 1}
+      >
         <Text style={[styles.detailLabel, { color: secondaryTextColor }]}>{label}</Text>
-        <Text style={[styles.detailValue, { color: primaryTextColor }]} numberOfLines={2}>
+        <Text
+          style={[styles.detailValue, { color: primaryTextColor }]}
+          numberOfLines={1}
+          ellipsizeMode="middle"
+        >
           {value}
         </Text>
-      </View>
+      </TouchableOpacity>
     );
   }
 }

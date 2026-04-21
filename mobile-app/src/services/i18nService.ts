@@ -144,6 +144,8 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
       showMnemonic: 'Show Recovery Phrase',
       viewRecoveryPhrase: 'View Recovery Phrase',
       backupSeedPhrase: 'Backup your wallet seed phrase',
+      paymentId: 'Payment ID',
+      token: 'Token',
     },
 
     // Payments
@@ -229,7 +231,7 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
       assetTab: {
         btc: 'BTC',
         usdb: 'USDB',
-        accessibilityLabel: 'Таб {{asset}}',
+        accessibilityLabel: '{{asset}} tab',
       },
     },
 
@@ -739,6 +741,8 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
       showMnemonic: 'Покажи фраза за възстановяване',
       viewRecoveryPhrase: 'Преглед на фразата за възстановяване',
       backupSeedPhrase: 'Запазете seed фразата на портфейла',
+      paymentId: 'ID на плащане',
+      token: 'Токен',
     },
 
     // Payments - Bulgarian
@@ -824,7 +828,7 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
       assetTab: {
         btc: 'BTC',
         usdb: 'USDB',
-        accessibilityLabel: '{{asset}} tab',
+        accessibilityLabel: 'Таб {{asset}}',
       },
     },
 

@@ -141,6 +141,24 @@ export interface Transaction {
   paymentType?: string;
   asset?: 'BTC' | 'USDB';
   tokenIdentifier?: string;
+  /**
+   * First-class transaction kind. `swap` is used for BTC ⇄ USDB conversions
+   * so the UI can render them with a dedicated icon, label and detail
+   * layout (not squeezed into the send/receive model).
+   */
+  kind?: 'swap' | 'payment';
+  /** Swap metadata — populated when kind === 'swap'. */
+  swap?: {
+    direction: 'BTC_TO_USDB' | 'USDB_TO_BTC';
+    /** What the user paid. */
+    fromAsset: 'BTC' | 'USDB';
+    fromAmount: number; // sats if BTC, USDB base units if USDB
+    fromFee?: number;   // in fromAsset units
+    /** What the user received. */
+    toAsset: 'BTC' | 'USDB';
+    toAmount: number;   // sats if BTC, USDB base units if USDB
+    toFee?: number;     // in toAsset units
+  };
 }
 
 /**

@@ -145,6 +145,13 @@ export function useWalletStateInternal(): WalletState & WalletActions {
   const transactionsRef = useRef(transactions);
   const tokenBalancesRef = useRef<TokenBalanceEntry[]>(tokenBalances);
   const activeWalletInfoRef = useRef<ActiveWalletInfo | null>(null);
+  // After a swap we apply an optimistic balance delta. The SDK's own sync
+  // can take a few seconds to catch up; during that window a background
+  // refreshBalance would otherwise read the pre-swap value from the SDK
+  // and clobber the optimistic state. This ref is set to a future timestamp
+  // by applySwapResult so the refresh path knows to keep the optimistic
+  // view as authoritative until the SDK catches up.
+  const optimisticAuthoritativeUntilRef = useRef<number>(0);
 
   // Refs for debouncing refresh calls to prevent redundant API calls
   // Store the promise so callers can wait for the in-progress call
@@ -709,16 +716,21 @@ export function useWalletStateInternal(): WalletState & WalletActions {
           return;
         }
 
+        // Honour the optimistic-authoritative window: if we recently applied
+        // a swap delta, the SDK may not have caught up and would clobber
+        // our fresh state with stale values. Skip SDK writes in that case.
+        const optimisticWindowActive = Date.now() < optimisticAuthoritativeUntilRef.current;
+
         // Don't overwrite a known balance with 0 from SDK — likely transitional state
         // A true 0 balance will be set once confirmed (transactions also empty)
-        if (walletBalance.balanceSat > 0 || balanceRef.current === 0) {
+        if (!optimisticWindowActive && (walletBalance.balanceSat > 0 || balanceRef.current === 0)) {
           setBalance(walletBalance.balanceSat);
         }
         setIsLoading(false);
         setIsRefreshing(false);
 
         // Update cache with fresh data (only if non-zero or wallet truly empty)
-        if (walletBalance.balanceSat > 0 || balanceRef.current === 0) {
+        if (!optimisticWindowActive && (walletBalance.balanceSat > 0 || balanceRef.current === 0)) {
           await WalletCache.cacheBalance(
             walletInfo.masterKeyId,
             walletInfo.subWalletIndex,
@@ -736,6 +748,13 @@ export function useWalletStateInternal(): WalletState & WalletActions {
           // wallet) or we previously had no tokens to begin with.
           let effectiveTokens: TokenBalanceEntry[] = tokenBalancesRaw as TokenBalanceEntry[];
           setTokenBalances((prev) => {
+            // During the optimistic window keep state as-is — Breez sync is
+            // likely still behind and its data would set us back to a
+            // pre-swap snapshot.
+            if (optimisticWindowActive) {
+              effectiveTokens = prev;
+              return prev;
+            }
             if (effectiveTokens.length === 0 && prev.length > 0 && walletBalance.balanceSat > 0) {
               effectiveTokens = prev;
               return prev;
@@ -863,12 +882,24 @@ export function useWalletStateInternal(): WalletState & WalletActions {
       paymentType: 'conversion',
       asset: direction === 'BTC_TO_USDB' ? 'USDB' : 'BTC',
       tokenIdentifier: direction === 'BTC_TO_USDB' ? tokenIdentifier : undefined,
+      kind: 'swap',
+      swap: {
+        direction,
+        fromAsset: direction === 'BTC_TO_USDB' ? 'BTC' : 'USDB',
+        fromAmount: Number(spent),
+        toAsset: direction === 'BTC_TO_USDB' ? 'USDB' : 'BTC',
+        toAmount: Number(received),
+      },
     } as Transaction;
     setTransactions((prev) => {
       // If the id already exists (SDK sync landed first), skip.
       if (paymentId && prev.some((t) => t.id === paymentId)) return prev;
       return [optimisticTx, ...prev];
     });
+
+    // Mark optimistic state as authoritative for the next 30 seconds so
+    // refreshBalance() doesn't overwrite it with stale pre-swap SDK data.
+    optimisticAuthoritativeUntilRef.current = Date.now() + 30_000;
 
     // Persist the post-swap state to per-wallet caches so a later focus /
     // reload doesn't read the pre-swap cached values. Fire-and-forget —
@@ -994,6 +1025,8 @@ export function useWalletStateInternal(): WalletState & WalletActions {
           paymentType: p.paymentType,
           asset: p.asset,
           tokenIdentifier: p.tokenIdentifier,
+          kind: p.kind,
+          swap: p.swap,
         }));
 
         if (activeWalletKeyRef.current !== walletKey) {

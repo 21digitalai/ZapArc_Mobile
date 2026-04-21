@@ -126,6 +126,18 @@ export interface TransactionInfo {
   paymentType?: string;
   asset?: 'BTC' | 'USDB';
   tokenIdentifier?: string;
+  /** 'swap' for token conversions, 'payment' for regular send/receive. */
+  kind?: 'swap' | 'payment';
+  /** Populated when kind === 'swap' — carries both sides of the conversion. */
+  swap?: {
+    direction: 'BTC_TO_USDB' | 'USDB_TO_BTC';
+    fromAsset: 'BTC' | 'USDB';
+    fromAmount: number;
+    fromFee?: number;
+    toAsset: 'BTC' | 'USDB';
+    toAmount: number;
+    toFee?: number;
+  };
 }
 
 export interface DepositInfo {
@@ -1814,7 +1826,144 @@ export async function listPayments(): Promise<TransactionInfo[]> {
 
     const payments = response.payments || [];
 
-    return payments.map((payment: any, index: number) => {
+    // One-shot deep dump of the first conversion payment so we can see
+    // exactly which fields Breez populates (amounts, counterpart side,
+    // fee location).
+    if (payments.length > 0) {
+      try {
+        const firstConv = payments.find((p: any) => p?.details?.inner?.conversionInfo);
+        if (firstConv) {
+          const bigSafe = (_k: string, v: any) => (typeof v === 'bigint' ? v.toString() : v);
+          console.log('🔬 [listPayments] FULL first conv payment', JSON.stringify(firstConv, bigSafe));
+        }
+      } catch {}
+    }
+
+    // Group payments by conversionId (shared across both legs of a swap)
+    // so a single swap becomes ONE Transaction with both sides populated,
+    // instead of two separate send/receive rows.
+    const byConversionId = new Map<string, any[]>();
+    for (const p of payments) {
+      const cid = p?.details?.inner?.conversionInfo?.conversionId;
+      if (typeof cid === 'string' && cid.length > 0) {
+        const bucket = byConversionId.get(cid) ?? [];
+        bucket.push(p);
+        byConversionId.set(cid, bucket);
+      }
+    }
+    // Ids of payments that are part of a pair (processed as swap row) —
+    // the outer map will skip them when walking individually.
+    const pairedPaymentIds = new Set<string>();
+    for (const bucket of byConversionId.values()) {
+      if (bucket.length >= 2) {
+        for (const p of bucket) pairedPaymentIds.add(String(p?.id));
+      }
+    }
+
+    // Helper: extract a normalized numeric amount + asset classification
+    // for a single payment leg. Used both for the solo-payment path and
+    // for swap-pair construction.
+    const toBig = (v: unknown): bigint =>
+      typeof v === 'bigint' ? v : BigInt(String(v ?? '0'));
+    const isTokenLeg = (p: any): boolean => {
+      const mNum = p?.method;
+      const dTag = String(p?.details?.tag ?? '').toLowerCase();
+      return mNum === 2 || dTag === 'token';
+    };
+    const legAmount = (p: any): number => Number(toBig(p?.amount ?? p?.amountSats ?? p?.amountSat ?? 0));
+    const legFee = (p: any): number => Number(toBig(p?.fees ?? p?.feesSats ?? p?.feeSat ?? p?.fee ?? 0));
+
+    // Breez emits only the RECEIVE side of each conversion as a Payment
+    // (the send is internal to the conversion). So every conversion shows
+    // up as a single leg carrying `details.inner.conversionInfo`. We detect
+    // direction from the leg's method:
+    //   method=2 (Token) + receive → BUY  (user paid BTC, received USDB)
+    //   method=1 (Spark) + receive + conversionInfo → SELL (user paid USDB, received BTC)
+    // The source amount isn't provided by the SDK — we approximate it from
+    // current exchange rates so the UI can show both legs. Recent swaps
+    // done in-app also get an optimistic entry via applySwapResult which
+    // carries the precise source amount; the SDK reconciliation replaces
+    // that with this estimated row, but any persisted local record could
+    // override in the future.
+    const out: TransactionInfo[] = [];
+    const seenConversions = new Set<string>();
+    // Pull current rates (module-level cache inside currency util) so we
+    // can convert sats ↔ USDB for estimation. Fall back to 0 if missing.
+    let usdPerBtc = 0;
+    try {
+      const { getCachedRates } = require('../utils/currency');
+      const r = getCachedRates();
+      usdPerBtc = r?.usd || 0;
+    } catch {}
+    for (const p of payments) {
+      const convInfo = p?.details?.inner?.conversionInfo;
+      if (!convInfo) continue;
+      const cid = convInfo.conversionId;
+      if (!cid || seenConversions.has(cid)) continue;
+      seenConversions.add(cid);
+
+      const tokenSide = isTokenLeg(p);
+      const direction: 'BTC_TO_USDB' | 'USDB_TO_BTC' = tokenSide ? 'BTC_TO_USDB' : 'USDB_TO_BTC';
+      const toAsset: 'BTC' | 'USDB' = tokenSide ? 'USDB' : 'BTC';
+      const fromAsset: 'BTC' | 'USDB' = tokenSide ? 'BTC' : 'USDB';
+      const toAmount = legAmount(p);
+      const toFee = legFee(p);
+
+      // Approximate the source amount via current rate. USDB decimals = 6.
+      const USDB_DECIMALS = 6;
+      let fromAmount = 0;
+      if (usdPerBtc > 0) {
+        if (direction === 'BTC_TO_USDB') {
+          // toAmount = USDB base units; fromAmount = sats.
+          // sats = (usdbBase / 10^decimals) / usdPerBtc * 1e8
+          const usd = toAmount / 10 ** USDB_DECIMALS;
+          fromAmount = Math.round((usd / usdPerBtc) * 1e8);
+        } else {
+          // toAmount = sats; fromAmount = USDB base units.
+          const usd = (toAmount * usdPerBtc) / 1e8;
+          fromAmount = Math.round(usd * 10 ** USDB_DECIMALS);
+        }
+      }
+
+      const fee = Number(toBig(convInfo.fee ?? 0));
+
+      const rawTime = p?.timestamp ?? 0;
+      let timestamp = typeof rawTime === 'bigint' ? Number(rawTime) : Number(rawTime);
+      if (timestamp > 0 && timestamp < 1e10) timestamp *= 1000;
+
+      const innerMeta = p?.details?.inner?.metadata as Record<string, unknown> | undefined;
+      const tokenIdentifier = typeof innerMeta?.identifier === 'string' ? innerMeta.identifier : undefined;
+
+      out.push({
+        id: String(p.id),
+        type: 'receive', // the user-facing leg — they received the destination asset
+        amountSat: 0, // unused for swaps — per-tab amount is in swap.{from,to}Amount
+        feeSat: fee,
+        status: mapPaymentStatus(p?.status),
+        timestamp: timestamp || Date.now(),
+        description: '',
+        method: 'lightning',
+        paymentType: 'conversion',
+        asset: toAsset,
+        tokenIdentifier,
+        kind: 'swap',
+        swap: {
+          direction,
+          fromAsset,
+          fromAmount,
+          fromFee: direction === 'BTC_TO_USDB' ? fee : 0,
+          toAsset,
+          toAmount,
+          toFee: direction === 'USDB_TO_BTC' ? fee : 0,
+        },
+      });
+    }
+
+    // Second pass: remaining non-swap payments mapped individually.
+    // Skip anything we already emitted as a swap row.
+    const swapHandledIds = new Set(out.map((r) => r.id));
+    const remaining = payments.filter((p: any) => !swapHandledIds.has(String(p?.id)));
+    const individuals = remaining.map((payment: any, index: number) => {
       // Try multiple field name variations (SDK may return different formats)
       const rawAmount = payment.amount ?? payment.amountSats ?? payment.amountSat ?? 0;
       const amountSat = typeof rawAmount === 'bigint' ? Number(rawAmount) : Number(rawAmount);
@@ -1909,6 +2058,43 @@ export async function listPayments(): Promise<TransactionInfo[]> {
       const asset: 'BTC' | 'USDB' =
         currencyRaw === 'USDB' || isTokenByTag || tokenIdentifier ? 'USDB' : 'BTC';
 
+      // Detect a swap. Breez surfaces both legs of a conversion on a single
+      // Payment record via `conversionDetails = { from, to, status }`. Each
+      // side is a ConversionStep with `amount`, `fee`, and `tokenMetadata`.
+      // If tokenMetadata is set the step is in token base units; otherwise
+      // it's in sats (BTC).
+      const convDetails = (payment as any).conversionDetails as
+        | {
+            from?: { amount?: unknown; fee?: unknown; tokenMetadata?: { identifier?: string; ticker?: string; decimals?: number } | null };
+            to?: { amount?: unknown; fee?: unknown; tokenMetadata?: { identifier?: string; ticker?: string; decimals?: number } | null };
+          }
+        | undefined;
+
+      let kind: 'swap' | 'payment' = 'payment';
+      let swapInfo: TransactionInfo['swap'];
+      let normalizedPaymentType = paymentTypeNormalized || undefined;
+      if (convDetails?.from && convDetails?.to) {
+        const toBig = (v: unknown): bigint =>
+          typeof v === 'bigint' ? v : BigInt(String(v ?? '0'));
+        const fromIsToken = !!convDetails.from.tokenMetadata;
+        const toIsToken = !!convDetails.to.tokenMetadata;
+        const fromAsset: 'BTC' | 'USDB' = fromIsToken ? 'USDB' : 'BTC';
+        const toAsset: 'BTC' | 'USDB' = toIsToken ? 'USDB' : 'BTC';
+        const direction: 'BTC_TO_USDB' | 'USDB_TO_BTC' =
+          fromAsset === 'BTC' ? 'BTC_TO_USDB' : 'USDB_TO_BTC';
+        kind = 'swap';
+        normalizedPaymentType = 'conversion';
+        swapInfo = {
+          direction,
+          fromAsset,
+          fromAmount: Number(toBig(convDetails.from.amount)),
+          fromFee: Number(toBig(convDetails.from.fee)),
+          toAsset,
+          toAmount: Number(toBig(convDetails.to.amount)),
+          toFee: Number(toBig(convDetails.to.fee)),
+        };
+      }
+
       return {
         id: payment.id,
         type,
@@ -1920,11 +2106,30 @@ export async function listPayments(): Promise<TransactionInfo[]> {
         method,
         txid: txid ? String(txid) : undefined,
         failureReason,
-        paymentType: paymentTypeNormalized || undefined,
+        paymentType: normalizedPaymentType,
         asset,
         tokenIdentifier,
+        kind,
+        swap: swapInfo,
       };
     });
+
+    // Merge swap rows + individual rows, sorted by timestamp (newest first).
+    const combined = [...out, ...individuals].sort(
+      (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+    );
+    console.log('🔬 [listPayments] result', JSON.stringify({
+      totalPayments: payments.length,
+      conversionBuckets: Array.from(byConversionId.entries()).map(([cid, bucket]) => ({
+        cid: cid.slice(0, 10) + '…',
+        size: bucket.length,
+        legs: bucket.map((p: any) => ({ id: String(p.id).slice(0, 12), paymentType: p.paymentType, method: p.method })),
+      })),
+      swapRowsEmitted: out.length,
+      individualRowsEmitted: individuals.length,
+      sampleSwap: out[0] ? { direction: out[0].swap?.direction, fromAmount: out[0].swap?.fromAmount, toAmount: out[0].swap?.toAmount, kind: out[0].kind } : null,
+    }));
+    return combined;
   } catch (error) {
     console.error('❌ [BreezSparkService] Failed to list payments:', error);
     return [];
