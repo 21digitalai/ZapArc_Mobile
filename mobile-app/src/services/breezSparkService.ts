@@ -911,82 +911,15 @@ export async function executeSwap(quote: SwapQuote): Promise<SwapOutcome> {
       feePolicy: undefined,
     } as any);
 
-    // Deep-dump everything on `fresh` so we can see EXACTLY what the native
-    // module returned and EXACTLY what will be lowered through FFI on send.
-    // Uses a BigInt-safe replacer and follows non-enumerable keys too, so
-    // anything hiding behind a getter or frozen descriptor shows up.
-    const dumpDeep = (obj: unknown, depth = 0): any => {
-      if (depth > 5 || obj === null || obj === undefined) return obj;
-      if (typeof obj === 'bigint') return `BigInt(${obj.toString()})`;
-      if (typeof obj !== 'object') return obj;
-      if (Array.isArray(obj)) return obj.map((x) => dumpDeep(x, depth + 1));
-      const out: Record<string, unknown> = {};
-      const seen = new Set<string>();
-      for (const k of Object.keys(obj as any)) {
-        seen.add(k);
-        out[k] = dumpDeep((obj as any)[k], depth + 1);
-      }
-      for (const k of Object.getOwnPropertyNames(obj)) {
-        if (seen.has(k)) continue;
-        try { out[`(own)${k}`] = dumpDeep((obj as any)[k], depth + 1); } catch {}
-      }
-      const proto = Object.getPrototypeOf(obj);
-      if (proto && proto !== Object.prototype) {
-        out['__proto__constructor'] = proto?.constructor?.name ?? '?';
-      }
-      return out;
-    };
-
-    console.log('🔬 [executeSwap] fresh DEEP', JSON.stringify(dumpDeep(fresh)));
-
-    // Empirical test: reconstruct prepareResponse as a plain object literal
-    // with every field explicitly set from `fresh`, to rule out any hidden
-    // getter / frozen / prototype weirdness on the returned object. If this
-    // still fails with the same Rust error, we know the issue is in the
-    // native binary's FFI deserialization of Option<String>, not our shape.
-    const f: any = fresh;
-    const cleanPrepare: any = {
-      paymentMethod: f.paymentMethod,
-      amount: f.amount,
-      tokenIdentifier: f.tokenIdentifier,
-      conversionEstimate: f.conversionEstimate,
-      feePolicy: f.feePolicy,
-    };
-    console.log('🔬 [executeSwap] cleanPrepare.tokenIdentifier =',
-      JSON.stringify(cleanPrepare.tokenIdentifier),
-      'ownKeys=', JSON.stringify(Object.keys(cleanPrepare)),
-      'hasOwn-ti=', Object.prototype.hasOwnProperty.call(cleanPrepare, 'tokenIdentifier'));
-
-    const outgoingRequest: any = {
-      prepareResponse: cleanPrepare,
+    // Pass the fresh PrepareSendPaymentResponse verbatim — see
+    // canonical snippet in
+    // https://sdk-doc-spark.breez.technology/guide/token_conversion.html.
+    // `options: undefined` because HTLC is only for on-chain Bitcoin.
+    const response = await sdkInstance.sendPayment?.({
+      prepareResponse: fresh,
       options: undefined,
       idempotencyKey: undefined,
-    };
-
-    console.log('🔬 [executeSwap] outgoing sendPayment request DEEP', JSON.stringify(dumpDeep(outgoingRequest)));
-
-
-    // Also print the individual fields we care about so a truncated log line
-    // doesn't hide them:
-    console.log('🔬 [executeSwap] fresh.tokenIdentifier raw value =',
-      (fresh as any)?.tokenIdentifier,
-      'type=', typeof (fresh as any)?.tokenIdentifier,
-      'length=', (fresh as any)?.tokenIdentifier?.length,
-      'JSON=', JSON.stringify((fresh as any)?.tokenIdentifier));
-
-    console.log('🔬 [executeSwap] fresh.paymentMethod dump',
-      JSON.stringify(dumpDeep((fresh as any)?.paymentMethod)));
-
-    console.log('🔬 [executeSwap] fresh.conversionEstimate dump',
-      JSON.stringify(dumpDeep((fresh as any)?.conversionEstimate)));
-
-    // Pass `fresh` DIRECTLY — no rebuild, no spread, no prop access that
-    // materializes a plain clone. Options must be undefined for a plain
-    // Spark-address send (HTLC is only for on-chain Bitcoin).
-    const response = await sdkInstance.sendPayment?.(outgoingRequest);
-    console.log('🔬 [executeSwap] sendPayment response', {
-      hasPayment: !!(response as any)?.payment,
-    });
+    } as any);
 
     if (paymentLooksRefunded(response?.payment)) {
       // TODO T15: prune losing branch after spike-results.md confirms mechanism.
@@ -1826,19 +1759,6 @@ export async function listPayments(): Promise<TransactionInfo[]> {
 
     const payments = response.payments || [];
 
-    // One-shot deep dump of the first conversion payment so we can see
-    // exactly which fields Breez populates (amounts, counterpart side,
-    // fee location).
-    if (payments.length > 0) {
-      try {
-        const firstConv = payments.find((p: any) => p?.details?.inner?.conversionInfo);
-        if (firstConv) {
-          const bigSafe = (_k: string, v: any) => (typeof v === 'bigint' ? v.toString() : v);
-          console.log('🔬 [listPayments] FULL first conv payment', JSON.stringify(firstConv, bigSafe));
-        }
-      } catch {}
-    }
-
     // Group payments by conversionId (shared across both legs of a swap)
     // so a single swap becomes ONE Transaction with both sides populated,
     // instead of two separate send/receive rows.
@@ -2118,17 +2038,6 @@ export async function listPayments(): Promise<TransactionInfo[]> {
     const combined = [...out, ...individuals].sort(
       (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
     );
-    console.log('🔬 [listPayments] result', JSON.stringify({
-      totalPayments: payments.length,
-      conversionBuckets: Array.from(byConversionId.entries()).map(([cid, bucket]) => ({
-        cid: cid.slice(0, 10) + '…',
-        size: bucket.length,
-        legs: bucket.map((p: any) => ({ id: String(p.id).slice(0, 12), paymentType: p.paymentType, method: p.method })),
-      })),
-      swapRowsEmitted: out.length,
-      individualRowsEmitted: individuals.length,
-      sampleSwap: out[0] ? { direction: out[0].swap?.direction, fromAmount: out[0].swap?.fromAmount, toAmount: out[0].swap?.toAmount, kind: out[0].kind } : null,
-    }));
     return combined;
   } catch (error) {
     console.error('❌ [BreezSparkService] Failed to list payments:', error);
