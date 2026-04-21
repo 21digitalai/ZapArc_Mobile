@@ -87,7 +87,9 @@
           "color": "#1a1a2e"
         }
       ],
-      "expo-document-picker"
+      "expo-document-picker",
+      "expo-web-browser",
+      "expo-font"
     ],
     "extra": {
       "router": {},

@@ -1290,10 +1290,22 @@ class StorageService {
 
       return authenticatedPin;
     } catch (authError) {
+      // authError on the auth-gated read can mean EITHER:
+      //   (a) user cancelled / failed the biometric prompt
+      //   (b) nothing was ever stored at this key (rare — key doesn't exist yet)
+      //
+      // The legacy fallback below tries the NON-auth-gated read to detect pre-
+      // migration state. If that also throws, we can't distinguish (a) from (b)
+      // perfectly, but in practice:
+      //   - key never stored → getItemAsync resolves to null, no throw
+      //   - user cancelled auth → getItemAsync throws
+      // So a thrown legacy fallback strongly implies user-cancel. Re-throw so
+      // the caller can treat it as cancellation (returns false) rather than
+      // the "keystore missing → auto-disable biometric" recovery path.
       try {
         const legacyPin = await SecureStore.getItemAsync(key);
         if (!legacyPin) {
-          return null;
+          return null; // truly missing — OK to fall through to recovery
         }
 
         await SecureStore.setItemAsync(
@@ -1308,9 +1320,14 @@ class StorageService {
 
         return legacyPin;
       } catch (migrationError) {
-        console.error('❌ [StorageService] Failed to retrieve biometric PIN:', authError);
-        console.error('❌ [StorageService] Failed legacy biometric PIN migration:', migrationError);
-        return null;
+        // Both reads threw → most likely user cancelled biometric prompt.
+        // Use warn (not error) so we don't trigger RedBox in dev. Re-throw
+        // the ORIGINAL authError so the caller's cancel-handling path kicks in
+        // instead of the auto-disable-biometric recovery.
+        if (__DEV__) {
+          console.warn('ℹ️ [StorageService] Biometric read failed (likely user cancel):', (authError as Error)?.message || authError);
+        }
+        throw authError;
       }
     }
   }

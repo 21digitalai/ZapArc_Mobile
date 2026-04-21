@@ -12,6 +12,8 @@ type SwapAmountCardProps = {
   onMax: () => void;
   maxDisabled?: boolean;
   maxDisabledTooltip?: string;
+  /** Small caption shown next to Max, e.g. "Max: 163,521 sats" */
+  maxHint?: string;
   isReadOnly?: boolean;
   isLoading?: boolean;
   fiatEquivalent?: string;
@@ -25,6 +27,7 @@ export function SwapAmountCard({
   onMax,
   maxDisabled = false,
   maxDisabledTooltip,
+  maxHint,
   isReadOnly = false,
   isLoading = false,
   fiatEquivalent,
@@ -71,15 +74,22 @@ export function SwapAmountCard({
     <View style={styles.card}>
       <View style={styles.topRow}>
         <Text style={styles.label}>{label}</Text>
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel="Set maximum amount"
-          onPress={onMax}
-          disabled={maxDisabled}
-          style={[styles.maxButton, maxDisabled && styles.maxButtonDisabled]}
-        >
-          <Text style={[styles.maxButtonText, maxDisabled && styles.maxButtonTextDisabled]}>Max</Text>
-        </TouchableOpacity>
+        <View style={styles.maxGroup}>
+          {!!maxHint && (
+            <Text style={styles.maxHintText} numberOfLines={1}>
+              {maxHint}
+            </Text>
+          )}
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`Set maximum amount${maxHint ? ` (${maxHint})` : ''}`}
+            onPress={onMax}
+            disabled={maxDisabled}
+            style={[styles.maxButton, maxDisabled && styles.maxButtonDisabled]}
+          >
+            <Text style={[styles.maxButtonText, maxDisabled && styles.maxButtonTextDisabled]}>Max</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.inputRow}>
@@ -120,6 +130,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#D8D8DE',
+  },
+  maxGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  maxHintText: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 11,
   },
   maxButton: {
     borderRadius: 999,

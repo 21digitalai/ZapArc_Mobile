@@ -126,7 +126,9 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     const isDirectUsdbTransfer = !row.isSwap && tx.asset === 'USDB';
     const txIcon = isDirectUsdbTransfer ? (isReceived ? '$↓' : '$↑') : (method === 'swap' ? '⇄' : method === 'onchain' ? '⛓️' : '⚡');
     const txIconColor = isDirectUsdbTransfer ? '#4CAF50' : primaryTextColor;
-    const formattedAmount = formatTx(row.displayAmount ?? 0, isReceived);
+    const formattedAmount = formatTx(row.displayAmount ?? 0, isReceived, {
+      asset: tx.asset === 'USDB' ? 'USDB' : 'BTC',
+    });
 
     return (
       <TouchableOpacity
@@ -225,11 +227,11 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                   isReceived ? styles.amountReceived : styles.amountSent,
                 ]}
               >
-                {formatTx(tx.amount ?? 0, isReceived).primary}
+                {formatTx(tx.amount ?? 0, isReceived, { asset: tx.asset === 'USDB' ? 'USDB' : 'BTC' }).primary}
               </Text>
-              {formatTx(tx.amount ?? 0, isReceived).secondary && (
+              {formatTx(tx.amount ?? 0, isReceived, { asset: tx.asset === 'USDB' ? 'USDB' : 'BTC' }).secondary && (
                 <Text style={[styles.modalAmountSecondary, { color: secondaryTextColor }]}>
-                  {formatTx(tx.amount ?? 0, isReceived).secondary}
+                  {formatTx(tx.amount ?? 0, isReceived, { asset: tx.asset === 'USDB' ? 'USDB' : 'BTC' }).secondary}
                 </Text>
               )}
               <Text style={styles.modalStatus}>

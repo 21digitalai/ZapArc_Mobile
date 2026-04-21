@@ -74,6 +74,10 @@ export function emitWalletSwitch(event: WalletSwitchEvent): void {
   _switchListeners.forEach((listener) => listener(event));
 }
 
+// (Previously: a cross-hook event bus for optimistic swap deltas. Removed
+// once useWallet was migrated to a shared Context — updates to the single
+// state owner now propagate to every consumer automatically.)
+
 // =============================================================================
 // Constants
 // =============================================================================
@@ -81,6 +85,7 @@ export function emitWalletSwitch(event: WalletSwitchEvent): void {
 const CACHE_KEY_PREFIX = '@wallet_cache:';
 const BALANCE_CACHE_KEY_PREFIX = '@wallet_balance_cache:';
 const TX_CACHE_KEY_PREFIX = '@wallet_tx_cache:';
+const TOKEN_BAL_CACHE_KEY_PREFIX = '@wallet_token_balances_cache:';
 const CACHE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes - consider data stale after this
 
 // =============================================================================
@@ -100,6 +105,10 @@ function getBalanceCacheKey(masterKeyId: string, subWalletIndex: number): string
 
 function getTransactionsCacheKey(masterKeyId: string, subWalletIndex: number): string {
   return `${TX_CACHE_KEY_PREFIX}${masterKeyId}:${subWalletIndex}`;
+}
+
+function getTokenBalancesCacheKey(masterKeyId: string, subWalletIndex: number): string {
+  return `${TOKEN_BAL_CACHE_KEY_PREFIX}${masterKeyId}:${subWalletIndex}`;
 }
 
 /**
@@ -230,6 +239,49 @@ export async function cacheTransactions(
 }
 
 /**
+ * Get cached token balances for a wallet. Token balances are stored as
+ * plain JSON — any BigInt fields must be pre-serialized to string before
+ * calling cacheTokenBalances.
+ */
+export async function getCachedTokenBalances(
+  masterKeyId: string,
+  subWalletIndex: number
+): Promise<Array<Record<string, unknown>> | null> {
+  try {
+    const key = getTokenBalancesCacheKey(masterKeyId, subWalletIndex);
+    const cached = await AsyncStorage.getItem(key);
+    if (!cached) return null;
+    const parsed = JSON.parse(cached) as { entries: Array<Record<string, unknown>>; timestamp: number };
+    if (isStale(parsed.timestamp)) return null;
+    return Array.isArray(parsed.entries) ? parsed.entries : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cache token balances for a wallet. Accepts entries with BigInt fields;
+ * they are serialized via a replacer.
+ */
+export async function cacheTokenBalances(
+  masterKeyId: string,
+  subWalletIndex: number,
+  entries: Array<Record<string, unknown>>
+): Promise<void> {
+  try {
+    const key = getTokenBalancesCacheKey(masterKeyId, subWalletIndex);
+    const payload = {
+      entries,
+      timestamp: Date.now(),
+    };
+    const serialized = JSON.stringify(payload, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
+    await AsyncStorage.setItem(key, serialized);
+  } catch (err) {
+    console.error('❌ [WalletCache] Failed to cache token balances:', err);
+  }
+}
+
+/**
  * Clear cache for a specific wallet
  */
 export async function clearWalletCache(
@@ -240,7 +292,8 @@ export async function clearWalletCache(
     const key = getCacheKey(masterKeyId, subWalletIndex);
     const balanceKey = getBalanceCacheKey(masterKeyId, subWalletIndex);
     const txKey = getTransactionsCacheKey(masterKeyId, subWalletIndex);
-    await AsyncStorage.multiRemove([key, balanceKey, txKey]);
+    const tokenKey = getTokenBalancesCacheKey(masterKeyId, subWalletIndex);
+    await AsyncStorage.multiRemove([key, balanceKey, txKey, tokenKey]);
   } catch (err) {
     console.error('❌ [WalletCache] Failed to clear cache:', err);
   }
@@ -252,7 +305,12 @@ export async function clearWalletCache(
 export async function clearAllCaches(): Promise<void> {
   try {
     const keys = await AsyncStorage.getAllKeys();
-    const cacheKeys = keys.filter((key) => key.startsWith(CACHE_KEY_PREFIX) || key.startsWith(BALANCE_CACHE_KEY_PREFIX) || key.startsWith(TX_CACHE_KEY_PREFIX));
+    const cacheKeys = keys.filter((key) =>
+      key.startsWith(CACHE_KEY_PREFIX) ||
+      key.startsWith(BALANCE_CACHE_KEY_PREFIX) ||
+      key.startsWith(TX_CACHE_KEY_PREFIX) ||
+      key.startsWith(TOKEN_BAL_CACHE_KEY_PREFIX)
+    );
     await AsyncStorage.multiRemove(cacheKeys);
   } catch (err) {
     console.error('❌ [WalletCache] Failed to clear all caches:', err);

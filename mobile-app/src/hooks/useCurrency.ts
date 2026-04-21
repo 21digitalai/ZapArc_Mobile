@@ -11,6 +11,7 @@ import {
   btcToSats,
   formatSats,
   formatFiat,
+  formatFiatCompact,
   satsToFiat,
 } from '../utils/currency';
 import type { PrimaryDenomination, FiatCurrency } from '../features/settings/types';
@@ -36,7 +37,11 @@ interface UseCurrencyReturn {
 
   // Formatting functions
   format: (sats: number, options?: { hideBalance?: boolean }) => FormattedAmount;
-  formatTx: (sats: number, isReceived: boolean) => FormattedAmount;
+  formatTx: (
+    sats: number,
+    isReceived: boolean,
+    opts?: { asset?: 'BTC' | 'USDB'; tokenDecimals?: number },
+  ) => FormattedAmount;
   formatCompact: (sats: number) => string;
 
   // Conversion functions for input
@@ -148,10 +153,17 @@ export function useCurrency(): UseCurrencyReturn {
       const safeSats = typeof sats === 'number' && !isNaN(sats) ? sats : 0;
 
       if (displayCurrency === 'sats') {
+        // When the user has sats as their primary display, show their
+        // configured secondary fiat equivalent below — e.g. sats as primary,
+        // "≈ €122.45" as secondary. Previously returned null for secondary
+        // which hid the fiat conversion entirely.
+        const fiatCode = secondaryFiatCurrency || 'usd';
+        const hasRate = !!rates && rates[fiatCode] > 0;
+        const fiatAmount = hasRate ? satsToFiat(safeSats, rates, fiatCode) : null;
         return {
           primary: `${formatSats(safeSats)} sats`,
-          secondary: null,
-          secondaryCompact: null,
+          secondary: fiatAmount !== null ? `≈ ${formatFiat(fiatAmount, fiatCode)}` : null,
+          secondaryCompact: fiatAmount !== null ? formatFiatCompact(fiatAmount, fiatCode) : null,
         };
       }
 
@@ -170,14 +182,39 @@ export function useCurrency(): UseCurrencyReturn {
         secondaryCompact: `${formatSats(safeSats)} sats`,
       };
     },
-    [displayCurrency, rates]
+    [displayCurrency, rates, secondaryFiatCurrency]
   );
 
-  // Format transaction amount
+  // Format transaction amount. `amount` is denominated per the tx's asset:
+  //   BTC (default): amount is in satoshis → run through the normal BTC
+  //     formatter which also shows a fiat equivalent.
+  //   USDB: amount is in USDB base units (tokenDecimals = 6 by default).
+  //     Format as "X.XX USDB" — no sat conversion, no fiat conversion, since
+  //     USDB itself IS a fiat stablecoin (1 USDB ≈ $1).
   const formatTx = useCallback(
-    (sats: number, isReceived: boolean): FormattedAmount => {
-      const formatted = format(sats);
+    (
+      amount: number,
+      isReceived: boolean,
+      opts?: { asset?: 'BTC' | 'USDB'; tokenDecimals?: number },
+    ): FormattedAmount => {
       const prefix = isReceived ? '+' : '-';
+
+      if (opts?.asset === 'USDB') {
+        const decimals = opts.tokenDecimals ?? 6;
+        const whole = (Number(amount) || 0) / 10 ** decimals;
+        const usdbStr = `${whole.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })} USDB`;
+        return {
+          primary: `${prefix}${usdbStr}`,
+          // No secondary — USDB is already a USD-equivalent.
+          secondary: null,
+          secondaryCompact: null,
+        };
+      }
+
+      const formatted = format(amount);
       return {
         primary: `${prefix}${formatted.primary}`,
         secondary: formatted.secondary,

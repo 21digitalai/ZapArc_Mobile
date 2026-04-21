@@ -59,12 +59,18 @@ export function SwapReviewModal({
 
     setConfirmDisabled(true);
 
-    const biometricOk = await unlockWithBiometric();
-    const pinFallbackAvailable = Boolean(getSessionPin());
-
-    if (!biometricOk && !pinFallbackAvailable) {
-      setConfirmDisabled(false);
-      return;
+    // The user is already inside an unlocked wallet session by virtue of being
+    // on this screen. If we have a cached session PIN, they've already proven
+    // auth — don't prompt biometric again just to confirm a swap. Fall back to
+    // biometric ONLY if the session PIN has evaporated (session expired mid-
+    // review, etc.).
+    if (!getSessionPin()) {
+      const biometricOk = await unlockWithBiometric();
+      const pinFallbackAvailable = Boolean(getSessionPin());
+      if (!biometricOk && !pinFallbackAvailable) {
+        setConfirmDisabled(false);
+        return;
+      }
     }
 
     await onConfirm();

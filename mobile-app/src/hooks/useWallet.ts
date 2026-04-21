@@ -1,7 +1,17 @@
 // useWallet Hook
-// Manages wallet state, operations, and multi-wallet switching
+// Manages wallet state, operations, and multi-wallet switching.
+//
+// `useWallet` exported from this file is the Context-backed hook — all
+// callers share a single state instance. The heavy implementation lives in
+// `useWalletStateInternal` below; <WalletProvider> calls it once and feeds
+// the value into the context. See ../contexts/WalletContext.tsx.
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+// Re-export the context hook so existing `import { useWallet } from
+// '.../hooks/useWallet'` lines continue working. The import cycle here
+// (this file ↔ WalletContext.tsx) is safe because both sides use the
+// bindings lazily (only inside render/call-time).
+export { useWallet } from '../contexts/WalletContext';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { storageService } from '../services';
 import * as BreezSparkService from '../services/breezSparkService';
@@ -76,6 +86,18 @@ export interface WalletActions {
   getBalanceForAsset: (asset: WalletAsset) => number;
   getTransactionsForAsset: (asset: WalletAsset) => Transaction[];
 
+  // Optimistic local update (swap success path). Applies a delta derived
+  // from the SDK's sendPayment response so the UI reflects the new state
+  // instantly, without waiting for the next listPayments / getInfo poll.
+  applySwapResult: (opts: {
+    direction: 'BTC_TO_USDB' | 'USDB_TO_BTC';
+    spent: bigint;
+    received: bigint;
+    tokenIdentifier: string;
+    tokenDecimals: number;
+    paymentId?: string;
+  }) => void;
+
   // Payment operations
   sendPayment: (bolt11: string) => Promise<boolean>;
   receivePayment: (amountSats: number, description?: string) => Promise<string>;
@@ -92,7 +114,14 @@ export interface WalletActions {
 // Hook Implementation
 // =============================================================================
 
-export function useWallet(): WalletState & WalletActions {
+/**
+ * Internal wallet-state hook. DO NOT call directly from screens/components —
+ * they should use `useWallet()` from `contexts/WalletContext` which reads
+ * from a single shared provider instance. Calling this hook directly would
+ * create an isolated state copy that won't sync with the rest of the app.
+ * WalletProvider is the only legitimate caller.
+ */
+export function useWalletStateInternal(): WalletState & WalletActions {
   // State
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -114,6 +143,8 @@ export function useWallet(): WalletState & WalletActions {
   // Refs for stable access in callbacks without triggering identity changes
   const balanceRef = useRef(balance);
   const transactionsRef = useRef(transactions);
+  const tokenBalancesRef = useRef<TokenBalanceEntry[]>(tokenBalances);
+  const activeWalletInfoRef = useRef<ActiveWalletInfo | null>(null);
 
   // Refs for debouncing refresh calls to prevent redundant API calls
   // Store the promise so callers can wait for the in-progress call
@@ -130,6 +161,10 @@ export function useWallet(): WalletState & WalletActions {
   useEffect(() => {
     transactionsRef.current = transactions;
   }, [transactions]);
+
+  useEffect(() => {
+    tokenBalancesRef.current = tokenBalances;
+  }, [tokenBalances]);
 
   // Derived state
   const masterKeys = useMemo(() => storage?.masterKeys ?? [], [storage]);
@@ -169,6 +204,7 @@ export function useWallet(): WalletState & WalletActions {
 
   useEffect(() => {
     activeWalletKeyRef.current = getWalletKey(activeWalletInfo);
+    activeWalletInfoRef.current = activeWalletInfo;
   }, [activeWalletInfo, getWalletKey]);
 
   // Track which wallet key we last loaded cache for — skip re-runs if unchanged
@@ -191,17 +227,28 @@ export function useWallet(): WalletState & WalletActions {
       if (data?.activeMasterKeyId && data.activeSubWalletIndex !== undefined) {
         const walletKey = `${data.activeMasterKeyId}:${data.activeSubWalletIndex}`;
         console.log('📦 [useWallet] loadWalletData: active wallet =', walletKey, 'prev =', lastCacheLoadKeyRef.current);
+        const walletChanged = lastCacheLoadKeyRef.current !== walletKey;
         lastCacheLoadKeyRef.current = walletKey;
 
-        const [cachedBal, cachedTx] = await Promise.all([
+        const [cachedBal, cachedTx, cachedTokens] = await Promise.all([
            WalletCache.getCachedBalance(data.activeMasterKeyId, data.activeSubWalletIndex),
-           WalletCache.getCachedTransactions(data.activeMasterKeyId, data.activeSubWalletIndex)
+           WalletCache.getCachedTransactions(data.activeMasterKeyId, data.activeSubWalletIndex),
+           WalletCache.getCachedTokenBalances(data.activeMasterKeyId, data.activeSubWalletIndex),
         ]);
-        
-        console.log('📦 [useWallet] loadWalletData: setting balance =', cachedBal?.balance ?? 0, 'txns =', cachedTx?.transactions?.length ?? 0);
-        setBalance(cachedBal?.balance ?? 0);
-        setTransactions(cachedTx?.transactions ?? []);
-        setTokenBalances([]);
+
+        console.log('📦 [useWallet] loadWalletData: setting balance =', cachedBal?.balance ?? 0, 'txns =', cachedTx?.transactions?.length ?? 0, 'tokens =', cachedTokens?.length ?? 0, 'walletChanged =', walletChanged);
+        // Only overwrite in-memory state from cache when the WALLET CHANGED.
+        // On same-wallet reloads (focus events, reconnects, resumes) keep
+        // whatever state we already have in React memory — it's at least as
+        // fresh as the cache, and may be fresher (e.g. optimistic swap
+        // deltas that haven't been persisted to cache yet). Otherwise a
+        // post-swap focus would clobber the optimistic USDB balance with
+        // the pre-swap cached value.
+        if (walletChanged) {
+          setBalance(cachedBal?.balance ?? 0);
+          setTransactions(cachedTx?.transactions ?? []);
+          setTokenBalances((cachedTokens as TokenBalanceEntry[] | null) ?? []);
+        }
       } else {
         setBalance(0);
         setTransactions([]);
@@ -682,7 +729,26 @@ export function useWallet(): WalletState & WalletActions {
         // Update activity flag
         try {
           const tokenBalancesRaw = await BreezSparkService.getTokenBalances();
-          setTokenBalances(tokenBalancesRaw as TokenBalanceEntry[]);
+          // Don't overwrite a non-empty token balance with an empty array —
+          // the SDK occasionally returns an empty map during mid-sync polls
+          // which would otherwise flash the USDB balance to 0. Only accept
+          // an empty array if the BTC balance is also 0 (genuinely empty
+          // wallet) or we previously had no tokens to begin with.
+          let effectiveTokens: TokenBalanceEntry[] = tokenBalancesRaw as TokenBalanceEntry[];
+          setTokenBalances((prev) => {
+            if (effectiveTokens.length === 0 && prev.length > 0 && walletBalance.balanceSat > 0) {
+              effectiveTokens = prev;
+              return prev;
+            }
+            return effectiveTokens;
+          });
+          // Persist to per-wallet cache so future app reopens / wallet
+          // switches back here show the balance instantly.
+          void WalletCache.cacheTokenBalances(
+            walletInfo.masterKeyId,
+            walletInfo.subWalletIndex,
+            effectiveTokens as Array<Record<string, unknown>>,
+          );
         } catch (tokenErr) {
           console.warn('⚠️ [useWallet] Failed to refresh token balances:', tokenErr);
         }
@@ -710,6 +776,165 @@ export function useWallet(): WalletState & WalletActions {
     refreshBalancePromiseRef.current = { walletKey, promise };
     return promise;
   }, [getWalletKey]);
+
+  // Internal applier — mutates THIS useWallet instance's state. The public
+  // applySwapResult below both calls this locally AND broadcasts via the
+  // module-level event bus so other useWallet instances (e.g. HomeScreen's)
+  // apply the same delta in lockstep. Without the broadcast, the UI lags
+  // until the background refresh lands, because every component that calls
+  // useWallet() has its OWN state snapshot.
+  const applyDeltaLocal = useCallback((opts: {
+    direction: 'BTC_TO_USDB' | 'USDB_TO_BTC';
+    spent: bigint;
+    received: bigint;
+    tokenIdentifier: string;
+    tokenDecimals: number;
+    paymentId?: string;
+  }): void => {
+    const { direction, spent, received, tokenIdentifier, tokenDecimals, paymentId } = opts;
+
+    // Balance deltas:
+    //   BTC_TO_USDB: BTC balance -= spent (sats), USDB += received (base)
+    //   USDB_TO_BTC: USDB balance -= spent (base), BTC += received (sats)
+    if (direction === 'BTC_TO_USDB') {
+      setBalance((prev) => Math.max(0, prev - Number(spent)));
+      setTokenBalances((prev) => {
+        const existingIdx = prev.findIndex((e) => {
+          const r = e as Record<string, unknown>;
+          const id = String(r.tokenIdentifier || (r.tokenMetadata as any)?.identifier || '').trim();
+          return id === tokenIdentifier;
+        });
+        if (existingIdx >= 0) {
+          const existing = prev[existingIdx] as Record<string, unknown>;
+          const prevBalRaw = existing.balance;
+          const prevBal = typeof prevBalRaw === 'bigint'
+            ? prevBalRaw
+            : BigInt(String(prevBalRaw ?? '0'));
+          const next = [...prev];
+          next[existingIdx] = { ...existing, balance: prevBal + received } as TokenBalanceEntry;
+          return next;
+        }
+        // First-time receive — synthesize a minimal entry. It'll be
+        // replaced with the full SDK shape on the next refresh.
+        return [
+          ...prev,
+          {
+            balance: received,
+            tokenIdentifier,
+            ticker: 'USDB',
+            decimals: tokenDecimals,
+            tokenMetadata: { identifier: tokenIdentifier, ticker: 'USDB', decimals: tokenDecimals },
+          } as unknown as TokenBalanceEntry,
+        ];
+      });
+    } else {
+      // USDB → BTC
+      setBalance((prev) => prev + Number(received));
+      setTokenBalances((prev) => {
+        const existingIdx = prev.findIndex((e) => {
+          const r = e as Record<string, unknown>;
+          const id = String(r.tokenIdentifier || (r.tokenMetadata as any)?.identifier || '').trim();
+          return id === tokenIdentifier;
+        });
+        if (existingIdx < 0) return prev;
+        const existing = prev[existingIdx] as Record<string, unknown>;
+        const prevBalRaw = existing.balance;
+        const prevBal = typeof prevBalRaw === 'bigint'
+          ? prevBalRaw
+          : BigInt(String(prevBalRaw ?? '0'));
+        const nextBal = prevBal > spent ? prevBal - spent : 0n;
+        const next = [...prev];
+        next[existingIdx] = { ...existing, balance: nextBal } as TokenBalanceEntry;
+        return next;
+      });
+    }
+
+    // Insert an optimistic transaction at the top of the list. The next
+    // refreshTransactions() will replace it with the SDK's canonical row.
+    const optimisticTx: Transaction = {
+      id: paymentId || `pending-swap-${Date.now()}`,
+      type: 'receive', // From user's POV: they receive the destination asset
+      amount: direction === 'BTC_TO_USDB' ? Number(received) : Number(received),
+      feeSats: 0,
+      status: 'completed',
+      timestamp: Date.now(),
+      description: direction === 'BTC_TO_USDB' ? 'BTC → USDB swap' : 'USDB → BTC swap',
+      method: 'lightning',
+      paymentType: 'conversion',
+      asset: direction === 'BTC_TO_USDB' ? 'USDB' : 'BTC',
+      tokenIdentifier: direction === 'BTC_TO_USDB' ? tokenIdentifier : undefined,
+    } as Transaction;
+    setTransactions((prev) => {
+      // If the id already exists (SDK sync landed first), skip.
+      if (paymentId && prev.some((t) => t.id === paymentId)) return prev;
+      return [optimisticTx, ...prev];
+    });
+
+    // Persist the post-swap state to per-wallet caches so a later focus /
+    // reload doesn't read the pre-swap cached values. Fire-and-forget —
+    // UI is already updated via React state.
+    const walletInfo = activeWalletInfoRef.current;
+    if (walletInfo) {
+      // Use latest in-memory state by reading refs AFTER the state setters
+      // have scheduled updates. We reconstruct the expected post-swap
+      // snapshots directly from the delta so we don't have to wait for
+      // the state updates to flush.
+      const nextBtcBalance = direction === 'BTC_TO_USDB'
+        ? Math.max(0, balanceRef.current - Number(spent))
+        : balanceRef.current + Number(received);
+      void WalletCache.cacheBalance(walletInfo.masterKeyId, walletInfo.subWalletIndex, nextBtcBalance);
+      // Rebuild tokenBalances snapshot from current state + delta for cache.
+      const prevTokens = tokenBalancesRef.current;
+      let updatedTokens: TokenBalanceEntry[];
+      const idx = prevTokens.findIndex((e) => {
+        const r = e as Record<string, unknown>;
+        const id = String(r.tokenIdentifier || (r.tokenMetadata as any)?.identifier || '').trim();
+        return id === tokenIdentifier;
+      });
+      if (direction === 'BTC_TO_USDB') {
+        if (idx >= 0) {
+          const existing = prevTokens[idx] as Record<string, unknown>;
+          const prevBal = typeof existing.balance === 'bigint'
+            ? (existing.balance as bigint)
+            : BigInt(String(existing.balance ?? '0'));
+          const copy = [...prevTokens];
+          copy[idx] = { ...existing, balance: prevBal + received } as TokenBalanceEntry;
+          updatedTokens = copy;
+        } else {
+          updatedTokens = [
+            ...prevTokens,
+            {
+              balance: received,
+              tokenIdentifier,
+              ticker: 'USDB',
+              decimals: tokenDecimals,
+              tokenMetadata: { identifier: tokenIdentifier, ticker: 'USDB', decimals: tokenDecimals },
+            } as unknown as TokenBalanceEntry,
+          ];
+        }
+      } else if (idx >= 0) {
+        const existing = prevTokens[idx] as Record<string, unknown>;
+        const prevBal = typeof existing.balance === 'bigint'
+          ? (existing.balance as bigint)
+          : BigInt(String(existing.balance ?? '0'));
+        const nextBal = prevBal > spent ? prevBal - spent : 0n;
+        const copy = [...prevTokens];
+        copy[idx] = { ...existing, balance: nextBal } as TokenBalanceEntry;
+        updatedTokens = copy;
+      } else {
+        updatedTokens = prevTokens;
+      }
+      void WalletCache.cacheTokenBalances(
+        walletInfo.masterKeyId,
+        walletInfo.subWalletIndex,
+        updatedTokens as Array<Record<string, unknown>>,
+      );
+    }
+  }, []);
+
+  // Public applier — with shared Context state, updating this single owner
+  // propagates to every consumer (via React re-render). No event bus needed.
+  const applySwapResult = applyDeltaLocal;
 
   const refreshTransactions = useCallback(async (): Promise<void> => {
     const walletInfo = await storageService.getActiveWalletInfo();
@@ -1161,15 +1386,28 @@ export function useWallet(): WalletState & WalletActions {
 
 
   const usdbBalance = useMemo((): number => {
-    const usdb = tokenBalances.find((entry) => {
-      const ticker = String((entry as Record<string, unknown>).ticker || (entry as Record<string, unknown>).symbol || '').toUpperCase();
+    // Breez SDK token balance entries use `tokenIdentifier` (bech32 btkn1…).
+    // Ticker/symbol may or may not be populated depending on metadata. Prefer
+    // identifier match against our env-configured USDB token, fall back to
+    // ticker match for robustness.
+    const envUsdbId = (process.env.EXPO_PUBLIC_USDB_TOKEN_IDENTIFIER || '').trim();
+
+    const usdb = tokenBalances.find((raw) => {
+      const entry = raw as Record<string, unknown>;
+      // Breez shape: { tokenMetadata: { identifier, ticker, decimals, ... }, balance }
+      const meta = (entry.tokenMetadata || entry.metadata || entry.token || entry) as Record<string, unknown>;
+      const id = String(meta.identifier || meta.tokenIdentifier || meta.id || entry.tokenIdentifier || entry.identifier || '').trim();
+      if (envUsdbId && id === envUsdbId) return true;
+      const ticker = String(meta.ticker || meta.symbol || entry.ticker || entry.symbol || '').toUpperCase();
       return ticker === 'USDB';
     }) as Record<string, unknown> | undefined;
 
     if (!usdb) return 0;
 
-    const raw = usdb.balance ?? usdb.amount ?? usdb.baseUnits ?? 0;
-    const decimals = Number(usdb.decimals);
+    const meta = (usdb.tokenMetadata || usdb.metadata || usdb.token || usdb) as Record<string, unknown>;
+    const raw = usdb.balance ?? usdb.amount ?? usdb.baseUnits ?? meta.balance ?? 0;
+    const decimalsRaw = meta.decimals ?? usdb.decimals;
+    const decimals = Number(decimalsRaw);
     const n = typeof raw === 'bigint' ? Number(raw) : Number(raw);
     if (!Number.isFinite(n)) return 0;
     if (Number.isFinite(decimals) && decimals >= 0) {
@@ -1230,6 +1468,7 @@ export function useWallet(): WalletState & WalletActions {
     renameSubWallet,
     refreshBalance,
     refreshTransactions,
+    applySwapResult,
     getBalanceForAsset,
     getTransactionsForAsset,
     sendPayment,

@@ -138,7 +138,19 @@ export async function getActiveSecurityReminder(): Promise<SecurityReminderKind>
   }
 
   // Notifications banner — shown next, only once biometric is resolved.
-  if (!settings.notificationsEnabled) {
+  // Check the OS-level permission rather than just the internal setting:
+  // the internal `notificationsEnabled` defaults to true (user wants them on),
+  // but on a fresh install the OS permission is still 'undetermined'. Showing
+  // the banner based on the internal flag alone means it would never appear.
+  let osGranted = false;
+  try {
+    const { status } = await Notifications.getPermissionsAsync();
+    osGranted = status === 'granted';
+  } catch {
+    osGranted = false;
+  }
+
+  if (!osGranted || !settings.notificationsEnabled) {
     try {
       const dismissed = await AsyncStorage.getItem(NOTIFICATIONS_BANNER_DISMISSED_KEY);
       if (dismissed !== '1') return 'notifications';

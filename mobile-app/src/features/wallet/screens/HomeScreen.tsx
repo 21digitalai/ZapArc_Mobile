@@ -76,6 +76,9 @@ export function HomeScreen(): React.JSX.Element {
     paymentSuccess?: string;
     paymentAmount?: string;
     asset?: string;
+    swapSuccess?: string;
+    swapAsset?: string;
+    swapReceived?: string;
   }>();
 
   const { themeMode } = useAppTheme();
@@ -268,6 +271,24 @@ export function HomeScreen(): React.JSX.Element {
     router.setParams({ asset: undefined });
   }, [params.asset, activeAsset]);
 
+  // Swap-success toast + auto-switch to the destination asset tab.
+  useEffect(() => {
+    if (params.swapSuccess !== 'true') return;
+
+    const targetAsset: WalletAsset = params.swapAsset === 'BTC' ? 'BTC' : 'USDB';
+    if (activeAsset !== targetAsset) {
+      setActiveAsset(targetAsset);
+      void settingsService.setActiveAsset(targetAsset);
+    }
+
+    const received = params.swapReceived || '';
+    const unit = targetAsset === 'USDB' ? 'USDB' : 'sats';
+    setSnackbarMessage(received ? `✅ Swap complete: +${received} ${unit}` : '✅ Swap complete');
+    setSnackbarVisible(true);
+
+    router.setParams({ swapSuccess: undefined, swapAsset: undefined, swapReceived: undefined });
+  }, [params.swapSuccess, params.swapAsset, params.swapReceived, activeAsset]);
+
   // Navigation handlers
   const handleAssetChange = (asset: WalletAsset): void => {
     setActiveAsset(asset);
@@ -287,8 +308,10 @@ export function HomeScreen(): React.JSX.Element {
   };
 
   const handleSwap = (): void => {
-    const direction = activeAsset === 'USDB' ? 'USDB_TO_BTC' : 'BTC_TO_USDB';
-    router.push({ pathname: '/wallet/swap', params: { direction } });
+    // Always default to sats → USDB (sats on top). Users can flip via the
+    // flip button on the swap screen if they want USDB → sats. This matches
+    // the common "buy stablecoin" mental model being the primary swap case.
+    router.push({ pathname: '/wallet/swap', params: { direction: 'BTC_TO_USDB' } });
   };
 
   const handleViewHistory = (): void => {
@@ -325,7 +348,7 @@ export function HomeScreen(): React.JSX.Element {
       hour: '2-digit',
       minute: '2-digit',
     });
-    const formattedTx = formatTx(amount, isReceived);
+    const formattedTx = formatTx(amount, isReceived, { asset: tx.asset === 'USDB' ? 'USDB' : 'BTC' });
 
     return (
       <TouchableOpacity
@@ -664,11 +687,11 @@ export function HomeScreen(): React.JSX.Element {
                   isReceived ? styles.amountReceived : styles.amountSent,
                 ]}
               >
-                {formatTx(tx.amount ?? 0, isReceived).primary}
+                {formatTx(tx.amount ?? 0, isReceived, { asset: tx.asset === 'USDB' ? 'USDB' : 'BTC' }).primary}
               </Text>
-              {formatTx(tx.amount ?? 0, isReceived).secondary && (
+              {formatTx(tx.amount ?? 0, isReceived, { asset: tx.asset === 'USDB' ? 'USDB' : 'BTC' }).secondary && (
                 <Text style={[styles.modalAmountSecondary, { color: secondaryTextColor }]}>
-                  {formatTx(tx.amount ?? 0, isReceived).secondary}
+                  {formatTx(tx.amount ?? 0, isReceived, { asset: tx.asset === 'USDB' ? 'USDB' : 'BTC' }).secondary}
                 </Text>
               )}
               <Text style={[

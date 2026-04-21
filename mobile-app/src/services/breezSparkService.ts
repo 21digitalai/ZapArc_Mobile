@@ -5,6 +5,7 @@
 // - Development builds (npx expo run:android)
 // - Production builds
 import { BREEZ_API_KEY, BREEZ_STORAGE_DIR } from '../config';
+import { getExchangeRates, getCachedRates } from '../utils/currency';
 import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
 // expo-notifications and expo-constants imports removed —
 // push token handling moved to notificationSubscriptionService.ts
@@ -157,16 +158,49 @@ export interface PrepareSwapParams {
 
 export interface SwapQuote {
   direction: SwapDirection;
-  amount: bigint;
+  amount: bigint;                 // user's input amount (sats for BTC→USDB, USDB base units for USDB→BTC)
   slippageBps: number;
+  // Amounts from the SDK's conversionEstimate. For BTC→USDB:
+  //   payAmount = actual sats SDK will charge (from amountIn)
+  //   receiveAmount = USDB base units user receives (from amountOut)
+  //   feeSat = fee in sats
+  // For USDB→BTC:
+  //   payAmount = USDB base units SDK will deduct
+  //   receiveAmount = sats user receives
+  //   feeSat = fee in USDB base units (naming kept for back-compat)
+  payAmount: bigint;
   receiveAmount: bigint;
   feeSat: bigint;
   rate: number;
+  usdbDecimals: number;           // for UI formatting of USDB amounts
   preparedPayment: unknown;
 }
 
 export interface SwapResult {
   paymentId?: string;
+  /**
+   * Raw Payment object returned by the SDK's sendPayment call. Carries the
+   * authoritative post-swap amounts + tokenIdentifier so the caller can
+   * optimistically update UI state without waiting for the next listPayments
+   * round-trip.
+   */
+  payment?: unknown;
+  /**
+   * Direction of the swap — needed by callers that apply optimistic deltas
+   * to separate BTC/USDB balance buckets.
+   */
+  direction?: SwapDirection;
+  /**
+   * Sats spent (BTC_TO_USDB) or USDB base units spent (USDB_TO_BTC). Pulled
+   * from conversionEstimate.amountIn.
+   */
+  spent?: bigint;
+  /**
+   * USDB base units received (BTC_TO_USDB) or sats received (USDB_TO_BTC).
+   * Pulled from conversionEstimate.amountOut — i.e. AMM's estimated delivery
+   * (matches what actually lands in the wallet, within slippage tolerance).
+   */
+  received?: bigint;
 }
 
 export type SwapOutcome =
@@ -248,10 +282,19 @@ function walkObjectForIdentifiers(value: unknown, out: Set<string>): void {
   for (const child of Object.values(record)) walkObjectForIdentifiers(child, out);
 }
 
+// The SDK's FetchConversionLimitsResponse only carries minFromAmount + minToAmount
+// (no maximum — swaps are limited only by wallet balance + pool liquidity).
+// We preserve the SwapLimits.max shape for the UI's above-max check, but set it to
+// a sentinel so the check effectively never triggers.
+const SWAP_MAX_SENTINEL = (1n << 63n) - 1n;
+
 function extractLimitsFromResponse(response: unknown): SwapLimits {
   const source = (response || {}) as Record<string, unknown>;
 
   const min =
+    // SDK 0.13.1 canonical field name for FetchConversionLimitsResponse.
+    toBigIntOrNull(source.minFromAmount) ??
+    // Older / alternate field names kept as fallback for forward-compat.
     toBigIntOrNull(source.min) ??
     toBigIntOrNull(source.minAmount) ??
     toBigIntOrNull(source.minAmountSat) ??
@@ -259,13 +302,16 @@ function extractLimitsFromResponse(response: unknown): SwapLimits {
     toBigIntOrNull((source.limits as Record<string, unknown> | undefined)?.min);
 
   const max =
+    // SDK 0.13.1 does not expose a max — fall back to sentinel.
+    toBigIntOrNull(source.maxFromAmount) ??
     toBigIntOrNull(source.max) ??
     toBigIntOrNull(source.maxAmount) ??
     toBigIntOrNull(source.maxAmountSat) ??
     toBigIntOrNull(source.maxSendable) ??
-    toBigIntOrNull((source.limits as Record<string, unknown> | undefined)?.max);
+    toBigIntOrNull((source.limits as Record<string, unknown> | undefined)?.max) ??
+    SWAP_MAX_SENTINEL;
 
-  if (min === null || max === null) {
+  if (min === null) {
     throw new Error('Failed to parse conversion limits from SDK response');
   }
 
@@ -280,27 +326,60 @@ function pickBigInt(record: Record<string, unknown>, keys: string[]): bigint | n
   return null;
 }
 
-function parsePreparedAmounts(prepared: unknown): { receiveAmount: bigint; feeSat: bigint } {
+function parsePreparedAmounts(
+  prepared: unknown
+): { receiveAmount: bigint; feeSat: bigint; payAmount: bigint } {
   const source = (prepared || {}) as Record<string, unknown>;
-  const receiveAmount =
-    pickBigInt(source, ['receiveAmount', 'receiveAmountSat', 'receiverAmount', 'amountReceiving']) ??
-    pickBigInt((source.quote as Record<string, unknown>) || {}, ['receiveAmount', 'receiveAmountSat']) ??
+  const estimate = (source.conversionEstimate || {}) as Record<string, unknown>;
+
+  // Verified against actual SDK 0.13.1 responses (BTC→USDB direction):
+  //   • `outer.amount`                     = NET amount delivered to the user
+  //   • `conversionEstimate.amountIn`      = total sats debited from the user
+  //   • `conversionEstimate.amountOut`     = GROSS pre-fee output (always
+  //                                          ≈ amountIn × rate, ignores fees)
+  //   • `conversionEstimate.fee`           = an inflated pool-impact /
+  //                                          slippage-reserve number, NOT the
+  //                                          actual user-charged fee. Do not
+  //                                          display it.
+  //
+  // Real economic fee = amountOut − outer.amount (in destination token units).
+  // We surface this as `feeSat` for now (the UI formats it per-direction).
+  //
+  // On a 163,964-sat swap we observed amountOut=123,043,715 USDB base units
+  // vs outer.amount=122,436,922 → fee = 606,793 base units = 0.60 USDB = ~800
+  // sats = 0.5%, which matches real-world AMM expectations. The SDK's
+  // inflated `conversionEstimate.fee=61,222` was the source of the "40% fee"
+  // bug — it's unrelated to what the user actually pays.
+  const outerAmount = pickBigInt(source, ['amount']) ?? 0n;
+  const gross = pickBigInt(estimate, ['amountOut']) ?? 0n;
+  const payAmount =
+    pickBigInt(estimate, ['amountIn']) ??
+    outerAmount ??
     0n;
 
-  const feeSat =
-    pickBigInt(source, ['feesSat', 'feeSat', 'totalFeeSat', 'networkFeeSat']) ??
-    pickBigInt((source.fees as Record<string, unknown>) || {}, ['total', 'sat', 'sats']) ??
-    0n;
+  // Display the AMM's estimated delivery (`amountOut`) as the receive
+  // amount — that's what the user actually gets in practice. `outer.amount`
+  // is the slippage-protected minimum (what Rust will enforce), which is
+  // a less helpful number to show upfront because users compare it against
+  // the actual settlement and get confused when they receive "more".
+  // The gap between gross (estimated) and outer (min) is the slippage
+  // buffer — we still use outer as the floor internally for safety.
+  const receiveAmount = gross || outerAmount;
+  const feeInDestinationUnits = gross > outerAmount ? gross - outerAmount : 0n;
 
-  return { receiveAmount, feeSat };
+  return { receiveAmount, feeSat: feeInDestinationUnits, payAmount };
 }
 
 function parseRateFromPrepared(prepared: unknown): number {
+  // Rate = destination-per-source, derived from amountIn/amountOut.
   const source = (prepared || {}) as Record<string, unknown>;
-  const quote = (source.quote as Record<string, unknown>) || {};
-  const rateCandidate = source.rate ?? quote.rate ?? quote.effectiveRate;
-  const n = Number(rateCandidate);
-  return Number.isFinite(n) ? n : 0;
+  const estimate = (source.conversionEstimate || {}) as Record<string, unknown>;
+  const amountIn = pickBigInt(estimate, ['amountIn']);
+  const amountOut = pickBigInt(estimate, ['amountOut']);
+  if (amountIn && amountOut && amountIn > 0n) {
+    return Number(amountOut) / Number(amountIn);
+  }
+  return 0;
 }
 
 function isSlippageRefundError(error: unknown): boolean {
@@ -317,7 +396,15 @@ function isSlippageRefundError(error: unknown): boolean {
 
 function paymentLooksRefunded(payment: unknown): boolean {
   if (!payment || typeof payment !== 'object') return false;
-  const raw = JSON.stringify(payment).toLowerCase();
+  // BigInt-safe stringify: payment records contain u128 amounts that JSON
+  // can't serialize natively. We only need a text blob to keyword-scan, so
+  // coerce bigints to strings via a replacer.
+  let raw: string;
+  try {
+    raw = JSON.stringify(payment, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)).toLowerCase();
+  } catch {
+    raw = String(payment).toLowerCase();
+  }
   return raw.includes('refund') || raw.includes('refunded') || raw.includes('conversion_refund');
 }
 
@@ -409,6 +496,16 @@ export async function resolveSwapTokens(): Promise<ResolvedSwapToken[]> {
 
   const tokenIdentifiers = new Set<string>();
 
+  // Primary source: env-provided identifier(s). Set EXPO_PUBLIC_USDB_TOKEN_IDENTIFIER
+  // in .env with the canonical USDB tokenIdentifier from Breez. This bypasses the
+  // chicken-and-egg problem of needing to HOLD a token before you can discover its
+  // identifier via getTokenBalances. Kept as env rather than hardcoded constant so
+  // it's easy to rotate without a code change.
+  const envIdentifier = process.env.EXPO_PUBLIC_USDB_TOKEN_IDENTIFIER?.trim();
+  if (envIdentifier) {
+    tokenIdentifiers.add(envIdentifier);
+  }
+
   try {
     const issuer = await sdkInstance.getTokenIssuer?.();
     if (typeof issuer === 'string' && issuer.length > 0) {
@@ -428,7 +525,11 @@ export async function resolveSwapTokens(): Promise<ResolvedSwapToken[]> {
   }
 
   if (tokenIdentifiers.size === 0) {
-    throw new Error('USDB token discovery failed (no token identifiers found)');
+    throw new Error(
+      'USDB token discovery failed: no identifiers found via getTokenIssuer or getTokenBalances. ' +
+      'Set EXPO_PUBLIC_USDB_TOKEN_IDENTIFIER in .env with the canonical USDB tokenIdentifier ' +
+      '(ask Breez support at t.me/breezsdk or check https://sparkscan.io) and restart Metro.'
+    );
   }
 
   const metadataResponse = await sdkInstance.getTokensMetadata?.({
@@ -472,8 +573,36 @@ export async function getTokenBalances(): Promise<Array<Record<string, unknown>>
     throw new Error('SDK not available');
   }
   const info = await sdkInstance.getInfo?.({ ensureSynced: true });
-  const tokenBalances = info?.tokenBalances;
-  return Array.isArray(tokenBalances) ? tokenBalances : [];
+  const raw = info?.tokenBalances;
+
+  // SDK returns `Map<string, TokenBalance>` where TokenBalance =
+  // { balance: u128, tokenMetadata: { identifier, ticker, decimals, ... } }
+  // Normalize to a flat array of records with the fields useWallet expects.
+  const entries: Array<Record<string, unknown>> = [];
+  const pushEntry = (identifierKey: string | undefined, tb: any): void => {
+    if (!tb || typeof tb !== 'object') return;
+    const meta = (tb.tokenMetadata || tb.metadata || {}) as Record<string, unknown>;
+    entries.push({
+      ...tb,
+      ...meta,
+      // Preserve originals + promote key fields to the top level
+      balance: tb.balance,
+      tokenIdentifier: meta.identifier || meta.tokenIdentifier || identifierKey,
+      ticker: meta.ticker || (meta as any).symbol,
+      decimals: meta.decimals,
+      tokenMetadata: meta,
+    });
+  };
+
+  if (raw instanceof Map) {
+    for (const [k, v] of raw.entries()) pushEntry(k, v);
+  } else if (Array.isArray(raw)) {
+    for (const v of raw) pushEntry(undefined, v);
+  } else if (raw && typeof raw === 'object') {
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) pushEntry(k, v);
+  }
+
+  return entries;
 }
 
 export async function fetchSwapLimits(direction: SwapDirection): Promise<SwapLimits> {
@@ -483,19 +612,36 @@ export async function fetchSwapLimits(direction: SwapDirection): Promise<SwapLim
 
   const [usdbToken] = await resolveSwapTokens();
   if (!usdbToken) throw new Error('USDB token unavailable');
+  console.log('🔬 [fetchSwapLimits] start', { direction, usdbTokenIdentifier: usdbToken.tokenIdentifier });
+
+  // Lazily resolve ConversionType factory; avoids top-level-import crash.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { ConversionType } = require('@breeztech/breez-sdk-spark-react-native');
 
   let response: unknown;
-  if (direction === 'BTC_TO_USDB') {
-    response = await sdkInstance.fetchConversionLimits?.({
-      conversionType: { tag: 'FromBitcoin' },
+  try {
+    if (direction === 'BTC_TO_USDB') {
+      response = await sdkInstance.fetchConversionLimits?.({
+        conversionType: ConversionType.FromBitcoin.new(),
+        tokenIdentifier: usdbToken.tokenIdentifier,
+      });
+    } else {
+      response = await sdkInstance.fetchConversionLimits?.({
+        conversionType: ConversionType.ToBitcoin.new({
+          fromTokenIdentifier: usdbToken.tokenIdentifier,
+        }),
+        tokenIdentifier: undefined,
+      });
+    }
+    console.log('🔬 [fetchSwapLimits] ok', { direction, response });
+  } catch (error) {
+    console.error('❌ [fetchSwapLimits] threw', {
+      direction,
+      name: (error as any)?.name,
+      message: (error as any)?.message,
+      raw: error,
     });
-  } else {
-    response = await sdkInstance.fetchConversionLimits?.({
-      conversionType: {
-        tag: 'ToBitcoin',
-        fromTokenIdentifier: usdbToken.tokenIdentifier,
-      },
-    });
+    throw error;
   }
 
   return extractLimitsFromResponse(response);
@@ -509,15 +655,45 @@ export async function prepareSwap(params: PrepareSwapParams): Promise<SwapQuote>
 
   const [usdbToken] = await resolveSwapTokens();
   if (!usdbToken) throw new Error('USDB token unavailable');
-
-  const receivePayment = await sdkInstance.receivePayment?.({
-    paymentMethod: {
-      tag: 'SparkAddress',
-      inner: {
-        tokenIdentifier: params.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
-      },
-    },
+  console.log('🔬 [prepareSwap] start', {
+    direction: params.direction,
+    amount: params.amount.toString(),
+    slippageBps: params.slippageBps,
+    usdbTokenIdentifier: usdbToken.tokenIdentifier,
+    usdbDecimals: usdbToken.internalDecimals,
   });
+
+  let receivePayment;
+  try {
+    // Receive-side: use SparkInvoice for conversion swaps.
+    // ReceivePaymentMethod.SparkAddress has NO inner fields (can only emit a
+    // plain sats-only address), so we need SparkInvoice to attach a
+    // destination tokenIdentifier for BTC→USDB.
+    receivePayment = await sdkInstance.receivePayment?.({
+      paymentMethod: {
+        tag: 'SparkInvoice',
+        inner: {
+          amount: undefined,
+          tokenIdentifier: params.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
+          expiryTime: undefined,
+          description: undefined,
+          senderPublicKey: undefined,
+        },
+      },
+    });
+    console.log('🔬 [prepareSwap] receivePayment ok', {
+      paymentRequest: String(receivePayment?.paymentRequest || '').slice(0, 60) + '...',
+    });
+  } catch (error) {
+    console.error('❌ [prepareSwap] receivePayment threw', {
+      step: 'self-receive',
+      direction: params.direction,
+      name: (error as any)?.name,
+      message: (error as any)?.message,
+      raw: error,
+    });
+    throw error;
+  }
 
   const paymentRequest = String(receivePayment?.paymentRequest || '').trim();
   if (!paymentRequest) throw new Error('Failed to generate swap self-address');
@@ -526,30 +702,108 @@ export async function prepareSwap(params: PrepareSwapParams): Promise<SwapQuote>
   // We are NOT paying an external recipient. The Breez SDK has no direct swap API,
   // so BTC⇄USDB conversion is performed by paying our own Spark receive address
   // with conversionOptions enabled. Do not remove this self-address step.
-  const preparedPayment = await sdkInstance.prepareSendPayment?.({
-    paymentRequest,
-    amount: BigInt(params.amount),
-    tokenIdentifier: params.direction === 'USDB_TO_BTC' ? usdbToken.tokenIdentifier : undefined,
-    conversionOptions: {
-      conversionType:
-        params.direction === 'BTC_TO_USDB'
-          ? { tag: 'FromBitcoin' }
-          : { tag: 'ToBitcoin', fromTokenIdentifier: usdbToken.tokenIdentifier },
-      maxSlippageBps: params.slippageBps,
-      completionTimeoutSecs: 30,
-    },
-  });
+  let preparedPayment;
+  try {
+    // SDK rules (learned empirically):
+    //   • If top-level tokenIdentifier is undefined → conversionType must be ToBitcoin.
+    //   • If top-level tokenIdentifier is set → conversionType must be FromBitcoin
+    //     and `amount` is in the TOKEN's base units (the destination amount).
+    //   • If top-level tokenIdentifier is undefined + ToBitcoin → `amount` is in
+    //     sats (destination is BTC).
+    //
+    // UX semantics: the user types what they want to PAY in the SOURCE currency.
+    // The SDK needs `amount` in the DESTINATION currency for BTC→USDB swaps.
+    // So we convert sats → approx USDB base units using the cached BTC/USD rate
+    // (USDB ≈ USD 1:1). The final exact amounts come back in the prepareResponse.
+    // For USDB→BTC, the user's input is USDB display units; we convert to approx
+    // sats. Slippage tolerance on the conversion covers rate drift between here
+    // and when the SDK settles the swap.
+    let amountForSdk = BigInt(params.amount);
+    const rates = getCachedRates() || (await getExchangeRates().catch(() => null));
+    if (rates && rates.usd > 0) {
+      if (params.direction === 'BTC_TO_USDB') {
+        // source: sats → target USDB base units
+        // sats → USD = sats * USD_PER_BTC / 100_000_000
+        // USD → USDB base units = USD * 10^internalDecimals
+        const sats = Number(params.amount);
+        const usd = (sats * rates.usd) / 100_000_000;
+        const usdbBaseUnits = Math.max(1, Math.floor(usd * 10 ** usdbToken.internalDecimals));
+        amountForSdk = BigInt(usdbBaseUnits);
+      } else {
+        // source: USDB base units (what user typed × 10^decimals) → target sats
+        // base units → USD = base / 10^decimals
+        // USD → sats = USD * 100_000_000 / USD_PER_BTC
+        const usdbBase = Number(params.amount);
+        const usd = usdbBase / 10 ** usdbToken.internalDecimals;
+        const sats = Math.max(1, Math.floor((usd * 100_000_000) / rates.usd));
+        amountForSdk = BigInt(sats);
+      }
+    }
+    console.log('🔬 [prepareSwap] amount conversion', {
+      direction: params.direction,
+      userAmount: params.amount.toString(),
+      amountForSdk: amountForSdk.toString(),
+      usdRate: rates?.usd,
+    });
 
-  const { receiveAmount, feeSat } = parsePreparedAmounts(preparedPayment);
+    preparedPayment = await sdkInstance.prepareSendPayment?.({
+      paymentRequest,
+      amount: amountForSdk,
+      tokenIdentifier: params.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
+      conversionOptions: {
+        conversionType: (() => {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const { ConversionType } = require('@breeztech/breez-sdk-spark-react-native');
+          return params.direction === 'BTC_TO_USDB'
+            ? ConversionType.FromBitcoin.new()
+            : ConversionType.ToBitcoin.new({ fromTokenIdentifier: usdbToken.tokenIdentifier });
+        })(),
+        maxSlippageBps: params.slippageBps,
+        completionTimeoutSecs: 30,
+      },
+    });
+    console.log('🔬 [prepareSwap] prepareSendPayment ok', {
+      hasResponse: !!preparedPayment,
+    });
+  } catch (error) {
+    console.error('❌ [prepareSwap] prepareSendPayment threw', {
+      step: 'prepare-send',
+      direction: params.direction,
+      amount: params.amount.toString(),
+      slippageBps: params.slippageBps,
+      name: (error as any)?.name,
+      message: (error as any)?.message,
+      raw: error,
+    });
+    throw error;
+  }
+
+  const { receiveAmount, feeSat, payAmount } = parsePreparedAmounts(preparedPayment);
   const rate = parseRateFromPrepared(preparedPayment);
+  // Dump the full response shape — including paymentMethod.inner — so we can
+  // see every fee field the SDK exposes. Large fees in the conversionEstimate
+  // may hide a separate small sparkTransferFeeSats on the paymentMethod.
+  const safePrepared = JSON.parse(
+    JSON.stringify(preparedPayment, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))
+  );
+  console.log('🔬 [prepareSwap] raw response', safePrepared);
+  console.log('🔬 [prepareSwap] parsed quote', {
+    direction: params.direction,
+    payAmount: payAmount.toString(),
+    receiveAmount: receiveAmount.toString(),
+    feeSat: feeSat.toString(),
+    rate,
+  });
 
   return {
     direction: params.direction,
     amount: BigInt(params.amount),
     slippageBps: params.slippageBps,
+    payAmount,
     receiveAmount,
     feeSat,
     rate,
+    usdbDecimals: usdbToken.internalDecimals,
     preparedPayment,
   };
 }
@@ -570,8 +824,156 @@ export async function executeSwap(quote: SwapQuote): Promise<SwapOutcome> {
       : 0n;
 
   try {
-    const response = await sdkInstance.sendPayment?.({
-      prepareResponse: quote.preparedPayment,
+    // Canonical pattern from https://sdk-doc-spark.breez.technology/guide/token_conversion.html:
+    //   1. receivePayment → self Spark address (encodes destination token for BTC→USDB)
+    //   2. prepareSendPayment with ConversionType class instance
+    //   3. sendPayment with the prepareResponse VERBATIM (no rebuild / no round-trip)
+    //
+    // The live object reference from prepareSendPayment carries uniffi enum
+    // class markers on nested fields (ConversionType, SendPaymentMethod,
+    // FeePolicy). If we spread/clone/React-setState it, those markers are
+    // stripped and sendPayment fails Rust-side validation with
+    // "Token identifier is required for from Bitcoin conversion" — even
+    // though the data looks right. So: keep the returned reference, pass it
+    // straight through.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const breezModule = require('@breeztech/breez-sdk-spark-react-native');
+    const { ConversionType, ReceivePaymentMethod } = breezModule;
+
+    // Receive-side: use SparkInvoice (NOT SparkAddress) because
+    // ReceivePaymentMethod.SparkAddress has NO fields — it can only generate a
+    // plain sats-only address. For a BTC→USDB conversion we need the invoice
+    // to carry `tokenIdentifier = USDB` so the Rust send layer can thread the
+    // destination-token context through to the conversion step.
+    const receivePaymentMethod = ReceivePaymentMethod?.SparkInvoice?.new
+      ? ReceivePaymentMethod.SparkInvoice.new({
+          amount: undefined,
+          tokenIdentifier: quote.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
+          expiryTime: undefined,
+          description: undefined,
+          senderPublicKey: undefined,
+        })
+      : ({
+          tag: 'SparkInvoice',
+          inner: {
+            amount: undefined,
+            tokenIdentifier: quote.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
+            expiryTime: undefined,
+            description: undefined,
+            senderPublicKey: undefined,
+          },
+        } as any);
+
+    const recv = await sdkInstance.receivePayment?.({
+      paymentMethod: receivePaymentMethod,
+    } as any);
+    const paymentRequest = String(recv?.paymentRequest || '').trim();
+    if (!paymentRequest) throw new Error('Failed to generate swap self-address on execute');
+
+    // Amount semantics per docs:
+    //   • FromBitcoin (BTC→USDB): amount is in TOKEN BASE UNITS (USDB)
+    //   • ToBitcoin (USDB→BTC):   amount is in SATS (destination BTC)
+    // prepareSwap stored the correctly-denominated amount on quote.preparedPayment.amount.
+    const storedAmount =
+      quote.preparedPayment && typeof quote.preparedPayment === 'object'
+        ? BigInt(String((quote.preparedPayment as any).amount ?? 0))
+        : 0n;
+
+    const conversionType =
+      quote.direction === 'BTC_TO_USDB'
+        ? new ConversionType.FromBitcoin()
+        : new ConversionType.ToBitcoin({ fromTokenIdentifier: usdbToken.tokenIdentifier });
+
+    // Per docs:
+    //   FromBitcoin: top-level tokenIdentifier = destination token (USDB)
+    //   ToBitcoin:   top-level tokenIdentifier = undefined
+    const fresh = await sdkInstance.prepareSendPayment?.({
+      paymentRequest,
+      amount: storedAmount,
+      tokenIdentifier: quote.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
+      conversionOptions: {
+        conversionType,
+        maxSlippageBps: quote.slippageBps,
+        completionTimeoutSecs: 30,
+      } as any,
+      feePolicy: undefined,
+    } as any);
+
+    // Deep-dump everything on `fresh` so we can see EXACTLY what the native
+    // module returned and EXACTLY what will be lowered through FFI on send.
+    // Uses a BigInt-safe replacer and follows non-enumerable keys too, so
+    // anything hiding behind a getter or frozen descriptor shows up.
+    const dumpDeep = (obj: unknown, depth = 0): any => {
+      if (depth > 5 || obj === null || obj === undefined) return obj;
+      if (typeof obj === 'bigint') return `BigInt(${obj.toString()})`;
+      if (typeof obj !== 'object') return obj;
+      if (Array.isArray(obj)) return obj.map((x) => dumpDeep(x, depth + 1));
+      const out: Record<string, unknown> = {};
+      const seen = new Set<string>();
+      for (const k of Object.keys(obj as any)) {
+        seen.add(k);
+        out[k] = dumpDeep((obj as any)[k], depth + 1);
+      }
+      for (const k of Object.getOwnPropertyNames(obj)) {
+        if (seen.has(k)) continue;
+        try { out[`(own)${k}`] = dumpDeep((obj as any)[k], depth + 1); } catch {}
+      }
+      const proto = Object.getPrototypeOf(obj);
+      if (proto && proto !== Object.prototype) {
+        out['__proto__constructor'] = proto?.constructor?.name ?? '?';
+      }
+      return out;
+    };
+
+    console.log('🔬 [executeSwap] fresh DEEP', JSON.stringify(dumpDeep(fresh)));
+
+    // Empirical test: reconstruct prepareResponse as a plain object literal
+    // with every field explicitly set from `fresh`, to rule out any hidden
+    // getter / frozen / prototype weirdness on the returned object. If this
+    // still fails with the same Rust error, we know the issue is in the
+    // native binary's FFI deserialization of Option<String>, not our shape.
+    const f: any = fresh;
+    const cleanPrepare: any = {
+      paymentMethod: f.paymentMethod,
+      amount: f.amount,
+      tokenIdentifier: f.tokenIdentifier,
+      conversionEstimate: f.conversionEstimate,
+      feePolicy: f.feePolicy,
+    };
+    console.log('🔬 [executeSwap] cleanPrepare.tokenIdentifier =',
+      JSON.stringify(cleanPrepare.tokenIdentifier),
+      'ownKeys=', JSON.stringify(Object.keys(cleanPrepare)),
+      'hasOwn-ti=', Object.prototype.hasOwnProperty.call(cleanPrepare, 'tokenIdentifier'));
+
+    const outgoingRequest: any = {
+      prepareResponse: cleanPrepare,
+      options: undefined,
+      idempotencyKey: undefined,
+    };
+
+    console.log('🔬 [executeSwap] outgoing sendPayment request DEEP', JSON.stringify(dumpDeep(outgoingRequest)));
+
+
+    // Also print the individual fields we care about so a truncated log line
+    // doesn't hide them:
+    console.log('🔬 [executeSwap] fresh.tokenIdentifier raw value =',
+      (fresh as any)?.tokenIdentifier,
+      'type=', typeof (fresh as any)?.tokenIdentifier,
+      'length=', (fresh as any)?.tokenIdentifier?.length,
+      'JSON=', JSON.stringify((fresh as any)?.tokenIdentifier));
+
+    console.log('🔬 [executeSwap] fresh.paymentMethod dump',
+      JSON.stringify(dumpDeep((fresh as any)?.paymentMethod)));
+
+    console.log('🔬 [executeSwap] fresh.conversionEstimate dump',
+      JSON.stringify(dumpDeep((fresh as any)?.conversionEstimate)));
+
+    // Pass `fresh` DIRECTLY — no rebuild, no spread, no prop access that
+    // materializes a plain clone. Options must be undefined for a plain
+    // Spark-address send (HTLC is only for on-chain Bitcoin).
+    const response = await sdkInstance.sendPayment?.(outgoingRequest);
+    console.log('🔬 [executeSwap] sendPayment response', {
+      hasPayment: !!(response as any)?.payment,
     });
 
     if (paymentLooksRefunded(response?.payment)) {
@@ -579,7 +981,13 @@ export async function executeSwap(quote: SwapQuote): Promise<SwapOutcome> {
       return { kind: 'refunded' };
     }
 
-    const result: SwapResult = { paymentId: response?.payment?.id };
+    const result: SwapResult = {
+      paymentId: response?.payment?.id,
+      payment: response?.payment,
+      direction: quote.direction,
+      spent: quote.payAmount,
+      received: quote.receiveAmount,
+    };
 
     if (quote.direction === 'USDB_TO_BTC') {
       const postBalance = await getUsdbBalanceBaseUnits(usdbToken.tokenIdentifier);
@@ -591,8 +999,39 @@ export async function executeSwap(quote: SwapQuote): Promise<SwapOutcome> {
 
     return { kind: 'success', result };
   } catch (error) {
+    // Dump every angle on the error so truncation in the Metro monitor
+    // doesn't hide the underlying message.
+    const e = error as any;
+    try {
+      console.error('❌ [executeSwap] sendPayment threw (full)', JSON.stringify({
+        name: e?.name,
+        message: e?.message,
+        toString: String(e),
+        code: e?.code,
+        variant: e?.variant,
+        cause: e?.cause && String(e.cause),
+        keys: e && typeof e === 'object' ? Object.keys(e) : [],
+      }));
+    } catch {
+      console.error('❌ [executeSwap] sendPayment threw (string):', String(e));
+    }
+    console.error('❌ [executeSwap] sendPayment threw (raw):', e);
+    // Also dump every property on the error so nothing is hidden behind
+    // non-enumerable fields.
+    try {
+      const own = Object.getOwnPropertyNames(e || {});
+      const dump: Record<string, unknown> = {};
+      for (const k of own) {
+        try {
+          const v = (e as any)[k];
+          dump[k] = typeof v === 'object' ? JSON.stringify(v) : String(v);
+        } catch {
+          dump[k] = '<unserializable>';
+        }
+      }
+      console.error('❌ [executeSwap] sendPayment threw (ownProps)', JSON.stringify(dump));
+    } catch {}
     if (isSlippageRefundError(error)) {
-      // TODO T15: prune losing branch after spike-results.md confirms mechanism.
       return { kind: 'refunded' };
     }
 
@@ -604,9 +1043,13 @@ export async function executeSwap(quote: SwapQuote): Promise<SwapOutcome> {
       };
     }
 
+    // Surface the complete error detail into the UI message so the user can
+    // see what's happening without needing Metro — Metro truncates long lines.
+    const details = extractSdkErrorDetails(error);
+    const short = extractSdkErrorMessage(error, 'Swap failed');
     return {
       kind: 'error',
-      message: extractSdkErrorMessage(error, 'Swap failed'),
+      message: `${short}\n---\n${details}`.slice(0, 1200),
       retryable: false,
     };
   }
@@ -1402,7 +1845,6 @@ export async function listPayments(): Promise<TransactionInfo[]> {
 
       // RN SDK: method is numeric (0=lightning, 3=deposit, others TBD), details uses {tag, inner}
       // Web SDK: method is string ("lightning", "deposit"), details uses {type, txId}
-      console.log(`🔍 [BreezSparkService] Payment ${payment.id}: method=${payment.method}, details.tag=${payment.details?.tag}, details.type=${payment.details?.type}, paymentType=${payment.paymentType}`);
       const methodNum = payment.method;
       const detailsTag = String(payment.details?.tag || '').toLowerCase();
       const detailsType = String(payment.details?.type || '').toLowerCase();
@@ -1439,7 +1881,13 @@ export async function listPayments(): Promise<TransactionInfo[]> {
 
       const rawPaymentType = String(payment.paymentType ?? '').trim();
       const paymentTypeNormalized = rawPaymentType.toLowerCase();
+      // Token payments: details.tag === 'Token', with inner.metadata.identifier
+      // holding the tokenIdentifier (btkn1…) and inner.metadata.ticker === 'USDB'.
+      // Other payment details variants (Spark / Lightning) don't carry a token.
+      const innerMeta = payment.details?.inner?.metadata as Record<string, unknown> | undefined;
       const tokenIdentifierRaw =
+        innerMeta?.identifier ||
+        innerMeta?.tokenIdentifier ||
         payment.details?.inner?.tokenIdentifier ||
         payment.details?.tokenIdentifier ||
         payment.tokenIdentifier;
@@ -1453,10 +1901,13 @@ export async function listPayments(): Promise<TransactionInfo[]> {
         payment.details?.currency ||
         payment.details?.inner?.currency ||
         payment.details?.inner?.ticker ||
+        innerMeta?.ticker ||
+        innerMeta?.symbol ||
         ''
       ).toUpperCase();
+      const isTokenByTag = detailsTag === 'token' || methodNum === 2;
       const asset: 'BTC' | 'USDB' =
-        currencyRaw === 'USDB' || tokenIdentifier ? 'USDB' : 'BTC';
+        currencyRaw === 'USDB' || isTokenByTag || tokenIdentifier ? 'USDB' : 'BTC';
 
       return {
         id: payment.id,

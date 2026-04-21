@@ -247,18 +247,14 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       }
 
       if (!pin) {
-        // Broken state recovery: biometricEnabled was flipped on (likely by a
-        // prior build's enableBiometric that silently lost the PIN) but the
-        // keystore has no PIN to return. Auto-disable the setting so the
-        // biometric banner reappears on Home and the user can cleanly re-opt-in.
-        try {
-          await settingsService.updateUserSettings({ biometricEnabled: false });
-          setBiometricEnabled(false);
-          console.warn('⚠️ [useWalletAuth] Biometric PIN missing — auto-disabled biometricEnabled for clean re-opt-in');
-        } catch (disableErr) {
-          console.warn('⚠️ [useWalletAuth] Failed to auto-disable biometric setting:', disableErr);
-        }
-        setError('Biometric unlock unavailable. Enter your PIN.');
+        // Biometric enabled but keystore returned no PIN. This can happen when
+        // the keystore was wiped (e.g. backup restore) or a prior enable flow
+        // silently failed to store the PIN. DO NOT silently flip the setting
+        // off — that was aggressive behaviour that disabled biometric after a
+        // single cancelled prompt. Instead, show a hint and let the user
+        // re-enable from Settings → Security if they want to rebind the PIN.
+        console.warn('⚠️ [useWalletAuth] Biometric PIN missing from keystore — user should re-enable from Settings');
+        setError('Biometric unlock unavailable. Enter your PIN, then re-enable biometric in Settings.');
         return false;
       }
 

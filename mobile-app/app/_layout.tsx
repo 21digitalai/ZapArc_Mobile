@@ -7,6 +7,7 @@ import { initializeDeepLinking } from '../src/utils/deepLinking';
 import { syncAllFromCache } from '../src/services/notificationSubscriptionService';
 import { ThemeProvider } from '../src/contexts/ThemeContext';
 import { LanguageProvider } from '../src/contexts/LanguageContext';
+import { WalletProvider } from '../src/contexts/WalletContext';
 import { FeedbackProvider } from '../src/features/wallet/components/FeedbackComponents';
 import { initializeTlsPinning } from '../src/services/tlsPinningService';
 
@@ -30,38 +31,40 @@ export default function RootLayout(): React.JSX.Element {
     <QueryClientProvider client={queryClient}>
       <LanguageProvider>
         <ThemeProvider>
-          <FeedbackProvider>
-            {/* Status bar with light content (white text/icons) for dark theme */}
-            <StatusBar style="light" translucent backgroundColor="transparent" />
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                animation: 'slide_from_right',
-              }}
-            >
-              <Stack.Screen
-                name="index"
-                options={{
-                  animation: 'none',
-                  gestureEnabled: false
-                }}
-              />
-              <Stack.Screen
-                name="wallet"
-                options={{
+          <WalletProvider>
+            <FeedbackProvider>
+              {/* Status bar with light content (white text/icons) for dark theme */}
+              <StatusBar style="light" translucent backgroundColor="transparent" />
+              <Stack
+                screenOptions={{
                   headerShown: false,
+                  animation: 'slide_from_right',
                 }}
-              />
-              <Stack.Screen
-                name="auth"
-                options={{
-                  animation: 'none',
-                  gestureEnabled: false
-                }}
-              />
-              <Stack.Screen name="(main)" options={{ headerShown: false }} />
-            </Stack>
-          </FeedbackProvider>
+              >
+                <Stack.Screen
+                  name="index"
+                  options={{
+                    animation: 'none',
+                    gestureEnabled: false
+                  }}
+                />
+                <Stack.Screen
+                  name="wallet"
+                  options={{
+                    headerShown: false,
+                  }}
+                />
+                <Stack.Screen
+                  name="auth"
+                  options={{
+                    animation: 'none',
+                    gestureEnabled: false
+                  }}
+                />
+                <Stack.Screen name="(main)" options={{ headerShown: false }} />
+              </Stack>
+            </FeedbackProvider>
+          </WalletProvider>
         </ThemeProvider>
       </LanguageProvider>
     </QueryClientProvider>
