@@ -110,7 +110,7 @@ export function SwapReviewModal({
               style={styles.error}
               accessibilityLiveRegion="polite"
               accessibilityRole="alert"
-              accessibilityLabel={`Authentication error: ${authError}`}
+              accessibilityLabel={t('swap.review.authErrorAccessibilityLabel', { error: authError })}
             >
               {authError}
             </Text>
@@ -127,7 +127,7 @@ export function SwapReviewModal({
             disabled={confirmDisabled}
             buttonColor={BRAND_COLOR}
             textColor="#1a1a2e"
-            accessibilityLabel="Confirm swap"
+            accessibilityLabel={t('swap.review.confirmAccessibilityLabel')}
           >
             {t('swap.review.confirm')}
           </Button>

@@ -229,6 +229,7 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
       assetTab: {
         btc: 'BTC',
         usdb: 'USDB',
+        accessibilityLabel: 'Таб {{asset}}',
       },
     },
 
@@ -242,6 +243,9 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
       maxUsdbDustNote: 'A small USDB residual may remain for slippage protection',
       reviewButton: 'Review Swap',
       loadingQuote: 'Loading quote…',
+      amountPlaceholder: '0',
+      maxAccessibilityLabel: 'Set maximum amount{{hint}}',
+      selectSlippageAccessibilityLabel: 'Select slippage {{label}}',
       rate: 'Rate',
       fee: 'Fee',
       slippage: 'Slippage',
@@ -262,6 +266,8 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
         title: 'Swap failed',
         retry: 'Retry',
         networkBody: 'Could not complete the swap. Check your connection and try again.',
+        accessibilityLabel: 'Swap error: {{error}}',
+        accessibilityLabelTitle: 'Swap failed',
       },
       maxDisabledTooltip: 'Not enough sats to swap (need more than 500)',
       backgrounded: {
@@ -277,16 +283,21 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
         slippage: 'Slippage tolerance',
         cancel: 'Cancel',
         confirm: 'Confirm',
+        confirmAccessibilityLabel: 'Confirm swap',
+        authErrorAccessibilityLabel: 'Authentication error: {{error}}',
       },
       confirming: {
         title: 'Swapping…',
         subtitle: 'Up to 30 seconds',
+        accessibilityLabel: 'Swap confirming. About {{seconds}} seconds remaining',
+        progressLabel: 'Confirming... (~{{seconds}}s)',
       },
       success: {
         title: 'Swap complete',
         paid: 'Paid',
         received: 'Received',
         done: 'Done',
+        accessibilityLabel: 'Swap completed',
       },
       dustResidual: {
         note: 'A small USDB residual ({{amount}}) remains for slippage protection.',
@@ -296,6 +307,7 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
         body: 'Price moved more than {{slippage}} during the swap. Your funds were returned.',
         tryAgain: 'Try again at current rate',
         increaseSlippage: 'Increase slippage tolerance',
+        accessibilityLabel: 'Swap refunded',
       },
       history: {
         label: 'Swap',
@@ -812,6 +824,7 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
       assetTab: {
         btc: 'BTC',
         usdb: 'USDB',
+        accessibilityLabel: '{{asset}} tab',
       },
     },
 
@@ -825,6 +838,9 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
       maxUsdbDustNote: 'Малък USDB остатък може да остане за защита от slippage',
       reviewButton: 'Преглед на суапа',
       loadingQuote: 'Зареждане на оферта…',
+      amountPlaceholder: '0',
+      maxAccessibilityLabel: 'Задай максимална сума{{hint}}',
+      selectSlippageAccessibilityLabel: 'Избери слипидж {{label}}',
       rate: 'Курс',
       fee: 'Такса',
       slippage: 'Slippage',
@@ -845,6 +861,8 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
         title: 'Суапът се провали',
         retry: 'Опитай отново',
         networkBody: 'Суапът не можа да завърши. Проверете връзката и опитайте отново.',
+        accessibilityLabel: 'Грешка при суап: {{error}}',
+        accessibilityLabelTitle: 'Суапът се провали',
       },
       maxDisabledTooltip: 'Недостатъчно сатс за суап (нужни са повече от 500)',
       backgrounded: {
@@ -860,16 +878,21 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
         slippage: 'Slippage толеранс',
         cancel: 'Отказ',
         confirm: 'Потвърди',
+        confirmAccessibilityLabel: 'Потвърди суап',
+        authErrorAccessibilityLabel: 'Грешка при удостоверяване: {{error}}',
       },
       confirming: {
         title: 'Суапване…',
         subtitle: 'До 30 секунди',
+        accessibilityLabel: 'Суапът се потвърждава. Остават около {{seconds}} секунди',
+        progressLabel: 'Потвърждаване... (~{{seconds}}s)',
       },
       success: {
         title: 'Суапът е завършен',
         paid: 'Платено',
         received: 'Получено',
         done: 'Готово',
+        accessibilityLabel: 'Суапът е завършен',
       },
       dustResidual: {
         note: 'Малък USDB остатък ({{amount}}) остава за защита от slippage.',
@@ -879,6 +902,7 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
         body: 'Цената се промени с повече от {{slippage}} по време на суапа. Средствата ви са върнати.',
         tryAgain: 'Опитай отново с текущия курс',
         increaseSlippage: 'Увеличи slippage толеранса',
+        accessibilityLabel: 'Суапът е възстановен',
       },
       history: {
         label: 'Суап',

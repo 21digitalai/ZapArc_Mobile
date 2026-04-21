@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { Text } from 'react-native-paper';
+import { useLanguage } from '../../../hooks/useLanguage';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
 
 type AssetTabBarProps = {
@@ -11,6 +12,8 @@ type AssetTabBarProps = {
 };
 
 export function AssetTabBar({ assets, active, onChange, primaryTextColor }: AssetTabBarProps) {
+  const { t } = useLanguage();
+
   return (
     <View style={styles.tabContainer}>
       {assets.map((asset) => {
@@ -25,7 +28,7 @@ export function AssetTabBar({ assets, active, onChange, primaryTextColor }: Asse
             ]}
             onPress={() => onChange(asset)}
             accessibilityRole="button"
-            accessibilityLabel={`${asset} tab`}
+            accessibilityLabel={t('home.assetTab.accessibilityLabel', { asset })}
           >
             <Text
               style={[
@@ -45,7 +48,7 @@ export function AssetTabBar({ assets, active, onChange, primaryTextColor }: Asse
 const styles = StyleSheet.create({
   tabContainer: {
     flexDirection: 'row',
-    marginHorizontal: 24,
+    marginHorizontal: 0,
     marginTop: 16,
     marginBottom: 8,
     borderRadius: 14,

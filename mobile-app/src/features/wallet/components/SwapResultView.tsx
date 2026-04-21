@@ -32,12 +32,12 @@ export function SwapResultView({
 
   if (kind === 'success' || kind === 'dustResidual') {
     return (
-      <View style={styles.card} accessibilityLabel="Swap completed">
+      <View style={styles.card} accessibilityLabel={t('swap.success.accessibilityLabel')}>
         <Text style={styles.title}>{t('swap.success.title')}</Text>
         {!!paidAmount && <Text style={styles.row}>{`${t('swap.success.paid')}: ${paidAmount}`}</Text>}
         {!!receivedAmount && <Text style={styles.row}>{`${t('swap.success.received')}: ${receivedAmount}`}</Text>}
         {kind === 'dustResidual' && !!residualUsdb && (
-          <Text style={styles.note}>{`USDB residual: ${residualUsdb}`}</Text>
+          <Text style={styles.note}>{t('swap.dustResidual.note', { amount: residualUsdb })}</Text>
         )}
         <Button mode="contained" onPress={onDone} buttonColor={BRAND_COLOR} textColor="#1a1a2e">
           {t('swap.success.done')}
@@ -48,7 +48,7 @@ export function SwapResultView({
 
   if (kind === 'refunded') {
     return (
-      <View style={styles.card} accessibilityLabel="Swap refunded">
+      <View style={styles.card} accessibilityLabel={t('swap.refunded.accessibilityLabel')}>
         <Text style={styles.title}>{t('swap.refunded.title')}</Text>
         <Text style={styles.body}>{t('swap.refunded.body', { slippage: 'your tolerance' })}</Text>
         <View style={styles.actionsRow}>
@@ -64,7 +64,7 @@ export function SwapResultView({
   }
 
   return (
-    <View style={styles.card} accessibilityRole="alert" accessibilityLabel="Swap failed">
+    <View style={styles.card} accessibilityRole="alert" accessibilityLabel={t('swap.error.accessibilityLabelTitle')}>
       <Text style={styles.title}>{t('swap.error.title')}</Text>
       <Text style={styles.body}>{errorMessage || t('swap.error.networkBody')}</Text>
       <Button mode="contained" onPress={onRetry} buttonColor={BRAND_COLOR} textColor="#1a1a2e">

@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { Text } from 'react-native-paper';
 
+import { useLanguage } from '../../../hooks/useLanguage';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
 
 type SwapAmountCardProps = {
@@ -32,6 +33,7 @@ export function SwapAmountCard({
   isLoading = false,
   fiatEquivalent,
 }: SwapAmountCardProps): React.JSX.Element {
+  const { t } = useLanguage();
   const pulse = useRef(new Animated.Value(0.45)).current;
 
   useEffect(() => {
@@ -60,7 +62,7 @@ export function SwapAmountCard({
         style={styles.card}
         testID="swap-amount-card-skeleton"
         accessibilityRole="progressbar"
-        accessibilityLabel="Loading quote"
+        accessibilityLabel={t('swap.loadingQuote')}
         accessibilityLiveRegion="polite"
       >
         <Animated.View style={[styles.skeletonLineShort, { opacity: pulse }]} />
@@ -82,12 +84,12 @@ export function SwapAmountCard({
           )}
           <TouchableOpacity
             accessibilityRole="button"
-            accessibilityLabel={`Set maximum amount${maxHint ? ` (${maxHint})` : ''}`}
+            accessibilityLabel={t('swap.maxAccessibilityLabel', { hint: maxHint ? ` (${maxHint})` : '' })}
             onPress={onMax}
             disabled={maxDisabled}
             style={[styles.maxButton, maxDisabled && styles.maxButtonDisabled]}
           >
-            <Text style={[styles.maxButtonText, maxDisabled && styles.maxButtonTextDisabled]}>Max</Text>
+            <Text style={[styles.maxButtonText, maxDisabled && styles.maxButtonTextDisabled]}>{t('swap.max')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -99,7 +101,7 @@ export function SwapAmountCard({
           onChangeText={onAmountChange}
           keyboardType="decimal-pad"
           editable={!isReadOnly}
-          placeholder="0"
+          placeholder={t('swap.amountPlaceholder')}
           placeholderTextColor="rgba(255,255,255,0.4)"
           accessibilityLabel={`${label} amount`}
         />

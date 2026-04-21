@@ -62,7 +62,7 @@ export function SwapRateLine({
             <Pressable
               key={preset}
               accessibilityRole="button"
-              accessibilityLabel={`Select slippage ${label}`}
+              accessibilityLabel={t('swap.selectSlippageAccessibilityLabel', { label })}
               accessibilityState={{ selected: isActive }}
               onPress={() => onSlippagePresetSelect(preset)}
               style={[styles.chip, isActive && styles.chipActive]}
@@ -78,7 +78,7 @@ export function SwapRateLine({
           style={styles.errorText}
           accessibilityLiveRegion="polite"
           accessibilityRole="alert"
-          accessibilityLabel={`Swap error: ${inlineError}`}
+          accessibilityLabel={t('swap.error.accessibilityLabel', { error: inlineError })}
         >
           {inlineError}
         </Text>

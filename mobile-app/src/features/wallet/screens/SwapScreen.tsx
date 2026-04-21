@@ -11,6 +11,7 @@ import { useAppTheme } from '../../../contexts/ThemeContext';
 import { useSwap } from '../../../hooks/useSwap';
 import { useWallet } from '../../../hooks/useWallet';
 import { useCurrency } from '../../../hooks/useCurrency';
+import { useLanguage } from '../../../hooks/useLanguage';
 import type { SwapDirection } from '../../../services/breezSparkService';
 import { SwapAmountCard } from '../components/SwapAmountCard';
 import { SwapRateLine } from '../components/SwapRateLine';
@@ -59,6 +60,7 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
     applySwapResult,
   } = useWallet();
   const { rates } = useCurrency();
+  const { t } = useLanguage();
 
   // Keep a snapshot of the last confirmed quote so we can show the received
   // amount in the Home snackbar after the success redirect — the swap state
@@ -442,25 +444,20 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
               if (!isConfirming) router.back();
             }}
             iconColor={secondaryTextColor}
-            accessibilityLabel="Back"
+            accessibilityLabel={t('common.back')}
           />
-          <Text variant="headlineSmall" style={[styles.headerTitle, { color: primaryTextColor }]}>Swap</Text>
+          <Text variant="headlineSmall" style={[styles.headerTitle, { color: primaryTextColor }]}>{t('swap.title')}</Text>
           <View style={styles.headerSpacer} />
         </View>
 
         {swap.isOffline && (
           <Text style={styles.banner} accessibilityRole="alert" accessibilityLiveRegion="polite">
-            Offline
+            {t('swap.error.offline')}
           </Text>
         )}
         {swap.limitsUnavailable && (
           <Text style={styles.banner} accessibilityRole="alert" accessibilityLiveRegion="polite">
-            Limits unavailable
-          </Text>
-        )}
-        {isConfirming && (
-          <Text style={styles.banner} accessibilityLiveRegion="polite">
-            Swapping… keep the app open.
+            {t('swap.error.limitsUnavailable')}
           </Text>
         )}
 
@@ -468,7 +465,7 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
           {renderResult() || (
             <>
               <SwapAmountCard
-                label="You pay"
+                label={t('swap.youPay')}
                 currency={fromTicker}
                 amount={swap.amountInput}
                 onAmountChange={(next) => {
@@ -508,7 +505,7 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
                 // signalled on the rate/fee line instead.
                 isLoading={false}
                 maxDisabled={isConfirming || !swap.availableBalance || swap.availableBalance <= 0n}
-                maxDisabledTooltip={isConfirming ? 'Swap confirming' : undefined}
+                maxDisabledTooltip={isConfirming ? t('swap.confirming.title') : undefined}
                 maxHint={maxHint}
               />
 
@@ -517,13 +514,13 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
                 onPress={swap.flipDirection}
                 disabled={isConfirming}
                 accessibilityRole="button"
-                accessibilityLabel="Flip swap direction"
+                accessibilityLabel={t('swap.flipDirection')}
               >
                 <Text style={styles.flipText}>⇅</Text>
               </TouchableOpacity>
 
               <SwapAmountCard
-                label="You receive"
+                label={t('swap.youReceive')}
                 currency={toTicker}
                 amount={receiveDisplay}
                 onAmountChange={handleReceiveChange}
@@ -546,11 +543,11 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
                 <View
                   style={styles.confirmingBox}
                   accessibilityRole="progressbar"
-                  accessibilityLabel={`Swap confirming. About ${CONFIRMING_SECONDS} seconds remaining`}
+                  accessibilityLabel={t('swap.confirming.accessibilityLabel', { seconds: CONFIRMING_SECONDS })}
                   accessibilityLiveRegion="polite"
                 >
-                  <ActivityIndicator color={BRAND_COLOR} accessibilityLabel="Swap in progress" />
-                  <Text style={{ color: primaryTextColor, marginTop: 8 }}>Confirming... (~{CONFIRMING_SECONDS}s)</Text>
+                  <ActivityIndicator color={BRAND_COLOR} accessibilityLabel={t('swap.confirming.title')} />
+                  <Text style={{ color: primaryTextColor, marginTop: 8 }}>{t('swap.confirming.progressLabel', { seconds: CONFIRMING_SECONDS })}</Text>
                 </View>
               ) : (
                 <Button
@@ -563,9 +560,9 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
                   loading={quoteLoading}
                   disabled={!isQuoteReady}
                   accessibilityRole="button"
-                  accessibilityLabel={quoteLoading ? 'Loading quote' : 'Review swap'}
+                  accessibilityLabel={quoteLoading ? t('swap.loadingQuote') : t('swap.reviewButton')}
                 >
-                  {quoteLoading ? 'Getting quote…' : 'Review'}
+                  {quoteLoading ? t('swap.loadingQuote') : t('swap.reviewButton')}
                 </Button>
               )}
             </>
