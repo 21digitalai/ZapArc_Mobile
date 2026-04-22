@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Modal, Linking } from 'react-native';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Modal, Linking, type LayoutChangeEvent } from 'react-native';
 import { Text, Button, Snackbar, IconButton, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -73,6 +73,9 @@ export default function ReceiveScreen() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [expiryTime, setExpiryTime] = useState<number | null>(null);
   const [invoiceSatsAmount, setInvoiceSatsAmount] = useState(0);
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const scrolledInvoiceRef = useRef<string>('');
+  const [invoicePreviewY, setInvoicePreviewY] = useState<number | null>(null);
 
   const [onchainRequest, setOnchainRequest] = useState('');
   const [isGeneratingOnchain, setIsGeneratingOnchain] = useState(false);
@@ -198,7 +201,33 @@ export default function ReceiveScreen() {
     setInvoice('');
     setExpiryTime(null);
     setInvoiceSatsAmount(0);
+    setInvoicePreviewY(null);
   }, []);
+
+  const handleGeneratedSectionLayout = useCallback((event: LayoutChangeEvent) => {
+    setInvoicePreviewY(event.nativeEvent.layout.y);
+  }, []);
+
+  useEffect(() => {
+    if (!invoice) {
+      scrolledInvoiceRef.current = '';
+      return;
+    }
+
+    if (invoicePreviewY === null || scrolledInvoiceRef.current === invoice) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      scrollViewRef.current?.scrollTo({
+        y: Math.max(invoicePreviewY - 16, 0),
+        animated: true,
+      });
+      scrolledInvoiceRef.current = invoice;
+    }, 80);
+
+    return () => clearTimeout(timeoutId);
+  }, [invoice, invoicePreviewY]);
 
   const parseOnchainRequest = useCallback((request: string) => {
     const trimmed = request.trim();
@@ -616,7 +645,7 @@ export default function ReceiveScreen() {
           </View>
         )}
 
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        <ScrollView ref={scrollViewRef} style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           {isLightningTab ? (
             <View style={styles.card}>
               <Text style={[styles.sectionTitle, { color: primaryTextColor }]}>{t('deposit.lightningAddressSectionTitle')}</Text>
@@ -731,7 +760,7 @@ export default function ReceiveScreen() {
               </Button>
 
               {invoice ? (
-                <View style={styles.generatedSection}>
+                <View style={styles.generatedSection} onLayout={handleGeneratedSectionLayout}>
                   <Text style={[styles.amountText, { color: primaryTextColor }]}> 
                     {invoiceSatsAmount > 0
                       ? `${t('payments.amount')}: ${invoiceSatsAmount.toLocaleString()} sats`
