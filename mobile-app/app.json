@@ -17,7 +17,8 @@
       "bundleIdentifier": "com.zaparc.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "googleServicesFile": "./ios/GoogleService-Info.plist"
     },
     "android": {
       "adaptiveIcon": {
@@ -25,7 +26,12 @@
         "backgroundColor": "#1a1a2e"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.zaparc.app"
+      "package": "com.zaparc.app",
+      "googleServicesFile": "./android/app/google-services.json",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -48,6 +54,8 @@
     "plugins": [
       "expo-router",
       "@breeztech/breez-sdk-spark-react-native",
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging",
       [
         "expo-build-properties",
         {
@@ -93,7 +101,10 @@
     ],
     "extra": {
       "router": {},
-      "expoProjectId": "78dfec1d-b667-4098-9889-e26967227324"
+      "expoProjectId": "78dfec1d-b667-4098-9889-e26967227324",
+      "eas": {
+        "projectId": "78dfec1d-b667-4098-9889-e26967227324"
+      }
     }
   }
 }

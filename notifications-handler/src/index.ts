@@ -578,3 +578,17 @@ export const notify = onRequest(
     }
   }
 );
+
+// Re-export breezWebhook relay (Breez SDK wallet-scoped webhook → FCM).
+export { breezWebhook } from './breezWebhook.js';
+
+// Re-export breezLnurlWebhook relay (Breez LNURL/Lightning Address webhook → FCM).
+// Handles `spark_payment_received` events for payments that settle on Breez's
+// LNURL server before the wallet observes them. Pubkey → FCM token lookup via
+// the `lnurl_push_targets` Firestore collection (written by the mobile client).
+export { breezLnurlWebhook } from './breezLnurlWebhook.js';
+
+// Re-export registerLnurlPushTarget (called by the mobile client on SDK init
+// to store its identityPubkey → fcmToken mapping so the LN Address webhook
+// above can route pushes to the right device).
+export { registerLnurlPushTarget } from './registerLnurlPushTarget.js';

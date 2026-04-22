@@ -8,10 +8,11 @@ import { BREEZ_API_KEY, BREEZ_STORAGE_DIR } from '../config';
 import { getExchangeRates, getCachedRates } from '../utils/currency';
 import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
 // expo-notifications and expo-constants imports removed —
-// push token handling moved to notificationSubscriptionService.ts
+// Push notifications now flow via Breez's own webhook → our stateless
+// Cloud Function relay → Expo Push API. See services/breezWebhookService.ts.
+// The legacy "sender triggers push" pipeline was removed.
 // Note: Local notifications disabled - FCM push handles payment notifications
 // import { sendPaymentReceivedNotification } from './notificationService';
-import { NotificationTriggerService } from './notificationTriggerService';
 
 // =============================================================================
 // SDK Error Extraction Helper
@@ -1124,35 +1125,111 @@ export async function initializeSDK(
       // Don't fail SDK init if events don't work - user can still pull-to-refresh
     }
 
-    // NOTE: Webhook registration for background notifications is not available
-    // in Breez SDK Spark. Notifications only work when the app is in foreground.
-    // The NDS webhook infrastructure is ready in our Cloud Functions if Breez
-    // adds this feature in the future.
-
     console.log('✅ [BreezSparkService] SDK initialized');
 
-    // Cache lightning address + identity pubkey for push notification registration.
-    // identityPubkey is the stable, seed-derived unique identifier for this wallet.
+    // Notification pipeline setup:
+    //   1. Cache identity pubkey + lightning address (used by any in-app
+    //      notification logic that runs while the app is foregrounded).
+    //   2. Register a Breez webhook for background notifications — the
+    //      DB-less relay at /breezWebhook/<pubkey>/<expoPushToken> fires
+    //      Expo pushes for incoming Lightning events even when the app
+    //      is killed. See services/breezWebhookService.ts.
     try {
-        const [lnAddress, info] = await Promise.all([
-            getLightningAddress(),
-            sdkInstance.getInfo({}),
-        ]);
-        const identityPubkey = info?.identityPubkey;
-        if (lnAddress?.lightningAddress && identityPubkey) {
-            const { cacheWalletAddress } = require('./notificationSubscriptionService');
-            await cacheWalletAddress(
-                identityPubkey,
-                lnAddress.lightningAddress,
-                walletIdentity ? { masterKeyId: walletIdentity.masterKeyId, subWalletIndex: walletIdentity.subWalletIndex } : undefined,
-                walletNickname,
-            );
-            console.log(`🔑 [BreezSparkService] Identity pubkey: ${identityPubkey.slice(0, 16)}…`);
-        } else if (lnAddress?.lightningAddress) {
-            console.log('ℹ️ [BreezSparkService] No identityPubkey — skipping address cache');
+      const [lnAddress, info] = await Promise.all([
+        getLightningAddress(),
+        sdkInstance.getInfo({}),
+      ]);
+      const identityPubkey = info?.identityPubkey;
+      if (lnAddress?.lightningAddress && identityPubkey) {
+        const { cacheWalletAddress } = require('./notificationSubscriptionService');
+        await cacheWalletAddress(
+          identityPubkey,
+          lnAddress.lightningAddress,
+          walletIdentity
+            ? {
+                masterKeyId: walletIdentity.masterKeyId,
+                subWalletIndex: walletIdentity.subWalletIndex,
+              }
+            : undefined,
+          walletNickname,
+        );
+        console.log(`🔑 [BreezSparkService] Identity pubkey: ${identityPubkey.slice(0, 16)}…`);
+
+        // Register the Breez webhook. Idempotent — re-register is a no-op
+        // unless the FCM token rotated. We use a NATIVE FCM token (via
+        // @react-native-firebase/messaging), not Expo's push token, so
+        // the Cloud Function can talk to FCM directly via firebase-admin
+        // without Expo's push server as an intermediary.
+        try {
+          const Notifications = require('expo-notifications');
+          console.log('🔔 [BreezWebhook] setup check', {
+            hasRegisterWebhook: typeof sdkInstance.registerWebhook === 'function',
+          });
+          const permStatus = await Notifications.getPermissionsAsync();
+          console.log('🔔 [BreezWebhook] notification permission', permStatus.status);
+          if (permStatus.status !== 'granted') {
+            console.warn('⚠️ [BreezWebhook] Notifications permission not granted — user must enable in OS settings');
+          }
+
+          // Fetch native FCM token. On iOS this also ensures APNs registration
+          // first; on Android it's a direct FCM call.
+          const messaging = require('@react-native-firebase/messaging').default;
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const { Platform } = require('react-native');
+          if (Platform.OS === 'ios') {
+            try {
+              await messaging().registerDeviceForRemoteMessages();
+            } catch {}
+          }
+          const fcmToken = await messaging().getToken();
+          console.log('🔔 [BreezWebhook] FCM token', fcmToken ? `${fcmToken.slice(0, 24)}…` : null);
+          if (fcmToken) {
+            const { registerBreezWebhook } = require('./breezWebhookService');
+            await registerBreezWebhook({
+              identityPubkey,
+              pushToken: fcmToken,
+              walletNickname,
+              sdk: sdkInstance,
+            });
+
+            // Also register with our Cloud Function for LN Address pushes.
+            // The wallet-scoped webhook above covers direct Bolt11 receives;
+            // this second registration covers payments that arrive via the
+            // user's Lightning Address (handled server-side by Breez's
+            // LNURL server before the wallet sees them). Idempotent.
+            try {
+              const resp = await fetch(
+                'https://europe-west3-investave-1337.cloudfunctions.net/registerLnurlPushTarget',
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    identityPubkey,
+                    fcmToken,
+                    walletNickname: walletNickname || undefined,
+                  }),
+                },
+              );
+              if (resp.ok) {
+                console.log('✅ [LnurlPush] registered push target for', identityPubkey.slice(0, 12) + '…');
+              } else {
+                const text = await resp.text().catch(() => '');
+                console.warn('⚠️ [LnurlPush] register failed:', resp.status, text);
+              }
+            } catch (regErr) {
+              console.warn('⚠️ [LnurlPush] register network error:', regErr);
+            }
+          } else {
+            console.warn('⚠️ [BreezWebhook] No FCM token — skipping webhook register');
+          }
+        } catch (webhookErr) {
+          console.warn('⚠️ [BreezSparkService] webhook registration failed:', webhookErr);
         }
+      } else if (lnAddress?.lightningAddress) {
+        console.log('ℹ️ [BreezSparkService] No identityPubkey — skipping notification setup');
+      }
     } catch (e) {
-        console.warn('⚠️ [BreezSparkService] Notification cache warning:', e);
+      console.warn('⚠️ [BreezSparkService] Notification setup warning:', e);
     }
 
     return true;

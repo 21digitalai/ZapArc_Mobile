@@ -1,6 +1,11 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+// Google Services plugin — wires FCM into the build using the
+// google-services.json placed in android/app/. The file contains client
+// entries for BOTH com.zaparc.app and com.zaparc.app.dev so the same
+// plugin works for production and .dev variant.
+apply plugin: "com.google.gms.google-services"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 

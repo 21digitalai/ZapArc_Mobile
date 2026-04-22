@@ -15,7 +15,8 @@ import {
   ToastAndroid,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { Text, IconButton, ActivityIndicator, Button, Divider, Snackbar } from 'react-native-paper';
+import { Text, IconButton, ActivityIndicator, Button, Divider } from 'react-native-paper';
+import { ToastBanner, type ToastTone } from '../components/ToastBanner';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -25,6 +26,7 @@ import { useWallet } from '../../../hooks/useWallet';
 import { useWalletAuth } from '../../../hooks/useWalletAuth';
 import { useLanguage } from '../../../hooks/useLanguage';
 import { useCurrency } from '../../../hooks/useCurrency';
+import { useLightningAddress } from '../../../hooks/useLightningAddress';
 import { onPaymentReceived } from '../../../services/breezSparkService';
 import { settingsService } from '../../../services/settingsService';
 import { formatFiat, usdbToFiat } from '../../../utils/currency';
@@ -73,6 +75,7 @@ export function HomeScreen(): React.JSX.Element {
   const { lock, enableBiometric } = useWalletAuth();
   const { t } = useLanguage();
   const { format, formatTx, refreshSettings, rates, secondaryFiatCurrency } = useCurrency();
+  const { addressInfo: lightningAddressInfo, isRegistered: isLightningAddressRegistered } = useLightningAddress();
 
   // Get navigation params (for payment success toast)
   const params = useLocalSearchParams<{
@@ -97,8 +100,21 @@ export function HomeScreen(): React.JSX.Element {
   // When the tapped row is a swap pair, keep both sides so the detail modal
   // can show "paid X sats, received Y USDB" rather than just one leg.
   const [selectedSwapRow, setSelectedSwapRow] = useState<import('../utils/transactionRows').TransactionRow | null>(null);
-  const [snackbarVisible, setSnackbarVisible] = useState(false);
-  const [snackbarMessage, setSnackbarMessage] = useState('');
+  // Structured toast state — richer than a single string so the heads-up
+  // banner can render an icon chip + subtitle + trailing amount pill.
+  const [toast, setToast] = useState<{
+    title: string;
+    subtitle?: string;
+    trailing?: string;
+    icon?: string;
+    tone?: ToastTone;
+  } | null>(null);
+  const showToast = useCallback(
+    (next: { title: string; subtitle?: string; trailing?: string; icon?: string; tone?: ToastTone }) => {
+      setToast(next);
+    },
+    [],
+  );
   const [activeReminder, setActiveReminder] = useState<SecurityReminderKind>(null);
   const [activeAsset, setActiveAsset] = useState<WalletAsset>('BTC');
 
@@ -221,8 +237,13 @@ export function HomeScreen(): React.JSX.Element {
         // Show snackbar toast for SENT payments (not received - those get push notifications)
         if (payment.type === 'send' && payment.amountSat > 0) {
           const formattedAmount = payment.amountSat.toLocaleString();
-          setSnackbarMessage(`⚡ Payment sent: ${formattedAmount} sats`);
-          setSnackbarVisible(true);
+          showToast({
+            icon: '↑',
+            title: 'Payment sent',
+            subtitle: payment.description || undefined,
+            trailing: `-${formattedAmount} sat`,
+            tone: 'accent',
+          });
         }
       }
 
@@ -262,8 +283,12 @@ export function HomeScreen(): React.JSX.Element {
     if (params.paymentSuccess === 'true' && params.paymentAmount) {
       const amount = parseInt(params.paymentAmount, 10);
       const formattedAmount = amount.toLocaleString();
-      setSnackbarMessage(`⚡ Payment sent: ${formattedAmount} sats`);
-      setSnackbarVisible(true);
+      showToast({
+        icon: '↑',
+        title: 'Payment sent',
+        trailing: `-${formattedAmount} sat`,
+        tone: 'accent',
+      });
       router.setParams({ paymentSuccess: undefined, paymentAmount: undefined });
     }
   }, [params.paymentSuccess, params.paymentAmount]);
@@ -288,9 +313,14 @@ export function HomeScreen(): React.JSX.Element {
     }
 
     const received = params.swapReceived || '';
-    const unit = targetAsset === 'USDB' ? 'USDB' : 'sats';
-    setSnackbarMessage(received ? `✅ Swap complete: +${received} ${unit}` : '✅ Swap complete');
-    setSnackbarVisible(true);
+    const unit = targetAsset === 'USDB' ? 'USDB' : 'sat';
+    showToast({
+      icon: '⇄',
+      title: 'Swap complete',
+      subtitle: targetAsset === 'USDB' ? 'BTC → USDB' : 'USDB → BTC',
+      trailing: received ? `+${received} ${unit}` : undefined,
+      tone: 'accent',
+    });
 
     router.setParams({ swapSuccess: undefined, swapAsset: undefined, swapReceived: undefined });
   }, [params.swapSuccess, params.swapAsset, params.swapReceived, activeAsset]);
@@ -462,6 +492,36 @@ export function HomeScreen(): React.JSX.Element {
             />
           }
         >
+          {/* Lightning Address pill — only rendered when the user has
+              claimed one. Mirrors the "shiro123@breez.tips" chip from the
+              ZapArc web extension. Tap to copy. */}
+          {isLightningAddressRegistered && lightningAddressInfo?.lightningAddress && (
+            <TouchableOpacity
+              style={styles.lnAddressRow}
+              activeOpacity={0.75}
+              onPress={async () => {
+                try {
+                  await Clipboard.setStringAsync(lightningAddressInfo.lightningAddress);
+                  if (Platform.OS === 'android' && ToastAndroid?.show) {
+                    ToastAndroid.show('Copied', ToastAndroid.SHORT);
+                  }
+                } catch {}
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Lightning address ${lightningAddressInfo.lightningAddress}. Tap to copy.`}
+            >
+              <Text style={styles.lnAddressBolt}>⚡</Text>
+              <Text
+                style={[styles.lnAddressText, { color: BRAND_COLOR }]}
+                numberOfLines={1}
+                ellipsizeMode="middle"
+              >
+                {lightningAddressInfo.lightningAddress}
+              </Text>
+              <Text style={[styles.lnAddressCopyIcon, { color: BRAND_COLOR }]}>⧉</Text>
+            </TouchableOpacity>
+          )}
+
           <AssetTabBar
             assets={[t('home.assetTab.btc'), t('home.assetTab.usdb')]}
             active={activeAsset}
@@ -637,16 +697,17 @@ export function HomeScreen(): React.JSX.Element {
         {selectedTransaction && renderDetailsModal()}
       </SafeAreaView>
 
-      {/* Payment Success Snackbar - needs to be at root level for proper display */}
-      <Snackbar
-        visible={snackbarVisible}
-        onDismiss={() => setSnackbarVisible(false)}
-        duration={3000}
-        style={styles.snackbar}
-        wrapperStyle={styles.snackbarWrapper}
-      >
-        {snackbarMessage}
-      </Snackbar>
+      {/* Heads-up toast banner — renders at the top, tinted by tone.
+          See components/ToastBanner.tsx. */}
+      <ToastBanner
+        visible={!!toast}
+        onDismiss={() => setToast(null)}
+        icon={toast?.icon}
+        title={toast?.title || ''}
+        subtitle={toast?.subtitle}
+        trailing={toast?.trailing}
+        tone={toast?.tone}
+      />
     </LinearGradient>
   );
 
@@ -931,8 +992,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
   },
   walletSelector: {
     flexDirection: 'row',
@@ -940,25 +1001,55 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   walletIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: 'rgba(255, 193, 7, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 10,
+    marginRight: 8,
   },
   walletIconText: {
-    fontSize: 18,
+    fontSize: 16,
   },
   walletName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     maxWidth: 150,
   },
   subWalletName: {
-    fontSize: 12,
+    fontSize: 11,
     maxWidth: 150,
+  },
+  lnAddressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    marginHorizontal: 16,
+    marginBottom: 6,
+    marginTop: 2,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 193, 7, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 193, 7, 0.35)',
+    maxWidth: '92%',
+  },
+  lnAddressBolt: {
+    color: BRAND_COLOR,
+    fontSize: 13,
+    marginRight: 6,
+  },
+  lnAddressText: {
+    fontSize: 13,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+  lnAddressCopyIcon: {
+    fontSize: 14,
+    marginLeft: 8,
+    opacity: 0.8,
   },
   headerActions: {
     flexDirection: 'row',
@@ -1272,14 +1363,5 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   closeModalButtonLabel: {
-  },
-  snackbar: {
-    backgroundColor: '#4CAF50',
-  },
-  snackbarWrapper: {
-    position: 'absolute',
-    bottom: 24,
-    left: 16,
-    right: 16,
   },
 });
