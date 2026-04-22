@@ -122,6 +122,9 @@ export function HomeScreen(): React.JSX.Element {
     },
     [],
   );
+  // Stable dismiss ref so ToastBanner's effect isn't reinvoked on every
+  // HomeScreen re-render (which would restart the enter animation).
+  const dismissToast = useCallback(() => setToast(null), []);
   const [activeReminder, setActiveReminder] = useState<SecurityReminderKind>(null);
   const [activeAsset, setActiveAsset] = useState<WalletAsset>('BTC');
 
@@ -776,7 +779,7 @@ export function HomeScreen(): React.JSX.Element {
           See components/ToastBanner.tsx. */}
       <ToastBanner
         visible={!!toast}
-        onDismiss={() => setToast(null)}
+        onDismiss={dismissToast}
         icon={toast?.icon}
         title={toast?.title || ''}
         subtitle={toast?.subtitle}

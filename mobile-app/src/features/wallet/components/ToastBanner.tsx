@@ -7,7 +7,7 @@
 // the bottom — too much green, low readability, and it sometimes covered
 // on-screen controls.
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, TouchableWithoutFeedback, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -54,13 +54,28 @@ export function ToastBanner({
 }: ToastBannerProps): React.JSX.Element | null {
   const insets = useSafeAreaInsets();
   const anim = useRef(new Animated.Value(0)).current;
+  // `mounted` tracks whether we should render — stays true throughout
+  // the exit animation so the animated styles can still apply. Starts
+  // false; flipped true the first time `visible` goes true.
+  const [mounted, setMounted] = useState(false);
+  // Skip the first effect pass when visible=false — otherwise we start
+  // a no-op exit timing on mount that can interfere with state.
+  const firstRun = useRef(true);
 
   useEffect(() => {
+    if (firstRun.current && !visible) {
+      firstRun.current = false;
+      return;
+    }
+    firstRun.current = false;
+
     if (visible) {
+      setMounted(true);
+      anim.setValue(0);
       Animated.timing(anim, {
         toValue: 1,
-        duration: 220,
-        easing: Easing.out(Easing.quad),
+        duration: 260,
+        easing: Easing.out(Easing.back(1.2)),
         useNativeDriver: true,
       }).start();
       const timer = setTimeout(() => {
@@ -68,16 +83,20 @@ export function ToastBanner({
       }, duration);
       return () => clearTimeout(timer);
     }
+
+    // Exit: fade + slide up, then unmount after the animation finishes.
     Animated.timing(anim, {
       toValue: 0,
-      duration: 180,
+      duration: 200,
       easing: Easing.in(Easing.quad),
       useNativeDriver: true,
-    }).start();
+    }).start(({ finished }) => {
+      if (finished) setMounted(false);
+    });
     return () => {};
   }, [visible, anim, duration, onDismiss]);
 
-  if (!visible) return null;
+  if (!mounted) return null;
 
   const t = TONE_COLORS[tone];
 
@@ -87,13 +106,27 @@ export function ToastBanner({
       style={[
         styles.container,
         {
-          top: insets.top + 6,
+          // Pushed below the wallet-selector header so the toast doesn't
+          // cover the lock / eye / settings buttons for its 3.5s lifetime.
+          // Header padding (~2px) + wallet selector height (~40px) + a
+          // gap = ~60px below the safe-area top inset.
+          top: insets.top + 60,
           opacity: anim,
           transform: [
             {
+              // Slide in from slightly above the final resting position.
               translateY: anim.interpolate({
                 inputRange: [0, 1],
-                outputRange: [-12, 0],
+                outputRange: [-24, 0],
+              }),
+            },
+            {
+              // Subtle scale bump on entry so the pill "lands" rather than
+              // appears flat. Staying close to 1 keeps it from feeling
+              // cartoonish.
+              scale: anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.96, 1],
               }),
             },
           ],

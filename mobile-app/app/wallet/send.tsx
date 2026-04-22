@@ -1296,14 +1296,10 @@ export default function SendScreen() {
                 </View>
               )}
 
-              {(() => {
-                const satsVal = inputCurrency === 'sats' ? Math.floor(Number(amount)) : convertToSats(parseFloat(amount) || 0, inputCurrency);
-                return amount.length > 0 && satsVal > 0 && satsVal < 2000 ? (
-                  <Text style={styles.lowAmountWarning}>
-                    If you are sending to another Lightning wallet, the recipient may not be able to receive this amount.
-                  </Text>
-                ) : null;
-              })()}
+              {/* No low-amount warning on the Lightning tab — LN can route
+                  arbitrary amounts down to 1 sat. The warning only applies
+                  to on-chain sends, where dust-limit + fee economics make
+                  very small sends impractical for the receiving wallet. */}
 
               <Text style={[styles.label, { color: primaryTextColor }]}>{t('send.commentLabel')}</Text>
 

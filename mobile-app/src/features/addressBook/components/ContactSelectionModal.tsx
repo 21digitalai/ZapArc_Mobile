@@ -154,17 +154,18 @@ export function ContactSelectionModal({
           placeholder={t('addressBook.searchContacts')}
         />
 
+        {/* Add-new row sits OUTSIDE the FlatList so an empty contacts
+            list doesn't inherit a big flex-grow gap below it. With
+            contacts present, it's the first row flush above the list. */}
+        {renderAddContactRow()}
+
         <FlatList
           data={filteredContacts}
           renderItem={renderContact}
           keyExtractor={(item) => item.id}
           ItemSeparatorComponent={renderSeparator}
-          ListHeaderComponent={renderAddContactRow}
-          ListEmptyComponent={renderEmpty}
+          ListEmptyComponent={filteredContacts.length === 0 && searchQuery ? renderEmpty : null}
           style={styles.list}
-          contentContainerStyle={
-            filteredContacts.length === 0 ? styles.emptyListContent : undefined
-          }
         />
       </Modal>
     </Portal>
@@ -176,7 +177,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a2e',
     margin: 20,
     borderRadius: 16,
-    minHeight: '50%',
+    // Height now follows content (no forced min) so the modal feels snug
+    // whether the user has 0 or 20 contacts.
     maxHeight: '80%',
     overflow: 'hidden',
   },
@@ -196,10 +198,8 @@ const styles = StyleSheet.create({
   },
   list: {
     maxHeight: 400,
-  },
-  emptyListContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
+    // Padding bottom so the last item doesn't butt against the modal edge.
+    paddingBottom: 8,
   },
   contactItem: {
     flexDirection: 'row',
@@ -240,12 +240,13 @@ const styles = StyleSheet.create({
     marginLeft: 68,
   },
   emptyContainer: {
-    padding: 32,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     alignItems: 'center',
   },
   emptyText: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.45)',
     textAlign: 'center',
   },
   addContactRow: {
