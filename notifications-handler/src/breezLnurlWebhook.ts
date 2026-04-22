@@ -91,6 +91,9 @@ export const breezLnurlWebhook = onRequest(
     region: 'europe-west3',
     cors: false,
     secrets: [lnurlSecret],
+    // Breez posts unauthenticated from their LNURL server; auth is via
+    // the X-Breez-Signature HMAC check below, not GCP IAM.
+    invoker: 'public',
   },
   async (req, res) => {
     try {

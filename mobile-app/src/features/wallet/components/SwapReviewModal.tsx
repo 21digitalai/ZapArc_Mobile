@@ -3,7 +3,6 @@ import { StyleSheet, View } from 'react-native';
 import { Button, Dialog, Portal, Text } from 'react-native-paper';
 
 import { useLanguage } from '../../../hooks/useLanguage';
-import { useWalletAuth } from '../../../hooks/useWalletAuth';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
 import type { SwapDirection } from '../../../services/breezSparkService';
 
@@ -33,7 +32,6 @@ export function SwapReviewModal({
   onConfirm,
 }: SwapReviewModalProps): React.JSX.Element {
   const { t } = useLanguage();
-  const { unlockWithBiometric, getSessionPin } = useWalletAuth();
   const [confirmDisabled, setConfirmDisabled] = useState(false);
 
   useEffect(() => {
@@ -59,22 +57,12 @@ export function SwapReviewModal({
 
     setConfirmDisabled(true);
 
-    // The user is already inside an unlocked wallet session by virtue of being
-    // on this screen. If we have a cached session PIN, they've already proven
-    // auth — don't prompt biometric again just to confirm a swap. Fall back to
-    // biometric ONLY if the session PIN has evaporated (session expired mid-
-    // review, etc.).
-    if (!getSessionPin()) {
-      const biometricOk = await unlockWithBiometric();
-      const pinFallbackAvailable = Boolean(getSessionPin());
-      if (!biometricOk && !pinFallbackAvailable) {
-        setConfirmDisabled(false);
-        return;
-      }
-    }
-
+    // No biometric prompt on swap confirm — the user is already inside an
+    // unlocked wallet session; re-auth here is friction without a matching
+    // security benefit (swap is self→self, they already authenticated to
+    // open the wallet, the amounts are front-and-center on this screen).
     await onConfirm();
-  }, [confirmDisabled, getSessionPin, onConfirm, unlockWithBiometric]);
+  }, [confirmDisabled, onConfirm]);
 
   return (
     <Portal>

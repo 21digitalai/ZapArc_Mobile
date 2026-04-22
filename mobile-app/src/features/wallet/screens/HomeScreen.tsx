@@ -85,6 +85,13 @@ export function HomeScreen(): React.JSX.Element {
     swapSuccess?: string;
     swapAsset?: string;
     swapReceived?: string;
+    /** Set by SwapScreen when a conversion is refunded (slippage too tight). */
+    swapRefunded?: string;
+    /** Set by PaymentConfirmationScreen / Send flow when a payment fails. */
+    paymentError?: string;
+    /** Set by wallet switch flow when user changes active wallet. */
+    walletSwitched?: string;
+    walletSwitchedName?: string;
   }>();
 
   const { themeMode } = useAppTheme();
@@ -234,15 +241,41 @@ export function HomeScreen(): React.JSX.Element {
       const isSyncEvent = payment.description === '__SYNC_EVENT__';
 
       if (!isSyncEvent) {
-        // Show snackbar toast for SENT payments (not received - those get push notifications)
-        if (payment.type === 'send' && payment.amountSat > 0) {
-          const formattedAmount = payment.amountSat.toLocaleString();
+        const amount = payment.amountSat || 0;
+        const asset: 'BTC' | 'USDB' = payment.asset === 'USDB' ? 'USDB' : 'BTC';
+        const formatted = asset === 'USDB'
+          ? `${(amount / 1e6).toFixed(2)} USDB`
+          : `${amount.toLocaleString()} sat`;
+
+        if (payment.type === 'send' && amount > 0) {
+          // Outgoing payment — accent tone (user initiated it, just a receipt).
           showToast({
             icon: '↑',
             title: 'Payment sent',
-            subtitle: payment.description || undefined,
-            trailing: `-${formattedAmount} sat`,
+            subtitle: payment.description || (asset === 'USDB' ? 'USDB' : 'Lightning'),
+            trailing: `-${formatted}`,
             tone: 'accent',
+          });
+        } else if (payment.type === 'receive' && amount > 0) {
+          // Foreground receive — success tone (mint green, celebratory).
+          // Background receives are handled by the FCM push push; this
+          // toast only fires while the app is open.
+          showToast({
+            icon: '↓',
+            title: 'Payment received',
+            subtitle: payment.description || (asset === 'USDB' ? 'USDB' : 'Lightning'),
+            trailing: `+${formatted}`,
+            tone: 'success',
+          });
+        }
+
+        // Failed / refunded payments — danger tone so the user notices.
+        if (payment.status === 'failed') {
+          showToast({
+            icon: '✕',
+            title: payment.type === 'send' ? 'Payment failed' : 'Incoming payment failed',
+            subtitle: payment.description || 'Try again or contact support',
+            tone: 'danger',
           });
         }
       }
@@ -324,6 +357,48 @@ export function HomeScreen(): React.JSX.Element {
 
     router.setParams({ swapSuccess: undefined, swapAsset: undefined, swapReceived: undefined });
   }, [params.swapSuccess, params.swapAsset, params.swapReceived, activeAsset]);
+
+  // Swap-refunded toast — warn tone (amber). A refund means the AMM's
+  // rate drifted outside our slippage tolerance and Spark auto-returned
+  // the funds. Nothing was lost; user just needs to retry, often with
+  // wider slippage.
+  useEffect(() => {
+    if (params.swapRefunded !== 'true') return;
+    showToast({
+      icon: '↻',
+      title: 'Swap refunded',
+      subtitle: 'Slippage too tight — funds returned',
+      tone: 'warn',
+    });
+    router.setParams({ swapRefunded: undefined });
+  }, [params.swapRefunded]);
+
+  // Payment-error toast — danger tone (red). Fired from the Send flow
+  // when an outgoing payment fails (route failure, expired invoice,
+  // insufficient liquidity, etc.).
+  useEffect(() => {
+    if (!params.paymentError) return;
+    showToast({
+      icon: '✕',
+      title: 'Payment failed',
+      subtitle: params.paymentError,
+      tone: 'danger',
+    });
+    router.setParams({ paymentError: undefined });
+  }, [params.paymentError]);
+
+  // Wallet-switched toast — info tone (blue). Confirms the active wallet
+  // changed after coming back from the Manage Wallets flow.
+  useEffect(() => {
+    if (params.walletSwitched !== 'true') return;
+    showToast({
+      icon: '↪',
+      title: 'Wallet switched',
+      subtitle: params.walletSwitchedName || 'Active wallet updated',
+      tone: 'info',
+    });
+    router.setParams({ walletSwitched: undefined, walletSwitchedName: undefined });
+  }, [params.walletSwitched, params.walletSwitchedName]);
 
   // Navigation handlers
   const handleAssetChange = (asset: WalletAsset): void => {

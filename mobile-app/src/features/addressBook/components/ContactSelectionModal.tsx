@@ -6,6 +6,7 @@
 import React from 'react';
 import { StyleSheet, View, FlatList, TouchableOpacity } from 'react-native';
 import { Modal, Portal, Text, IconButton, Avatar, Divider } from 'react-native-paper';
+import { router } from 'expo-router';
 import { Contact } from '../types';
 import { ContactSearchBar } from './ContactSearchBar';
 import { useContactSearch } from '../hooks/useContactSearch';
@@ -45,6 +46,18 @@ export function ContactSelectionModal({
     onSelect(contact);
     setSearchQuery('');
     onDismiss();
+  };
+
+  /**
+   * Dismiss the modal and route to the Add Contact screen. The Send
+   * screen's useFocusEffect refreshes the contacts list on return, so
+   * a freshly-added contact shows up for selection the next time the
+   * user taps the contacts button.
+   */
+  const handleAddContact = () => {
+    setSearchQuery('');
+    onDismiss();
+    router.push('/wallet/settings/address-book/add');
   };
 
   const renderContact = ({ item }: { item: Contact }) => {
@@ -96,6 +109,28 @@ export function ContactSelectionModal({
     </View>
   );
 
+  // Top-of-list "+ Add new contact" row, always visible. Survives whether
+  // the list is empty, populated, or filtered. Tapping routes to the
+  // Add Contact screen; upon return the Send screen refreshes contacts
+  // and the new entry appears for selection.
+  const renderAddContactRow = () => (
+    <TouchableOpacity
+      style={styles.addContactRow}
+      onPress={handleAddContact}
+      activeOpacity={0.7}
+    >
+      <View style={styles.addContactIcon}>
+        <Text style={styles.addContactPlus}>+</Text>
+      </View>
+      <View style={styles.contactInfo}>
+        <Text style={styles.addContactLabel}>{t('addressBook.addNew')}</Text>
+        <Text style={styles.contactAddress}>
+          {t('addressBook.addNewHint')}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+
   return (
     <Portal>
       <Modal
@@ -124,6 +159,7 @@ export function ContactSelectionModal({
           renderItem={renderContact}
           keyExtractor={(item) => item.id}
           ItemSeparatorComponent={renderSeparator}
+          ListHeaderComponent={renderAddContactRow}
           ListEmptyComponent={renderEmpty}
           style={styles.list}
           contentContainerStyle={
@@ -211,6 +247,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: 'rgba(255, 255, 255, 0.5)',
     textAlign: 'center',
+  },
+  addContactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  addContactIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 193, 7, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 193, 7, 0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addContactPlus: {
+    color: BRAND_COLOR,
+    fontSize: 24,
+    fontWeight: '500',
+    lineHeight: 26,
+  },
+  addContactLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: BRAND_COLOR,
   },
   selfBadge: {
     backgroundColor: 'rgba(76, 175, 80, 0.2)',
