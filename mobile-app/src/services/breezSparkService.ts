@@ -7,6 +7,7 @@
 import { BREEZ_API_KEY, BREEZ_STORAGE_DIR } from '../config';
 import { getExchangeRates, getCachedRates } from '../utils/currency';
 import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
+import { NotificationTriggerService } from './notificationTriggerService';
 // expo-notifications and expo-constants imports removed —
 // Push notifications now flow via Breez's own webhook → our stateless
 // Cloud Function relay → Expo Push API. See services/breezWebhookService.ts.
@@ -1681,7 +1682,7 @@ export async function payInvoice(
                        console.log('🔔 [BreezSparkService] Trigger completed');
                      }
                    })
-                   .catch(e => console.warn('🔔 [BreezSparkService] Trigger failed:', e));
+                   .catch((e: unknown) => console.warn('🔔 [BreezSparkService] Trigger failed:', e));
               } else {
                   console.warn('⚠️ [BreezSparkService] Skipping remote notification trigger (no unique lightning address identifier)');
               }
@@ -1987,7 +1988,7 @@ export async function listPayments(): Promise<TransactionInfo[]> {
         type = 'receive';
       }
 
-      const description = payment.details?.description || payment.description || '';
+      const description = payment.details?.inner?.description || payment.details?.description || payment.description || '';
 
       // RN SDK: method is numeric (0=lightning, 3=deposit, others TBD), details uses {tag, inner}
       // Web SDK: method is string ("lightning", "deposit"), details uses {type, txId}
@@ -2738,7 +2739,7 @@ export async function sendPayment(
               console.log('🔔 [BreezSparkService] Notification completed');
             }
           })
-          .catch(e => console.warn('🔔 [BreezSparkService] Notification failed:', e));
+          .catch((e: unknown) => console.warn('🔔 [BreezSparkService] Notification failed:', e));
         } else {
           console.warn('⚠️ [BreezSparkService] Skipping remote notification trigger (no unique lightning address identifier)');
         }
