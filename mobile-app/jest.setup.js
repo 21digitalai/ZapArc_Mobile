@@ -1,6 +1,34 @@
 import mockAsyncStorage from '@react-native-async-storage/async-storage/jest/async-storage-mock';
 
 jest.mock('@react-native-async-storage/async-storage', () => mockAsyncStorage);
+jest.mock('react-native-quick-crypto', () => {
+  const subtleDigest = jest.fn(async (_algorithm, data) => data);
+  const deriveBits = jest.fn(async () => new ArrayBuffer(32));
+
+  return {
+    __esModule: true,
+    default: {
+      pbkdf2Sync: jest.fn(() => Buffer.alloc(32, 1)),
+      createCipheriv: jest.fn(() => ({
+        update: jest.fn(() => Buffer.alloc(0)),
+        final: jest.fn(() => Buffer.alloc(0)),
+        getAuthTag: jest.fn(() => Buffer.alloc(16, 2)),
+      })),
+      createDecipheriv: jest.fn(() => ({
+        setAuthTag: jest.fn(),
+        update: jest.fn(() => Buffer.alloc(0)),
+        final: jest.fn(() => Buffer.alloc(0)),
+      })),
+      webcrypto: {
+        subtle: {
+          digest: subtleDigest,
+          importKey: jest.fn(async () => ({})),
+          deriveBits,
+        },
+      },
+    },
+  };
+});
 
 // Polyfill for crypto.getRandomValues
 if (typeof global.crypto !== 'object') {

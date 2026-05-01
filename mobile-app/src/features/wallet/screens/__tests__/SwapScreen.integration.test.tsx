@@ -38,6 +38,39 @@ jest.mock('../../../../contexts/ThemeContext', () => ({
   useAppTheme: () => ({ themeMode: 'dark' }),
 }));
 
+jest.mock('../../../../hooks/useWallet', () => ({
+  useWallet: () => ({
+    balance: 0,
+    usdbBalance: 0,
+    refreshBalance: jest.fn(),
+    refreshTransactions: jest.fn(),
+    applySwapResult: jest.fn(),
+  }),
+}));
+
+jest.mock('../../../../hooks/useCurrency', () => ({
+  useCurrency: () => ({
+    rates: { usd: 100000 },
+  }),
+}));
+
+jest.mock('../../../../hooks/useLanguage', () => ({
+  useLanguage: () => ({
+    t: (key: string) => {
+      const map: Record<string, string> = {
+        'swap.title': 'Swap',
+        'swap.reviewButton': 'Review',
+        'swap.error.offline': 'Offline',
+        'swap.error.limitsUnavailable': 'Limits unavailable',
+        'swap.flipDirection': 'Flip swap direction',
+        'swap.youPay': 'You pay',
+        'swap.youReceive': 'You receive',
+      };
+      return map[key] ?? key;
+    },
+  }),
+}));
+
 jest.mock('expo-linear-gradient', () => ({
   LinearGradient: ({ children }: { children: React.ReactNode }) => children,
 }));
@@ -62,10 +95,12 @@ const baseSwap = {
   direction: 'BTC_TO_USDB',
   amountInput: '1000',
   slippageBps: 50,
-  state: { status: 'quoteLoaded', quote: { amount: 1000n, receiveAmount: 10n, rate: '0.01', feeSat: 12n } },
+  usdbDecimals: 6,
+  state: { status: 'quoteLoaded', quote: { amount: 1000n, receiveAmount: 10n, rate: 0.01, feeSat: 12n, direction: 'BTC_TO_USDB', usdbDecimals: 6 } },
   isOffline: false,
   limitsUnavailable: false,
   setAmountInput: jest.fn(),
+  setAvailableBalance: jest.fn(),
   flipDirection: jest.fn(),
   setSlippageBps: jest.fn(),
   openReview: jest.fn(),
@@ -86,7 +121,7 @@ describe('SwapScreen integration', () => {
     expect(screen.getByText('Swap')).toBeTruthy();
     expect(screen.getByText('Review')).toBeTruthy();
 
-    fireEvent.press(screen.getByText('Review'));
+    fireEvent.press(screen.getByLabelText('Review'));
     expect(baseSwap.openReview).toHaveBeenCalled();
   });
 

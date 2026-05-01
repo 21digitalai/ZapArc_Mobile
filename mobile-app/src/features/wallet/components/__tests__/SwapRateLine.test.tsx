@@ -30,16 +30,16 @@ describe('SwapRateLine', () => {
   });
 
   it('shows advanced chips and marks active preset', () => {
-    const { getByLabelText } = render(<SwapRateLine {...baseProps} />);
+    const { getAllByLabelText } = render(<SwapRateLine {...baseProps} />);
 
-    expect(getByLabelText('Select slippage swap.slippagePreset05').props.accessibilityState.selected).toBe(true);
-    expect(getByLabelText('Select slippage swap.slippagePreset01').props.accessibilityState.selected).toBe(false);
+    expect(getAllByLabelText('swap.selectSlippageAccessibilityLabel')[1].props.accessibilityState.selected).toBe(true);
+    expect(getAllByLabelText('swap.selectSlippageAccessibilityLabel')[0].props.accessibilityState.selected).toBe(false);
   });
 
   it('calls preset selection when chip is pressed', () => {
-    const { getByLabelText } = render(<SwapRateLine {...baseProps} />);
+    const { getAllByLabelText } = render(<SwapRateLine {...baseProps} />);
 
-    fireEvent.press(getByLabelText('Select slippage swap.slippagePreset10'));
+    fireEvent.press(getAllByLabelText('swap.selectSlippageAccessibilityLabel')[2]);
     expect(baseProps.onSlippagePresetSelect).toHaveBeenCalledWith(100);
   });
 

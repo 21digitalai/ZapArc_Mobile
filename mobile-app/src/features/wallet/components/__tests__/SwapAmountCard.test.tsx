@@ -3,6 +3,12 @@ import { fireEvent, render } from '@testing-library/react-native';
 
 import { SwapAmountCard } from '../SwapAmountCard';
 
+jest.mock('../../../../hooks/useLanguage', () => ({
+  useLanguage: () => ({
+    t: (key: string) => key,
+  }),
+}));
+
 describe('SwapAmountCard', () => {
   const baseProps = {
     label: 'You pay',
@@ -39,7 +45,7 @@ describe('SwapAmountCard', () => {
   it('calls onMax when max pressed and enabled', () => {
     const { getByLabelText } = render(<SwapAmountCard {...baseProps} maxDisabled={false} />);
 
-    fireEvent.press(getByLabelText('Set maximum amount'));
+    fireEvent.press(getByLabelText('swap.maxAccessibilityLabel'));
     expect(baseProps.onMax).toHaveBeenCalledTimes(1);
   });
 
@@ -48,7 +54,7 @@ describe('SwapAmountCard', () => {
       <SwapAmountCard {...baseProps} maxDisabled maxDisabledTooltip="Need more funds" />
     );
 
-    const maxButton = getByLabelText('Set maximum amount');
+    const maxButton = getByLabelText('swap.maxAccessibilityLabel');
     expect(maxButton.props.accessibilityState?.disabled).toBe(true);
 
     fireEvent.press(maxButton);
@@ -72,6 +78,6 @@ describe('SwapAmountCard', () => {
   it('has accessibilityLabel on max button', () => {
     const { getByLabelText } = render(<SwapAmountCard {...baseProps} />);
 
-    expect(getByLabelText('Set maximum amount')).toBeTruthy();
+    expect(getByLabelText('swap.maxAccessibilityLabel')).toBeTruthy();
   });
 });

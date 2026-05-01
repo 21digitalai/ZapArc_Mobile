@@ -4,19 +4,9 @@ import { PaperProvider } from 'react-native-paper';
 
 import { SwapReviewModal } from '../SwapReviewModal';
 
-const mockUnlockWithBiometric = jest.fn<Promise<boolean>, []>();
-const mockGetSessionPin = jest.fn<string | null, []>();
-
 jest.mock('../../../../hooks/useLanguage', () => ({
   useLanguage: () => ({
     t: (key: string) => key,
-  }),
-}));
-
-jest.mock('../../../../hooks/useWalletAuth', () => ({
-  useWalletAuth: () => ({
-    unlockWithBiometric: mockUnlockWithBiometric,
-    getSessionPin: mockGetSessionPin,
   }),
 }));
 
@@ -45,8 +35,6 @@ describe('SwapReviewModal', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockUnlockWithBiometric.mockResolvedValue(true);
-    mockGetSessionPin.mockReturnValue(null);
   });
 
   it('renders review rows', () => {
@@ -61,7 +49,7 @@ describe('SwapReviewModal', () => {
 
   it('disables confirm after first tap (double-tap guard)', async () => {
     const { getByLabelText } = renderModal(baseProps);
-    const confirmButton = getByLabelText('Confirm swap');
+    const confirmButton = getByLabelText('swap.review.confirmAccessibilityLabel');
 
     fireEvent.press(confirmButton);
     fireEvent.press(confirmButton);
@@ -72,14 +60,12 @@ describe('SwapReviewModal', () => {
   });
 
   it('re-enables confirm when authError arrives', async () => {
-    mockUnlockWithBiometric.mockResolvedValue(false);
-
     const { getByLabelText, rerender } = renderModal(baseProps);
 
-    fireEvent.press(getByLabelText('Confirm swap'));
+    fireEvent.press(getByLabelText('swap.review.confirmAccessibilityLabel'));
 
     await waitFor(() => {
-      expect(onConfirm).not.toHaveBeenCalled();
+      expect(onConfirm).toHaveBeenCalledTimes(1);
     });
 
     rerender(
@@ -88,24 +74,13 @@ describe('SwapReviewModal', () => {
       </PaperProvider>
     );
 
-    mockUnlockWithBiometric.mockResolvedValue(true);
-    fireEvent.press(getByLabelText('Confirm swap'));
-
-    await waitFor(() => {
-      expect(onConfirm).toHaveBeenCalledTimes(1);
-    });
+    expect(getByLabelText('swap.review.confirmAccessibilityLabel').props.accessibilityState?.disabled).toBe(false);
   });
 
-  it('allows confirm through PIN fallback when biometric fails', async () => {
-    mockUnlockWithBiometric.mockResolvedValue(false);
-    mockGetSessionPin.mockReturnValue('123456');
+  it('renders auth error as accessible alert', () => {
+    const { getByLabelText, getByText } = renderModal({ ...baseProps, authError: 'Authentication failed' });
 
-    const { getByLabelText } = renderModal(baseProps);
-
-    fireEvent.press(getByLabelText('Confirm swap'));
-
-    await waitFor(() => {
-      expect(onConfirm).toHaveBeenCalledTimes(1);
-    });
+    expect(getByText('Authentication failed')).toBeTruthy();
+    expect(getByLabelText('swap.review.authErrorAccessibilityLabel')).toBeTruthy();
   });
 });

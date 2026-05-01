@@ -25,7 +25,7 @@ describe('SwapResultView', () => {
       <SwapResultView kind="dustResidual" residualUsdb="0.03 USDB" />
     );
 
-    expect(getByText('USDB residual: 0.03 USDB')).toBeTruthy();
+    expect(getByText('swap.dustResidual.note')).toBeTruthy();
   });
 
   it('renders refunded with two actions', () => {
