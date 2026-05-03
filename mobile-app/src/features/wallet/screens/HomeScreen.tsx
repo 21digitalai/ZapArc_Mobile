@@ -422,10 +422,9 @@ export function HomeScreen(): React.JSX.Element {
   };
 
   const handleSwap = (): void => {
-    // Pre-select the source asset based on the active tab: if user is on USDB
-    // tab, USDB is the source (USDB→BTC); if on BTC tab, sats is the source.
-    const direction = activeAsset === 'USDB' ? 'USDB_TO_BTC' : 'BTC_TO_USDB';
-    router.push({ pathname: '/wallet/swap', params: { direction } });
+    // Pass the active asset through navigation so the swap route can derive
+    // the initial direction from the page context the user came from.
+    router.push({ pathname: '/wallet/swap', params: { asset: activeAsset } });
   };
 
   const handleViewHistory = (): void => {

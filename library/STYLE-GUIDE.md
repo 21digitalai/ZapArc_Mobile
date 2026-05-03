@@ -52,7 +52,8 @@
 
 `src/features/wallet/screens/HomeScreen.tsx`
 - Uses `AssetTabBar` under the header and persists selected asset via `settingsService.getActiveAsset()/setActiveAsset()`.
-- Quick actions are asset-aware: `Send`, `Receive`, `Scan`, and `History` routes include `asset` param.
+- Quick actions are asset-aware: `Send`, `Receive`, `Scan`, `History`, and `Swap` routes include `asset` context.
+- `Swap` route derives its initial direction from the incoming `asset` param (`BTC` → `BTC_TO_USDB`, `USDB` → `USDB_TO_BTC`) and only falls back to a raw `direction` param for backward compatibility.
 - USDB tab adds a leading `Swap` quick action and a zero-state card with single CTA `Swap sats → USDB` when `usdbBalance === 0` and no USDB history.
 
 

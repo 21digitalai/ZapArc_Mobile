@@ -21,7 +21,7 @@ describe('wallet/swap route', () => {
     mockSwapScreen.mockClear();
   });
 
-  it('defaults to BTC_TO_USDB when direction param is missing', () => {
+  it('defaults to BTC_TO_USDB when no navigation context is provided', () => {
     mockUseLocalSearchParams.mockReturnValue({});
 
     render(<SwapRoute />);
@@ -29,7 +29,15 @@ describe('wallet/swap route', () => {
     expect(mockSwapScreen).toHaveBeenCalledWith(expect.objectContaining({ initialDirection: 'BTC_TO_USDB' }));
   });
 
-  it('uses USDB_TO_BTC when provided via query param', () => {
+  it('derives USDB_TO_BTC from the asset query param', () => {
+    mockUseLocalSearchParams.mockReturnValue({ asset: 'USDB' });
+
+    render(<SwapRoute />);
+
+    expect(mockSwapScreen).toHaveBeenCalledWith(expect.objectContaining({ initialDirection: 'USDB_TO_BTC' }));
+  });
+
+  it('falls back to the legacy direction param when asset is missing', () => {
     mockUseLocalSearchParams.mockReturnValue({ direction: 'USDB_TO_BTC' });
 
     render(<SwapRoute />);
