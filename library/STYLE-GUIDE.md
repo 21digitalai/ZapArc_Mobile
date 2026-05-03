@@ -85,3 +85,17 @@
 - Terminal result containers should expose state semantics:
   - success/refunded: explicit accessibility labels (for example `Swap completed`, `Swap refunded`)
   - failure: `accessibilityRole="alert"`
+
+### Send screen currency picker
+
+`app/wallet/send.tsx`
+- The visible currency badge opens a centered modal picker instead of cycling currencies on tap.
+- Reuse a single `showCurrencyPicker` state path for both Lightning and on-chain amount rows so the selector behaves the same in both tabs.
+- The picker lists `sats`, `USD`, and `EUR`, shows a checkmark on the active option, and persists the selection through `setDisplayCurrency`.
+- Keep the selector disabled for fixed-asset USDB sends.
+
+### Transaction detail custom note row
+
+`src/features/wallet/screens/TransactionHistoryScreen.tsx`
+- Sender-authored comments saved after send are loaded from `AsyncStorage` with the `payment_note_<paymentId>` key when a transaction detail modal opens.
+- Transaction detail modals must render invoice `Description` and user `Note` as separate rows when both exist.
