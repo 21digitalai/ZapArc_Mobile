@@ -185,9 +185,10 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB', options
       const quote = await prepareSwap({ direction, amount: amountBaseUnits, slippageBps });
       if (seq !== requestSeqRef.current) return;
 
-      if (availableBalance !== null && quote.amount > availableBalance) {
+      if (availableBalance !== null && quote.payAmount > availableBalance) {
         console.log('🔬 [useSwap] quote → insufficientBalance', {
           quoteAmount: quote.amount.toString(),
+          payAmount: quote.payAmount.toString(),
           availableBalance: availableBalance.toString(),
           direction,
         });

@@ -62,6 +62,11 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
   const { rates } = useCurrency();
   const { t } = useLanguage();
 
+  // Track whether the user most recently pressed Max so that when the quote
+  // comes back as insufficientBalance (payAmount > availableBalance due to
+  // fees), we can auto-correct the input to the actual spendable maximum.
+  const wasMaxPressRef = useRef(false);
+
   // Keep a snapshot of the last confirmed quote so we can show the received
   // amount in the Home snackbar after the success redirect — the swap state
   // drops `quote` once status transitions to 'success'.
@@ -390,6 +395,37 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
     return undefined;
   }, [swap.state]);
 
+  // When Max was pressed and the quote comes back as insufficientBalance
+  // (payAmount > availableBalance because fees pushed the total over the
+  // balance), auto-correct the input to the actual spendable maximum:
+  //   correctAmount = amount - (payAmount - availableBalance) - 200 buffer
+  useEffect(() => {
+    if (!wasMaxPressRef.current) return;
+    if (swap.state.status !== 'insufficientBalance') {
+      if (swap.state.status === 'quoteLoaded' || swap.state.status === 'idle') {
+        wasMaxPressRef.current = false;
+      }
+      return;
+    }
+    wasMaxPressRef.current = false;
+    if (swap.availableBalance === null || swap.availableBalance <= 0n) return;
+
+    const { quote } = swap.state;
+    const overhead = quote.payAmount > quote.amount ? quote.payAmount - quote.amount : 0n;
+    const correctedBase = swap.availableBalance - overhead - 200n;
+    if (correctedBase <= 0n) return;
+
+    if (swap.direction === 'BTC_TO_USDB') {
+      swap.setAmountInput(correctedBase.toString());
+    } else {
+      const decimals = swap.usdbDecimals;
+      const whole = correctedBase / BigInt(10 ** decimals);
+      const frac = correctedBase % BigInt(10 ** decimals);
+      const fracStr = frac.toString().padStart(decimals, '0').replace(/0+$/, '');
+      swap.setAmountInput(fracStr ? `${whole}.${fracStr}` : `${whole}`);
+    }
+  }, [swap.state, swap.availableBalance, swap.direction, swap.usdbDecimals]);
+
   useEffect(() => {
     navigation.setOptions({ gestureEnabled: !isConfirming });
   }, [isConfirming, navigation]);
@@ -486,8 +522,11 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
                 }}
                 onMax={() => {
                   if (swap.availableBalance === null) return;
+                  wasMaxPressRef.current = true;
                   if (swap.direction === 'BTC_TO_USDB') {
-                    // Keep a small fee buffer so the user doesn't over-commit.
+                    // Reserve 500 sats as initial fee buffer. If payAmount still
+                    // exceeds balance after the quote, wasMaxPressRef triggers an
+                    // auto-correction that accounts for the actual overhead.
                     const reserve = 500n;
                     const max = swap.availableBalance > reserve ? swap.availableBalance - reserve : 0n;
                     swap.setAmountInput(max > 0n ? max.toString() : '');
