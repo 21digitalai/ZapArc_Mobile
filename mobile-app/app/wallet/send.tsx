@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Modal, FlatList } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text, Button, IconButton } from 'react-native-paper';
 import { StyledTextInput } from '../../src/components';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -190,6 +191,7 @@ export default function SendScreen() {
   const [selectedSpeed, setSelectedSpeed] = useState<ConfirmationSpeed>('medium');
 
   const [inputCurrency, setInputCurrency] = useState<DisplayCurrency>('sats');
+  const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
 
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [activeAsset, setActiveAsset] = useState<'BTC' | 'USDB'>('BTC');
@@ -871,6 +873,13 @@ export default function SendScreen() {
         : await BreezSparkService.sendPayment(prepareResponse, paymentInput, preview.amount);
 
       if (result.success) {
+        if (result.paymentId && comment.trim()) {
+          try {
+            await AsyncStorage.setItem(`payment_note_${result.paymentId}`, comment.trim());
+          } catch {
+            // Non-critical — ignore storage errors
+          }
+        }
         await refreshBalance();
         await new Promise(resolve => setTimeout(resolve, 1000));
         router.navigate('/wallet/home');
@@ -894,7 +903,7 @@ export default function SendScreen() {
     } finally {
       setIsSending(false);
     }
-  }, [preview, prepareResponse, refreshBalance, step, selectedSpeed, paymentInput, t]);
+  }, [preview, prepareResponse, refreshBalance, step, selectedSpeed, paymentInput, comment, t]);
 
   const handleBackToInput = useCallback(() => {
     setStep('input');
@@ -1283,7 +1292,7 @@ export default function SendScreen() {
 
                 <TouchableOpacity
                   style={[styles.currencySelector, { backgroundColor: gradientColors[1] || '#16213e' }]}
-                  onPress={isUsdbAsset ? undefined : handleCycleCurrency}
+                  onPress={isUsdbAsset ? undefined : () => setShowCurrencyPicker(true)}
                 >
                   <Text style={styles.currencySelectorText}>{isUsdbAsset ? 'USDB' : currencyLabels[inputCurrency]}</Text>
                 </TouchableOpacity>
@@ -1325,7 +1334,7 @@ export default function SendScreen() {
 
                 <TouchableOpacity
                   style={[styles.currencySelector, { backgroundColor: gradientColors[1] || '#16213e' }]}
-                  onPress={isUsdbAsset ? undefined : handleCycleCurrency}
+                  onPress={isUsdbAsset ? undefined : () => setShowCurrencyPicker(true)}
                 >
                   <Text style={styles.currencySelectorText}>{isUsdbAsset ? 'USDB' : currencyLabels[inputCurrency]}</Text>
                 </TouchableOpacity>
@@ -1424,6 +1433,45 @@ export default function SendScreen() {
             {isLightningTab ? t('send.previewPayment') : t('send.previewOnchainCta')}
           </Button>
         </ScrollView>
+
+        {/* Currency picker dropdown modal */}
+        <Modal
+          visible={showCurrencyPicker}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowCurrencyPicker(false)}
+        >
+          <TouchableOpacity
+            style={styles.currencyPickerOverlay}
+            activeOpacity={1}
+            onPress={() => setShowCurrencyPicker(false)}
+          >
+            <View style={[styles.currencyPickerSheet, { backgroundColor: gradientColors[1] || '#16213e' }]}>
+              <Text style={[styles.currencyPickerTitle, { color: primaryTextColor }]}>Select Currency</Text>
+              {(['sats', 'usd', 'eur'] as DisplayCurrency[]).map((currency) => (
+                <TouchableOpacity
+                  key={currency}
+                  style={[
+                    styles.currencyPickerItem,
+                    inputCurrency === currency && styles.currencyPickerItemActive,
+                  ]}
+                  onPress={() => {
+                    setInputCurrency(currency);
+                    void setDisplayCurrency(currency);
+                    setShowCurrencyPicker(false);
+                  }}
+                >
+                  <Text style={[styles.currencyPickerItemText, { color: primaryTextColor }]}>
+                    {currencyLabels[currency]}
+                  </Text>
+                  {inputCurrency === currency && (
+                    <Text style={{ color: BRAND_COLOR, fontSize: 16 }}>✓</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
       </SafeAreaView>
     </LinearGradient>
   );
@@ -1844,6 +1892,41 @@ const styles = StyleSheet.create({
     color: BRAND_COLOR,
     fontSize: 14,
     fontWeight: '600',
+  },
+  currencyPickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  currencyPickerSheet: {
+    width: 240,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    elevation: 8,
+  },
+  currencyPickerTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    opacity: 0.6,
+  },
+  currencyPickerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 8,
+  },
+  currencyPickerItemActive: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  currencyPickerItemText: {
+    fontSize: 16,
+    fontWeight: '500',
   },
   conversionPreview: {
     flexDirection: 'row',

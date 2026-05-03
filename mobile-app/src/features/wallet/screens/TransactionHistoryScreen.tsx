@@ -1,7 +1,8 @@
 // Transaction History Screen
 // Full transaction list with filtering and details
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
   StyleSheet,
@@ -54,6 +55,22 @@ export function TransactionHistoryScreen(): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [selectedSwapRow, setSelectedSwapRow] = useState<TransactionRow | null>(null);
+  const [selectedTxNote, setSelectedTxNote] = useState<string | null>(null);
+
+  // Load stored user note when a transaction detail is opened
+  useEffect(() => {
+    if (!selectedTransaction) {
+      setSelectedTxNote(null);
+      return;
+    }
+    if (!selectedTransaction.id) {
+      setSelectedTxNote(null);
+      return;
+    }
+    AsyncStorage.getItem(`payment_note_${selectedTransaction.id}`)
+      .then((note) => setSelectedTxNote(note))
+      .catch(() => setSelectedTxNote(null));
+  }, [selectedTransaction]);
 
   // Filtered transactions
   const transactionRows = useMemo(() => buildTransactionRows(transactions, activeAsset), [transactions, activeAsset]);
@@ -262,6 +279,9 @@ export function TransactionHistoryScreen(): React.JSX.Element {
               <DetailRow label={t('wallet.time')} value={formatTime(tx.timestamp)} />
               {tx.description && (
                 <DetailRow label={t('payments.description')} value={tx.description} />
+              )}
+              {selectedTxNote && (
+                <DetailRow label="Note" value={selectedTxNote} />
               )}
               {tx.feeSats !== undefined && tx.feeSats > 0 && (
                 <DetailRow
