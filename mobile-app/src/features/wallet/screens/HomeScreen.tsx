@@ -422,10 +422,10 @@ export function HomeScreen(): React.JSX.Element {
   };
 
   const handleSwap = (): void => {
-    // Always default to sats → USDB (sats on top). Users can flip via the
-    // flip button on the swap screen if they want USDB → sats. This matches
-    // the common "buy stablecoin" mental model being the primary swap case.
-    router.push({ pathname: '/wallet/swap', params: { direction: 'BTC_TO_USDB' } });
+    // Pre-select the source asset based on the active tab: if user is on USDB
+    // tab, USDB is the source (USDB→BTC); if on BTC tab, sats is the source.
+    const direction = activeAsset === 'USDB' ? 'USDB_TO_BTC' : 'BTC_TO_USDB';
+    router.push({ pathname: '/wallet/swap', params: { direction } });
   };
 
   const handleViewHistory = (): void => {
