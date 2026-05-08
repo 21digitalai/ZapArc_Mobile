@@ -30,7 +30,9 @@ import { useLightningAddress } from '../../../hooks/useLightningAddress';
 import { onPaymentReceived } from '../../../services/breezSparkService';
 import { settingsService } from '../../../services/settingsService';
 import { formatFiat, usdbToFiat } from '../../../utils/currency';
-import { AssetTabBar } from '../components/AssetTabBar';
+import { AssetSelectorPill } from '../components/AssetSelectorPill';
+import { AssetPickerSheet } from '../components/AssetPickerSheet';
+import { getAssetMeta } from '../registry/assetRegistry';
 import type { Transaction } from '../types';
 import { buildTransactionRows, type TransactionRow } from '../utils/transactionRows';
 import {
@@ -115,9 +117,10 @@ export function HomeScreen(): React.JSX.Element {
     trailing?: string;
     icon?: string;
     tone?: ToastTone;
+    position?: 'top' | 'bottom';
   } | null>(null);
   const showToast = useCallback(
-    (next: { title: string; subtitle?: string; trailing?: string; icon?: string; tone?: ToastTone }) => {
+    (next: { title: string; subtitle?: string; trailing?: string; icon?: string; tone?: ToastTone; position?: 'top' | 'bottom' }) => {
       setToast(next);
     },
     [],
@@ -127,6 +130,7 @@ export function HomeScreen(): React.JSX.Element {
   const dismissToast = useCallback(() => setToast(null), []);
   const [activeReminder, setActiveReminder] = useState<SecurityReminderKind>(null);
   const [activeAsset, setActiveAsset] = useState<WalletAsset>('BTC');
+  const [assetPickerVisible, setAssetPickerVisible] = useState(false);
 
   const displayBalance = getBalanceForAsset(activeAsset);
   const displayTransactions = getTransactionsForAsset(activeAsset);
@@ -579,8 +583,19 @@ export function HomeScreen(): React.JSX.Element {
               onPress={async () => {
                 try {
                   await Clipboard.setStringAsync(lightningAddressInfo.lightningAddress);
+                  // Android has its own native toast; on iOS (and as a
+                  // belt-and-braces UX everywhere) we show our in-app
+                  // ToastBanner so the user gets visible feedback.
                   if (Platform.OS === 'android' && ToastAndroid?.show) {
                     ToastAndroid.show('Copied', ToastAndroid.SHORT);
+                  } else {
+                    setToast({
+                      tone: 'info',
+                      icon: '⚡',
+                      title: 'Address copied',
+                      subtitle: lightningAddressInfo.lightningAddress,
+                      position: 'bottom',
+                    });
                   }
                 } catch {}
               }}
@@ -599,12 +614,12 @@ export function HomeScreen(): React.JSX.Element {
             </TouchableOpacity>
           )}
 
-          <AssetTabBar
-            assets={[t('home.assetTab.btc'), t('home.assetTab.usdb')]}
-            active={activeAsset}
-            onChange={(asset) => handleAssetChange(asset as WalletAsset)}
-            primaryTextColor={primaryTextColor}
-          />
+          <View style={styles.assetPillRow}>
+            <AssetSelectorPill
+              ticker={activeAsset}
+              onPress={() => setAssetPickerVisible(true)}
+            />
+          </View>
 
           {/* Security reminder banner - only one at a time.
               Biometric has priority; notifications takes over once
@@ -772,6 +787,22 @@ export function HomeScreen(): React.JSX.Element {
 
         {/* Transaction Details Modal */}
         {selectedTransaction && renderDetailsModal()}
+
+        {/* Asset picker (replaces the BTC/USDB tab bar). Tapping the
+            asset pill above the balance opens this sheet. */}
+        <AssetPickerSheet
+          visible={assetPickerVisible}
+          selected={activeAsset}
+          getBalanceLine={(ticker) => {
+            if (ticker === 'USDB') {
+              return `${usdbBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDB`;
+            }
+            const sats = getBalanceForAsset(ticker as WalletAsset);
+            return `${sats.toLocaleString()} sats`;
+          }}
+          onSelect={(ticker) => handleAssetChange(ticker as WalletAsset)}
+          onClose={() => setAssetPickerVisible(false)}
+        />
       </SafeAreaView>
 
       {/* Heads-up toast banner — renders at the top, tinted by tone.
@@ -784,6 +815,7 @@ export function HomeScreen(): React.JSX.Element {
         subtitle={toast?.subtitle}
         trailing={toast?.trailing}
         tone={toast?.tone}
+        position={toast?.position}
       />
     </LinearGradient>
   );
@@ -1064,6 +1096,11 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
+  },
+  assetPillRow: {
+    flexDirection: 'row',
+    marginTop: 12,
+    marginBottom: 4,
   },
   header: {
     flexDirection: 'row',

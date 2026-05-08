@@ -17,6 +17,8 @@ import { SwapAmountCard } from '../components/SwapAmountCard';
 import { SwapRateLine } from '../components/SwapRateLine';
 import { SwapReviewModal } from '../components/SwapReviewModal';
 import { SwapResultView } from '../components/SwapResultView';
+import { AssetPickerSheet } from '../components/AssetPickerSheet';
+import type { AssetTicker } from '../registry/assetRegistry';
 import {
   BRAND_COLOR,
   getGradientColors,
@@ -193,6 +195,23 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
   // throughout the app and typing BTC fractional values is awkward on mobile.
   const fromTicker = swap.direction === 'BTC_TO_USDB' ? 'sats' : 'USDB';
   const toTicker = swap.direction === 'BTC_TO_USDB' ? 'USDB' : 'sats';
+
+  // Asset tickers for the new pill-style selectors. These map the BTC side
+  // back to 'BTC' (rather than 'sats') so the registry can render a proper
+  // icon + name. Today there are only two assets so picking either pill
+  // simply flips the swap direction. Once the asset registry grows we'll
+  // generalise this — see registry/assetRegistry.ts.
+  const fromAssetTicker: AssetTicker = swap.direction === 'BTC_TO_USDB' ? 'BTC' : 'USDB';
+  const toAssetTicker: AssetTicker = swap.direction === 'BTC_TO_USDB' ? 'USDB' : 'BTC';
+  const [pickerSide, setPickerSide] = useState<'from' | 'to' | null>(null);
+  const onPickFromAsset = (ticker: AssetTicker) => {
+    if (ticker === fromAssetTicker) return; // no-op
+    swap.flipDirection();
+  };
+  const onPickToAsset = (ticker: AssetTicker) => {
+    if (ticker === toAssetTicker) return;
+    swap.flipDirection();
+  };
 
   // Human-readable rate: SDK returns amountOut/amountIn (tiny number for
   // base-unit division). Convert to "1 BTC = X USDB" form so the user can
@@ -503,6 +522,8 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
               <SwapAmountCard
                 label={t('swap.youPay')}
                 currency={fromTicker}
+                currencyTicker={fromAssetTicker}
+                onPickAsset={() => setPickerSide('from')}
                 amount={swap.amountInput}
                 onAmountChange={(next) => {
                   // Allow digits and a single decimal point (USDB side only).
@@ -561,6 +582,8 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
               <SwapAmountCard
                 label={t('swap.youReceive')}
                 currency={toTicker}
+                currencyTicker={toAssetTicker}
+                onPickAsset={() => setPickerSide('to')}
                 amount={receiveDisplay}
                 onAmountChange={handleReceiveChange}
                 onMax={() => undefined}
@@ -632,6 +655,21 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
           onConfirm={async () => {
             await swap.confirmSwap();
           }}
+        />
+
+        {/* Asset picker shared between the two pills. The opposite side is
+            disabled to prevent picking the same asset on both sides. */}
+        <AssetPickerSheet
+          visible={pickerSide !== null}
+          title={pickerSide === 'from' ? 'You pay with' : 'You receive'}
+          selected={pickerSide === 'from' ? fromAssetTicker : toAssetTicker}
+          disabled={pickerSide === 'from' ? toAssetTicker : fromAssetTicker}
+          tickers={['BTC', 'USDB']}
+          onSelect={(ticker) => {
+            if (pickerSide === 'from') onPickFromAsset(ticker);
+            else if (pickerSide === 'to') onPickToAsset(ticker);
+          }}
+          onClose={() => setPickerSide(null)}
         />
       </SafeAreaView>
     </LinearGradient>

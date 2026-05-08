@@ -32,6 +32,13 @@ export interface ToastBannerProps {
   tone?: ToastTone;
   /** Milliseconds to stay on screen. Default 3500. */
   duration?: number;
+  /**
+   * Where the toast docks. 'top' (default) is best for transactional
+   * alerts (payment received, swap done). 'bottom' is better for
+   * micro-confirmations near a button the user just tapped — copy-to-
+   * clipboard, "Saved", etc. — so the eye doesn't have to travel.
+   */
+  position?: 'top' | 'bottom';
 }
 
 const TONE_COLORS: Record<ToastTone, { accent: string; bg: string; border: string }> = {
@@ -51,6 +58,7 @@ export function ToastBanner({
   trailing,
   tone = 'success',
   duration = 3500,
+  position = 'top',
 }: ToastBannerProps): React.JSX.Element | null {
   const insets = useSafeAreaInsets();
   const anim = useRef(new Animated.Value(0)).current;
@@ -75,7 +83,15 @@ export function ToastBanner({
       Animated.timing(anim, {
         toValue: 1,
         duration: 260,
-        easing: Easing.out(Easing.back(1.2)),
+        // Back easing overshoots past the resting position — looks great
+        // for a top toast dropping in, but on a bottom toast that means
+        // briefly jumping ABOVE its rest point and then dropping back down,
+        // which makes a later dismissal feel ambiguous. Use a clean
+        // ease-out cubic for the bottom variant.
+        easing:
+          position === 'bottom'
+            ? Easing.out(Easing.cubic)
+            : Easing.out(Easing.back(1.2)),
         useNativeDriver: true,
       }).start();
       const timer = setTimeout(() => {
@@ -84,17 +100,18 @@ export function ToastBanner({
       return () => clearTimeout(timer);
     }
 
-    // Exit: fade + slide up, then unmount after the animation finishes.
+    // Exit: fade + slide. The slide direction is set by the translateY
+    // interpolation below — top toasts go up, bottom toasts go down.
     Animated.timing(anim, {
       toValue: 0,
-      duration: 200,
-      easing: Easing.in(Easing.quad),
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start(({ finished }) => {
       if (finished) setMounted(false);
     });
     return () => {};
-  }, [visible, anim, duration, onDismiss]);
+  }, [visible, anim, duration, onDismiss, position]);
 
   if (!mounted) return null;
 
@@ -105,19 +122,26 @@ export function ToastBanner({
       pointerEvents="box-none"
       style={[
         styles.container,
+        position === 'bottom'
+          ? {
+              // Sit just above the safe-area bottom inset so the toast
+              // clears the home indicator on iPhone.
+              bottom: insets.bottom + 16,
+            }
+          : {
+              // Pushed below the wallet-selector header so the toast doesn't
+              // cover the lock / eye / settings buttons for its 3.5s lifetime.
+              top: insets.top + 60,
+            },
         {
-          // Pushed below the wallet-selector header so the toast doesn't
-          // cover the lock / eye / settings buttons for its 3.5s lifetime.
-          // Header padding (~2px) + wallet selector height (~40px) + a
-          // gap = ~60px below the safe-area top inset.
-          top: insets.top + 60,
           opacity: anim,
           transform: [
             {
-              // Slide in from slightly above the final resting position.
+              // Slide in from a few pixels off the docking edge — top
+              // toasts drop down, bottom toasts pop up.
               translateY: anim.interpolate({
                 inputRange: [0, 1],
-                outputRange: [-24, 0],
+                outputRange: [position === 'bottom' ? 24 : -24, 0],
               }),
             },
             {

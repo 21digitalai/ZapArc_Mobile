@@ -17,9 +17,11 @@ import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-ca
 import { useWallet } from '../../src/hooks/useWallet';
 import { BreezSparkService } from '../../src/services/breezSparkService';
 import { useCurrency } from '../../src/hooks/useCurrency';
-import { formatFiat, usdbToFiat } from '../../src/utils/currency';
+import { formatFiat, usdbToFiat, fiatToUsdb } from '../../src/utils/currency';
 import { cycleDisplayCurrency, type DisplayCurrency } from '../../src/services/displayCurrencyService';
 import { useLightningAddress } from '../../src/hooks/useLightningAddress';
+import { getAssetMeta, getAllAssets } from '../../src/features/wallet/registry/assetRegistry';
+import { CurrencyPickerSheet, type PickerCurrency } from '../../src/features/wallet/components/CurrencyPickerSheet';
 import { useContacts } from '../../src/features/addressBook/hooks/useContacts';
 import { ContactSelectionModal } from '../../src/features/addressBook/components/ContactSelectionModal';
 import { Contact } from '../../src/features/addressBook/types';
@@ -134,10 +136,19 @@ interface PaymentPreview {
   description?: string;
 }
 
-const currencyLabels: Record<DisplayCurrency, string> = {
+/**
+ * Local widening of {@link DisplayCurrency} to also cover USDB as an
+ * "input mode" — same approach as on the receive screen. Used purely as
+ * a label key + a tag for the conversion branch (USDB→base-units vs
+ * fiat→sats vs fiat→USDB).
+ */
+type SendInputCurrency = DisplayCurrency | 'usdb';
+
+const currencyLabels: Record<SendInputCurrency, string> = {
   sats: 'sats',
   usd: 'USD',
   eur: 'EUR',
+  usdb: 'USDB',
 };
 
 export default function SendScreen() {
@@ -190,8 +201,11 @@ export default function SendScreen() {
   >(null);
   const [selectedSpeed, setSelectedSpeed] = useState<ConfirmationSpeed>('medium');
 
-  const [inputCurrency, setInputCurrency] = useState<DisplayCurrency>('sats');
+  const [inputCurrency, setInputCurrency] = useState<SendInputCurrency>('sats');
   const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
+  // True when the amount comes from a fixed-amount invoice/BIP21 — the recipient
+  // dictates it, so we lock the field + currency toggle to prevent confusion.
+  const [amountLocked, setAmountLocked] = useState(false);
 
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [activeAsset, setActiveAsset] = useState<'BTC' | 'USDB'>('BTC');
@@ -204,11 +218,41 @@ export default function SendScreen() {
 
   const isUsdbAsset = activeAsset === 'USDB';
 
+  // Render-time safety net for the input currency. If state is somehow out
+  // of sync with the active asset (e.g. Fast Refresh preserved a stale
+  // 'sats' across a USDB switch), the UI uses the asset's correct native
+  // unit. The default-effect below still runs and converges; this just
+  // prevents flicker in the meantime.
+  const effectiveInputCurrency: SendInputCurrency =
+    isUsdbAsset && inputCurrency === 'sats'
+      ? 'usdb'
+      : !isUsdbAsset && inputCurrency === 'usdb'
+        ? 'sats'
+        : inputCurrency;
+
   useEffect(() => {
-    const incomingInput = typeof params.paymentInput === 'string' ? params.paymentInput.trim() : '';
-    const incomingAsset = typeof params.asset === 'string' ? params.asset.toUpperCase() : 'BTC';
-    const resolvedAsset = incomingAsset === 'USDB' ? 'USDB' : 'BTC';
-    setActiveAsset(resolvedAsset);
+    // IMPORTANT: only reset state when params actually carry a value. The
+    // effect clears them via `router.setParams({ asset: undefined, … })`
+    // after applying — without this guard the resulting re-render fires
+    // the effect again with everything undefined and clobbers state back
+    // to defaults (e.g. activeAsset reset to 'BTC' even when entered from
+    // the USDB asset).
+    const hasIncomingInput = typeof params.paymentInput === 'string' && params.paymentInput.trim() !== '';
+    const hasIncomingAsset = typeof params.asset === 'string';
+    const hasIncomingTab = typeof params.tab === 'string';
+    const hasIncomingAmount = typeof params.amount === 'string' && params.amount.trim() !== '';
+    const hasIncomingComment = typeof params.comment === 'string' && params.comment.trim() !== '';
+    if (!hasIncomingInput && !hasIncomingAsset && !hasIncomingTab && !hasIncomingAmount && !hasIncomingComment) {
+      return;
+    }
+
+    const incomingInput = hasIncomingInput ? (params.paymentInput as string).trim() : '';
+    const resolvedAsset: 'BTC' | 'USDB' = hasIncomingAsset
+      ? ((params.asset as string).toUpperCase() === 'USDB' ? 'USDB' : 'BTC')
+      : activeAsset;
+    if (hasIncomingAsset) {
+      setActiveAsset(resolvedAsset);
+    }
     if (!incomingInput) return;
 
     const incomingTab = typeof params.tab === 'string' ? params.tab.toLowerCase() : '';
@@ -238,9 +282,28 @@ export default function SendScreen() {
     });
   }, [params.paymentInput, params.tab, params.amount, params.comment, params.asset]);
 
+  // Default the input currency based on active asset, mirroring receive:
+  //   • USDB asset → seed `usdb` (sats are meaningless for tokens)
+  //   • BTC asset  → mirror the user's persisted display preference
+  // Only seeds when the previous value is the *opposite asset's* native unit
+  // so explicit fiat picks (usd / eur) survive switching between assets and
+  // displayCurrency hydrating asynchronously.
   useEffect(() => {
-    setInputCurrency(displayCurrency);
-  }, [displayCurrency]);
+    if (isUsdbAsset) {
+      if (inputCurrency === 'sats') setInputCurrency('usdb');
+    } else {
+      if (inputCurrency === 'usdb') setInputCurrency(displayCurrency);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isUsdbAsset, displayCurrency]);
+
+  // Release the amount lock if the user clears the destination — they may be
+  // entering a different amountless invoice or address next.
+  useEffect(() => {
+    if (!paymentInput.trim()) {
+      setAmountLocked(false);
+    }
+  }, [paymentInput]);
 
   useEffect(() => {
     if (isUsdbAsset && activeTab === 'onchain') {
@@ -298,6 +361,8 @@ export default function SendScreen() {
   const previewSats = useMemo(() => {
     const numAmount = parseFloat(amount);
     if (!numAmount || isNaN(numAmount)) return 0;
+    // Sat preview only makes sense for BTC inputs.
+    if (inputCurrency === 'usdb') return 0;
     return convertToSats(numAmount, inputCurrency);
   }, [amount, inputCurrency, convertToSats]);
 
@@ -341,6 +406,7 @@ export default function SendScreen() {
     setSelectedSpeed('medium');
     setSelectedContact(null);
     setInputCurrency('sats');
+    setAmountLocked(false);
     setAddressError(null);
     setUsdbLightningError(null);
   }, []);
@@ -355,12 +421,7 @@ export default function SendScreen() {
     [activeTab, isUsdbAsset, resetFormState]
   );
 
-  const handleCycleCurrency = useCallback(() => {
-    const nextCurrency = cycleDisplayCurrency(inputCurrency);
-    setInputCurrency(nextCurrency);
-    void setDisplayCurrency(nextCurrency);
-    setAmount('');
-  }, [inputCurrency, setDisplayCurrency]);
+  // (cycleCurrency removed — superseded by the bottom-sheet picker)
 
   const handleContactSelect = useCallback((contact: Contact) => {
     setSelectedContact(contact);
@@ -397,6 +458,68 @@ export default function SendScreen() {
     return parsed.tokenIdentifier === usdbTokenIdentifier;
   }, [usdbTokenIdentifier]);
 
+  /**
+   * Look up the asset ticker for a parsed-invoice's tokenIdentifier. Returns
+   * 'BTC' when no token id is present (Bolt11 / sat-denominated SparkInvoice
+   * / on-chain), or the matching ticker from the asset registry.
+   *
+   * The registry is the canonical source for tokenIdentifier→ticker mapping,
+   * so this function works regardless of which asset is currently active —
+   * needed for auto-switching the active asset based on what was scanned.
+   */
+  const tickerForTokenIdentifier = useCallback((tokenIdentifier?: string): 'BTC' | 'USDB' | null => {
+    if (!tokenIdentifier) return 'BTC';
+    const match = getAllAssets().find((m) => m.tokenIdentifier === tokenIdentifier);
+    if (!match) return null;
+    if (match.ticker === 'BTC' || match.ticker === 'USDB') return match.ticker;
+    return null;
+  }, []);
+
+  /**
+   * Apply a successfully-parsed invoice/address to the form: switch active
+   * asset if needed, fill the amount in **display units** (sats for BTC,
+   * USDB display units for USDB), pin the input currency, and lock the
+   * amount field. Centralised so all five parse entry points stay
+   * consistent.
+   */
+  const applyParsedInvoice = useCallback(
+    (parsed: { type: string; amountSat?: number; tokenAmount?: number; tokenIdentifier?: string }) => {
+      const ticker = tickerForTokenIdentifier(parsed.tokenIdentifier);
+      if (!ticker) return; // unknown token — leave the form alone
+
+      // Auto-switch the active asset to match what was scanned. This used
+      // to be a hard error ("USDB transfers stay on Spark"); now we just
+      // follow the user's intent.
+      if (ticker !== activeAsset) {
+        setActiveAsset(ticker as 'BTC' | 'USDB');
+      }
+
+      // Fill amount in the *display* unit appropriate for the asset.
+      if (ticker === 'USDB' && typeof parsed.tokenAmount === 'number' && parsed.tokenAmount > 0) {
+        const decimals = getAssetMeta('USDB').decimals;
+        const display = parsed.tokenAmount / 10 ** decimals;
+        // Trim trailing zeros after the decimal so the field reads "50"
+        // rather than "50.000000" but keeps "12.345" intact.
+        const formatted = display.toFixed(decimals).replace(/\.?0+$/, '');
+        setAmount(formatted);
+        // For USDB the input-currency concept is mostly cosmetic; mark
+        // it as 'sats' so existing send-flow code (which switches on
+        // currency for BTC vs USDB) still treats it as the locked-amount
+        // sentinel. The amount is held in display units — see
+        // SwapAmountCard / SwapScreen for how display amounts feed into
+        // the SDK call.
+        setInputCurrency('sats');
+        setAmountLocked(true);
+      } else if (typeof parsed.amountSat === 'number' && parsed.amountSat > 0) {
+        setAmount(String(parsed.amountSat));
+        setInputCurrency('sats');
+        setAmountLocked(true);
+      }
+      // Amountless invoices: leave amount empty, user types it.
+    },
+    [activeAsset, tickerForTokenIdentifier],
+  );
+
   useEffect(() => {
     const trimmedInput = paymentInput.trim();
     if (!trimmedInput) return;
@@ -406,12 +529,16 @@ export default function SendScreen() {
       const bip21 = parseBIP21(trimmedInput);
       if (bip21) {
         // If lightning param exists and we're on lightning tab, use it
-        if (bip21.lightning && activeTab === 'lightning') {
+        // BIP21 with embedded lightning: always prefer the LN path. Auto-
+        // switch to the lightning tab so the same paste/scan works whether
+        // the user is currently looking at on-chain or lightning.
+        if (bip21.lightning) {
+          setActiveTab('lightning');
           setPaymentInput(bip21.lightning);
           try {
             const parsed = await BreezSparkService.parsePaymentRequest(bip21.lightning);
-            if (parsed.isValid && (parsed.type === 'bolt11' || parsed.type === 'sparkInvoice') && parsed.amountSat !== undefined) {
-              setAmount(parsed.amountSat.toString());
+            if (parsed.isValid) {
+              applyParsedInvoice(parsed);
             }
           } catch (e) { /* ignore */ }
           return;
@@ -424,6 +551,7 @@ export default function SendScreen() {
           if (bip21.amountSats) {
             setAmount(bip21.amountSats.toString());
             setInputCurrency('sats');
+            setAmountLocked(true);
           }
           if (bip21.label || bip21.message) {
             setComment(bip21.label || bip21.message || '');
@@ -437,23 +565,31 @@ export default function SendScreen() {
         }
       }
 
-      // Standard Lightning parsing
-      if (activeTab !== 'lightning') return;
+      // Raw lightning/Spark/LNURL/etc. paste — parse first, then auto-route
+      // the active tab. Previously we early-returned when not on the
+      // lightning tab, which meant pasting a Bolt11/Spark invoice into the
+      // payment field while on on-chain quietly did nothing.
       try {
         const parsed = await BreezSparkService.parsePaymentRequest(trimmedInput);
-        if (isUsdbAsset) {
-          if (parsed.type === 'bolt11') {
-            setUsdbLightningError('USDB transfers stay on Spark. Lightning invoices are BTC-only.');
-            return;
-          }
-          if (!isValidUsdbSparkPayment(parsed)) {
-            setUsdbLightningError('USDB transfers require a Spark destination for USDB.');
-            return;
-          }
+        if (!parsed.isValid) return;
+
+        // Tab routing: only `bitcoinAddress` belongs on the on-chain tab.
+        // Bolt11 / SparkInvoice / SparkAddress / LNURL / LightningAddress
+        // → lightning. Asset (BTC vs USDB) is decided by applyParsedInvoice
+        // based on the parsed `tokenIdentifier`.
+        if (parsed.type === 'bitcoinAddress') {
+          setActiveTab('onchain');
+        } else {
+          setActiveTab('lightning');
         }
-        if (parsed.isValid && (parsed.type === 'bolt11' || parsed.type === 'sparkInvoice') && parsed.amountSat !== undefined) {
-          setAmount(parsed.amountSat.toString());
+
+        // Used to be a hard error when the asset and invoice mismatched
+        // ("USDB transfers stay on Spark"); now we follow the user's
+        // intent and just clear any stale warning.
+        if (isUsdbAsset && parsed.type === 'bolt11') {
+          setUsdbLightningError(null);
         }
+        applyParsedInvoice(parsed);
       } catch (error) {
         if (trimmedInput.length > 10) {
           console.error('❌ [Send] Failed to parse payment request:', error);
@@ -477,6 +613,7 @@ export default function SendScreen() {
       if (bip21Check.amountSats && !amount) {
         setAmount(bip21Check.amountSats.toString());
         setInputCurrency('sats');
+        setAmountLocked(true);
         // Also update the input field to show just the address
         setPaymentInput(trimmedAddress);
         return; // Let the next effect cycle pick up the new values
@@ -580,18 +717,21 @@ export default function SendScreen() {
       if (scanned) return;
       setScanned(true);
 
-      // Try BIP21 / lightning: URI parsing first
+      // BIP21 URIs (`bitcoin:…?lightning=…`, `lightning:…`)
       const bip21 = parseBIP21(data);
       if (bip21) {
-        // If it has a lightning param and we're on lightning tab, prefer that
-        if (bip21.lightning && activeTab === 'lightning') {
+        // BIP21 with embedded lightning invoice — ALWAYS prefer the LN
+        // route regardless of which tab the user is currently viewing.
+        // The previous logic only switched when already on the lightning
+        // tab, so scanning a BIP21+LN invoice from the on-chain tab
+        // silently dropped it.
+        if (bip21.lightning) {
+          setActiveTab('lightning');
           setPaymentInput(bip21.lightning);
           setStep('input');
           try {
             const parsed = await BreezSparkService.parsePaymentRequest(bip21.lightning);
-            if (parsed.isValid && (parsed.type === 'bolt11' || parsed.type === 'sparkInvoice') && parsed.amountSat !== undefined) {
-              setAmount(parsed.amountSat.toString());
-            }
+            if (parsed.isValid) applyParsedInvoice(parsed);
           } catch (error) {
             console.error('Failed to parse lightning param from BIP21:', error);
           }
@@ -605,6 +745,7 @@ export default function SendScreen() {
           if (bip21.amountSats) {
             setAmount(bip21.amountSats.toString());
             setInputCurrency('sats');
+            setAmountLocked(true);
           }
           if (bip21.label || bip21.message) {
             setComment(bip21.label || bip21.message || '');
@@ -613,36 +754,46 @@ export default function SendScreen() {
           return;
         }
 
-        // lightning: URI (not bitcoin:)
+        // lightning: URI (not bitcoin:) — always lightning tab.
+        setActiveTab('lightning');
         setPaymentInput(bip21.address);
         setStep('input');
         try {
           const parsed = await BreezSparkService.parsePaymentRequest(bip21.address);
-          if (parsed.isValid && (parsed.type === 'bolt11' || parsed.type === 'sparkInvoice') && parsed.amountSat !== undefined) {
-            setAmount(parsed.amountSat.toString());
-          }
+          if (parsed.isValid) applyParsedInvoice(parsed);
         } catch (error) {
           console.error('Failed to parse lightning URI:', error);
         }
         return;
       }
 
-      // Not a URI — handle as raw input
+      // Raw input — always parse first to detect the type, then route the
+      // correct tab + asset before filling the form. Previously this only
+      // ran on the lightning tab; scanning a Spark/LN invoice from the
+      // on-chain tab would just drop the input into the address field.
       setPaymentInput(data);
       setStep('input');
 
-      if (activeTab === 'lightning') {
-        try {
-          const parsed = await BreezSparkService.parsePaymentRequest(data);
-          if (parsed.isValid && (parsed.type === 'bolt11' || parsed.type === 'sparkInvoice') && parsed.amountSat !== undefined) {
-            setAmount(parsed.amountSat.toString());
-          }
-        } catch (error) {
-          console.error('Failed to parse scanned QR code:', error);
+      try {
+        const parsed = await BreezSparkService.parsePaymentRequest(data);
+        if (!parsed.isValid) return;
+
+        // Tab routing: only `bitcoinAddress` belongs on the on-chain tab.
+        // Everything else (Bolt11, SparkInvoice, SparkAddress, LNURL,
+        // LightningAddress) lives under the lightning tab. The asset
+        // (BTC vs USDB) is decided by `applyParsedInvoice` based on the
+        // parsed `tokenIdentifier`.
+        if (parsed.type === 'bitcoinAddress') {
+          setActiveTab('onchain');
+          return;
         }
+        setActiveTab('lightning');
+        applyParsedInvoice(parsed);
+      } catch (error) {
+        console.error('Failed to parse scanned QR code:', error);
       }
     },
-    [scanned, activeTab]
+    [scanned, applyParsedInvoice]
   );
 
   const handlePreviewPayment = useCallback(async () => {
@@ -667,6 +818,8 @@ export default function SendScreen() {
         // Apply amount from BIP21 if not already set
         if (bip21Parsed.amountSats && !amount) {
           setAmount(bip21Parsed.amountSats.toString());
+          setInputCurrency('sats');
+          setAmountLocked(true);
         }
       }
 
@@ -706,9 +859,12 @@ export default function SendScreen() {
           Alert.alert(t('common.error'), t('send.amountRequiredOnchain'));
           return;
         }
-        const satsAmount = inputCurrency === 'sats'
+        // On-chain is BTC-only — `inputCurrency === 'usdb'` is unreachable
+        // here (USDB asset auto-switches to the lightning tab).
+        const btcInput = inputCurrency as DisplayCurrency;
+        const satsAmount = btcInput === 'sats'
           ? Math.floor(parsedAmount)
-          : convertToSats(parsedAmount, inputCurrency);
+          : convertToSats(parsedAmount, btcInput);
         if (!satsAmount || satsAmount <= 0) {
           Alert.alert(t('send.conversionError'), t('send.conversionErrorMessage'));
           return;
@@ -722,9 +878,24 @@ export default function SendScreen() {
           Alert.alert(t('common.error'), t('send.invalidAmount'));
           return;
         }
-        paymentAmount = isUsdbAsset
-          ? convertUsdbDisplayToBaseUnits(parsedAmount)
-          : convertToSats(parsedAmount, inputCurrency);
+        if (isUsdbAsset) {
+          // Convert from whatever the user typed in into USDB display
+          // units, then to USDB base units. 1 USDB ≈ 1 USD by design;
+          // EUR uses cached BTC FX rates (fiatToUsdb).
+          let usdbDisplay: number;
+          if (inputCurrency === 'usdb') {
+            usdbDisplay = parsedAmount;
+          } else if (inputCurrency === 'usd' || inputCurrency === 'eur') {
+            usdbDisplay = fiatToUsdb(parsedAmount, inputCurrency, rates);
+          } else {
+            usdbDisplay = parsedAmount; // 'sats' shouldn't reach here, but be lenient
+          }
+          paymentAmount = convertUsdbDisplayToBaseUnits(usdbDisplay);
+        } else {
+          // BTC asset: type-narrow `inputCurrency` away from 'usdb'.
+          const btcInput = inputCurrency as DisplayCurrency;
+          paymentAmount = convertToSats(parsedAmount, btcInput);
+        }
 
         if (!paymentAmount || paymentAmount <= 0) {
           Alert.alert(t('send.conversionError'), t('send.conversionErrorMessage'));
@@ -1283,20 +1454,26 @@ export default function SendScreen() {
 
               <View style={styles.amountInputRow}>
                 <StyledTextInput
-                  label={isUsdbAsset ? 'Amount in USDB' : t('send.amountInCurrency').replace('{{currency}}', currencyLabels[inputCurrency])}
+                  label={t('send.amountInCurrency').replace('{{currency}}', currencyLabels[effectiveInputCurrency])}
                   value={amount}
                   onChangeText={setAmount}
                   keyboardType="decimal-pad"
-                  style={[styles.input, styles.amountInput]}
+                  editable={!amountLocked}
+                  style={[styles.input, styles.amountInput, amountLocked && { opacity: 0.7 }]}
                 />
 
                 <TouchableOpacity
-                  style={[styles.currencySelector, { backgroundColor: gradientColors[1] || '#16213e' }]}
-                  onPress={isUsdbAsset ? undefined : () => setShowCurrencyPicker(true)}
+                  style={[styles.currencySelector, { backgroundColor: gradientColors[1] || '#16213e' }, amountLocked && { opacity: 0.5 }]}
+                  onPress={amountLocked ? undefined : () => setShowCurrencyPicker(true)}
+                  disabled={amountLocked}
                 >
-                  <Text style={styles.currencySelectorText}>{isUsdbAsset ? 'USDB' : currencyLabels[inputCurrency]}</Text>
+                  <Text style={styles.currencySelectorText}>{currencyLabels[effectiveInputCurrency]}</Text>
                 </TouchableOpacity>
               </View>
+
+              {amountLocked && (
+                <Text style={[styles.conversionFiat, { marginTop: 4 }]}>Amount fixed by invoice</Text>
+              )}
 
               {previewDisplay && previewSats > 0 && inputCurrency !== 'sats' && (
                 <View style={styles.conversionPreview}>
@@ -1325,20 +1502,26 @@ export default function SendScreen() {
 
               <View style={styles.amountInputRow}>
                 <StyledTextInput
-                  label={isUsdbAsset ? 'Amount in USDB' : t('send.amountInCurrency').replace('{{currency}}', currencyLabels[inputCurrency])}
+                  label={t('send.amountInCurrency').replace('{{currency}}', currencyLabels[effectiveInputCurrency])}
                   value={amount}
                   onChangeText={setAmount}
                   keyboardType="decimal-pad"
-                  style={[styles.input, styles.amountInput]}
+                  editable={!amountLocked}
+                  style={[styles.input, styles.amountInput, amountLocked && { opacity: 0.7 }]}
                 />
 
                 <TouchableOpacity
-                  style={[styles.currencySelector, { backgroundColor: gradientColors[1] || '#16213e' }]}
-                  onPress={isUsdbAsset ? undefined : () => setShowCurrencyPicker(true)}
+                  style={[styles.currencySelector, { backgroundColor: gradientColors[1] || '#16213e' }, amountLocked && { opacity: 0.5 }]}
+                  onPress={amountLocked ? undefined : () => setShowCurrencyPicker(true)}
+                  disabled={amountLocked}
                 >
-                  <Text style={styles.currencySelectorText}>{isUsdbAsset ? 'USDB' : currencyLabels[inputCurrency]}</Text>
+                  <Text style={styles.currencySelectorText}>{currencyLabels[effectiveInputCurrency]}</Text>
                 </TouchableOpacity>
               </View>
+
+              {amountLocked && (
+                <Text style={[styles.conversionFiat, { marginTop: 4 }]}>Amount fixed by URI</Text>
+              )}
 
               {previewDisplay && previewSats > 0 && inputCurrency !== 'sats' && (
                 <View style={styles.conversionPreview}>
@@ -1348,7 +1531,9 @@ export default function SendScreen() {
               )}
 
               {(() => {
-                const onchainSats = inputCurrency === 'sats' ? Math.floor(Number(amount)) : convertToSats(parseFloat(amount) || 0, inputCurrency);
+                // On-chain tab is BTC-only; `inputCurrency` is sats/usd/eur here.
+                const btcInput = inputCurrency as DisplayCurrency;
+                const onchainSats = btcInput === 'sats' ? Math.floor(Number(amount)) : convertToSats(parseFloat(amount) || 0, btcInput);
                 if (!(amount.length > 0) || onchainSats <= 0) return null;
                 if (onchainSats < 1000) {
                   return (
@@ -1434,44 +1619,25 @@ export default function SendScreen() {
           </Button>
         </ScrollView>
 
-        {/* Currency picker dropdown modal */}
-        <Modal
+        {/* Shared bottom-sheet currency picker. Same UX as the Receive
+            screen — the asset (BTC vs USDB) decides which native unit
+            (sats vs USDB) is offered alongside the fiat conversions. */}
+        <CurrencyPickerSheet
           visible={showCurrencyPicker}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowCurrencyPicker(false)}
-        >
-          <TouchableOpacity
-            style={styles.currencyPickerOverlay}
-            activeOpacity={1}
-            onPress={() => setShowCurrencyPicker(false)}
-          >
-            <View style={[styles.currencyPickerSheet, { backgroundColor: gradientColors[1] || '#16213e' }]}>
-              <Text style={[styles.currencyPickerTitle, { color: primaryTextColor }]}>Select Currency</Text>
-              {(['sats', 'usd', 'eur'] as DisplayCurrency[]).map((currency) => (
-                <TouchableOpacity
-                  key={currency}
-                  style={[
-                    styles.currencyPickerItem,
-                    inputCurrency === currency && styles.currencyPickerItemActive,
-                  ]}
-                  onPress={() => {
-                    setInputCurrency(currency);
-                    void setDisplayCurrency(currency);
-                    setShowCurrencyPicker(false);
-                  }}
-                >
-                  <Text style={[styles.currencyPickerItemText, { color: primaryTextColor }]}>
-                    {currencyLabels[currency]}
-                  </Text>
-                  {inputCurrency === currency && (
-                    <Text style={{ color: BRAND_COLOR, fontSize: 16 }}>✓</Text>
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
-          </TouchableOpacity>
-        </Modal>
+          selected={effectiveInputCurrency}
+          title={isUsdbAsset ? 'Send amount in' : 'Send amount in'}
+          currencies={isUsdbAsset ? ['usdb', 'usd', 'eur'] : ['sats', 'usd', 'eur']}
+          onSelect={(next: PickerCurrency) => {
+            setInputCurrency(next);
+            // Persist the user's preference globally only for the BTC
+            // display currencies — 'usdb' is a USDB-only input mode, not
+            // a global display preference.
+            if (next !== 'usdb') {
+              void setDisplayCurrency(next);
+            }
+          }}
+          onClose={() => setShowCurrencyPicker(false)}
+        />
       </SafeAreaView>
     </LinearGradient>
   );

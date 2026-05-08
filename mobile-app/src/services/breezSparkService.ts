@@ -1166,10 +1166,33 @@ export async function initializeSDK(
           console.log('🔔 [BreezWebhook] setup check', {
             hasRegisterWebhook: typeof sdkInstance.registerWebhook === 'function',
           });
-          const permStatus = await Notifications.getPermissionsAsync();
-          console.log('🔔 [BreezWebhook] notification permission', permStatus.status);
+
+          // Read current permission. If undetermined (never asked), prompt
+          // the user. expo-notifications shows the OS dialog on iOS; on
+          // Android <13 this is a no-op and on Android 13+ it asks for
+          // POST_NOTIFICATIONS.
+          let permStatus = await Notifications.getPermissionsAsync();
+          console.log('🔔 [BreezWebhook] notification permission (initial)', permStatus.status);
           if (permStatus.status !== 'granted') {
-            console.warn('⚠️ [BreezWebhook] Notifications permission not granted — user must enable in OS settings');
+            try {
+              permStatus = await Notifications.requestPermissionsAsync({
+                ios: {
+                  allowAlert: true,
+                  allowBadge: true,
+                  allowSound: true,
+                },
+              });
+              console.log('🔔 [BreezWebhook] notification permission (after request)', permStatus.status);
+            } catch (e) {
+              console.warn('⚠️ [BreezWebhook] permission request failed', e);
+            }
+          }
+          if (permStatus.status !== 'granted') {
+            console.warn('⚠️ [BreezWebhook] Notifications permission not granted — user must enable in OS settings; skipping FCM registration.');
+            // Without permission, iOS won't issue an APNs token, so getToken()
+            // will fail or return a token that can't deliver. Bail out
+            // gracefully — we'll retry on next wallet open.
+            return;
           }
 
           // Fetch native FCM token. On iOS this also ensures APNs registration
@@ -1180,7 +1203,14 @@ export async function initializeSDK(
           if (Platform.OS === 'ios') {
             try {
               await messaging().registerDeviceForRemoteMessages();
-            } catch {}
+              // Wait briefly for APNs token to be available before asking
+              // for the FCM token — getToken() needs APNs to have been
+              // registered first or it returns an unusable result.
+              const apnsToken = await messaging().getAPNSToken();
+              console.log('🔔 [BreezWebhook] APNs token', apnsToken ? 'present' : 'missing');
+            } catch (e) {
+              console.warn('⚠️ [BreezWebhook] APNs registration failed', e);
+            }
           }
           const fcmToken = await messaging().getToken();
           console.log('🔔 [BreezWebhook] FCM token', fcmToken ? `${fcmToken.slice(0, 24)}…` : null);
@@ -1705,43 +1735,73 @@ export async function payInvoice(
 }
 
 /**
- * Generate a Lightning invoice to receive payment
- * @param amountSat - Amount in sats (0 or undefined for "any amount" invoice)
- * @param description - Optional description
+ * Generate a Lightning invoice (or Spark address/invoice) to receive payment.
+ *
+ * - BTC, no amount: any-amount Bolt11 invoice (sender chooses).
+ * - BTC, with `amountSat`: Bolt11 with that demand baked in.
+ * - USDB, no amount: SparkAddress (sender chooses USDB amount).
+ * - USDB, with `options.usdbAmount` (display units, e.g. 50.00): SparkInvoice
+ *   with a token-base-unit amount the sender must match.
+ *
+ * @param amountSat   Amount in sats. Ignored for USDB invoices.
+ * @param description Optional human-readable description.
+ * @param options     Spark token routing + optional USDB demand amount.
  */
 export async function receivePayment(
   amountSat: number,
   description?: string,
-  options?: { tokenIdentifier?: string }
+  options?: { tokenIdentifier?: string; usdbAmount?: number },
 ): Promise<ReceivePaymentResult> {
   if (!_isNativeAvailable || !sdkInstance) {
     throw new Error('SDK not available');
   }
 
   try {
-    // Create the payment method - conditionally include amount for "any amount" invoices
-    const invoiceParams: {
-      description: string;
-      amountSats?: bigint;
-      expirySecs: number;
-    } = {
-      description: description || '',
-      expirySecs: 900, // 15 minutes
-    };
+    let paymentMethod: any;
 
-    // Only include amount if specified (non-zero)
-    if (amountSat && amountSat > 0) {
-      invoiceParams.amountSats = BigInt(amountSat);
-    }
+    if (options?.tokenIdentifier) {
+      // USDB / token receive path. SparkAddress is the "any amount" form;
+      // SparkInvoice lets us bake in a token amount in base units. We use
+      // the latter only when the caller specified one.
+      // TODO(usdc): generalise the hardcoded decimals once additional
+      // tokens land — query getTokensMetadata or the asset registry.
+      const USDB_DECIMALS = 6;
+      const wantsAmount = typeof options.usdbAmount === 'number' && options.usdbAmount > 0;
 
-    const paymentMethod = options?.tokenIdentifier
-      ? {
+      if (wantsAmount) {
+        const baseUnits = BigInt(
+          Math.max(1, Math.floor((options.usdbAmount as number) * 10 ** USDB_DECIMALS)),
+        );
+        paymentMethod = BreezSDK.ReceivePaymentMethod.SparkInvoice.new({
+          amount: baseUnits,
+          tokenIdentifier: options.tokenIdentifier,
+          expiryTime: BigInt(Math.floor(Date.now() / 1000) + 900),
+          description: description || undefined,
+          senderPublicKey: undefined,
+        });
+      } else {
+        paymentMethod = {
           tag: 'SparkAddress',
           inner: {
             tokenIdentifier: options.tokenIdentifier,
           },
-        }
-      : BreezSDK.ReceivePaymentMethod.Bolt11Invoice.new(invoiceParams);
+        };
+      }
+    } else {
+      // BTC path — Bolt11 with optional amount.
+      const invoiceParams: {
+        description: string;
+        amountSats?: bigint;
+        expirySecs: number;
+      } = {
+        description: description || '',
+        expirySecs: 900, // 15 minutes
+      };
+      if (amountSat && amountSat > 0) {
+        invoiceParams.amountSats = BigInt(amountSat);
+      }
+      paymentMethod = BreezSDK.ReceivePaymentMethod.Bolt11Invoice.new(invoiceParams);
+    }
 
     const response = await sdkInstance.receivePayment({
       paymentMethod,
@@ -1766,8 +1826,15 @@ export async function receiveOnchain(): Promise<string> {
   }
 
   try {
+    // SDK 0.13.6+: BitcoinAddress factory now takes an `inner` object with
+    // `newAddress: boolean | undefined`. undefined → return existing
+    // deposit address if one exists, otherwise create a fresh one. Calling
+    // .new() with no args (the old signature) crashes inside the SDK with
+    // "cannot read property newAddress of undefined".
     const response = await sdkInstance.receivePayment({
-      paymentMethod: BreezSDK.ReceivePaymentMethod.BitcoinAddress.new(),
+      paymentMethod: BreezSDK.ReceivePaymentMethod.BitcoinAddress.new({
+        newAddress: undefined,
+      }),
     });
 
     return response.paymentRequest;
@@ -2331,7 +2398,14 @@ export async function unregisterLightningAddress(): Promise<void> {
 export async function parsePaymentRequest(input: string): Promise<{
   type: 'bolt11' | 'sparkInvoice' | 'lnurl' | 'lightningAddress' | 'bitcoinAddress' | 'sparkAddress' | 'unknown';
   isValid: boolean;
+  /** Amount in sats. Set for BTC invoices (Bolt11 or sat-denominated SparkInvoice). */
   amountSat?: number;
+  /**
+   * Amount in **token base units** (NOT display units). Set for SparkInvoices
+   * carrying a `tokenIdentifier`. Convert with `tokenAmount / 10^decimals` to
+   * display units before showing it to the user.
+   */
+  tokenAmount?: number;
   description?: string;
   tokenIdentifier?: string;
 }> {
@@ -2394,14 +2468,31 @@ export async function parsePaymentRequest(input: string): Promise<{
     if (parsed.tag === 'SparkInvoice' && parsed.inner) {
       const innerData = Array.isArray(parsed.inner) ? parsed.inner[0] : parsed.inner;
       const invoiceDetails = innerData?.invoiceDetails || innerData;
-      const amountSat = invoiceDetails?.amountMsat ? Number(invoiceDetails.amountMsat) / 1000 : undefined;
+
+      // SparkInvoiceDetails.amount is a U128 denominated in:
+      //   - sats              when tokenIdentifier is absent (BTC-on-Spark)
+      //   - token base units  when tokenIdentifier is set    (USDB / future tokens)
+      // U128 across the bridge usually arrives as a JS number for small values
+      // and may also surface as a string. Coerce defensively.
+      const tokenIdentifier: string | undefined = invoiceDetails?.tokenIdentifier;
+      const rawAmount = invoiceDetails?.amount;
+      const amountNum =
+        typeof rawAmount === 'number'
+          ? rawAmount
+          : typeof rawAmount === 'string'
+            ? Number(rawAmount)
+            : typeof rawAmount === 'bigint'
+              ? Number(rawAmount)
+              : undefined;
 
       return {
         type: 'sparkInvoice',
         isValid: true,
-        amountSat,
+        // BTC SparkInvoice → sats; token SparkInvoice → tokenAmount.
+        amountSat: tokenIdentifier ? undefined : amountNum,
+        tokenAmount: tokenIdentifier ? amountNum : undefined,
         description: invoiceDetails?.description,
-        tokenIdentifier: invoiceDetails?.tokenIdentifier,
+        tokenIdentifier,
       };
     }
 

@@ -385,3 +385,16 @@ export function usdbToFiat(usdbAmount: number, currency: 'usd' | 'eur', rates: E
   const usdToEur = rates.eur / rates.usd;
   return safe * usdToEur;
 }
+
+/**
+ * Inverse of {@link usdbToFiat}. Convert a fiat amount (USD/EUR) into USDB
+ * units, using the same 1 USDB ≈ 1 USD design assumption.
+ */
+export function fiatToUsdb(fiatAmount: number, currency: 'usd' | 'eur', rates: ExchangeRates | null): number {
+  const safe = typeof fiatAmount === 'number' && Number.isFinite(fiatAmount) ? fiatAmount : 0;
+  if (currency === 'usd') return safe;
+  if (!rates || rates.usd <= 0 || rates.eur <= 0) return safe;
+  // EUR -> USD via cached BTC rates: (eur per BTC) / (usd per BTC)
+  const eurToUsd = rates.usd / rates.eur;
+  return safe * eurToUsd;
+}

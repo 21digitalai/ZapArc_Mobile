@@ -4,6 +4,8 @@ import { Text } from 'react-native-paper';
 
 import { useLanguage } from '../../../hooks/useLanguage';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
+import { AssetSelectorPill } from './AssetSelectorPill';
+import type { AssetTicker } from '../registry/assetRegistry';
 
 type SwapAmountCardProps = {
   label: string;
@@ -18,6 +20,12 @@ type SwapAmountCardProps = {
   isReadOnly?: boolean;
   isLoading?: boolean;
   fiatEquivalent?: string;
+  /**
+   * If provided, render an AssetSelectorPill (compact) instead of the
+   * plain text currency label, and call `onPickAsset` when tapped.
+   */
+  currencyTicker?: AssetTicker;
+  onPickAsset?: () => void;
 };
 
 export function SwapAmountCard({
@@ -32,6 +40,8 @@ export function SwapAmountCard({
   isReadOnly = false,
   isLoading = false,
   fiatEquivalent,
+  currencyTicker,
+  onPickAsset,
 }: SwapAmountCardProps): React.JSX.Element {
   const { t } = useLanguage();
   const pulse = useRef(new Animated.Value(0.45)).current;
@@ -105,7 +115,15 @@ export function SwapAmountCard({
           placeholderTextColor="rgba(255,255,255,0.4)"
           accessibilityLabel={`${label} amount`}
         />
-        <Text style={styles.currencyLabel}>{currency}</Text>
+        {currencyTicker && onPickAsset ? (
+          <AssetSelectorPill
+            ticker={currencyTicker}
+            variant="compact"
+            onPress={onPickAsset}
+          />
+        ) : (
+          <Text style={styles.currencyLabel}>{currency}</Text>
+        )}
       </View>
 
       {!!fiatEquivalent && <Text style={styles.fiatText}>{fiatEquivalent}</Text>}
