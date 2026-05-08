@@ -290,6 +290,23 @@ export function WalletCreationScreen(): React.JSX.Element {
       return;
     }
 
+    // SECURITY: defence-in-depth assertion — guarantee the mnemonic we're
+    // about to store is byte-for-byte the one we displayed to the user
+    // (`mnemonicWords` was derived from `mnemonic` at generation time, but
+    // join them here and re-compare to catch any state-management regression
+    // that could let one drift from the other before storage).
+    const displayedJoined = mnemonicWords.map((w) => w.word).join(' ').trim();
+    if (displayedJoined !== mnemonic.trim()) {
+      console.error('❌ [WalletCreation] Display/store mnemonic mismatch detected — refusing to save', {
+        displayedWordCount: mnemonicWords.length,
+        storedWordCount: mnemonic.trim().split(/\s+/).length,
+      });
+      setError(
+        'Recovery phrase mismatch detected. For your safety, the wallet was not created. Please cancel and start over.'
+      );
+      return;
+    }
+
     try {
       setIsLoading(true);
       setError(null);
@@ -303,7 +320,7 @@ export function WalletCreationScreen(): React.JSX.Element {
     } finally {
       setIsLoading(false);
     }
-  }, [pinValid, pin, walletName, mnemonic, createMasterKey]);
+  }, [pinValid, pin, walletName, mnemonic, mnemonicWords, createMasterKey]);
 
   // ========================================
   // Step 5: Complete

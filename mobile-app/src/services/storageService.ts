@@ -820,33 +820,61 @@ class StorageService {
       }
 
       // Always perform a real decrypt for auth decisions.
+      // NOTE: getMasterKeyMnemonic swallows decrypt failures and returns null
+      // (rather than throwing). A null result is the wrong-PIN signal here, so
+      // we MUST count it as a failed attempt — otherwise the exponential
+      // backoff in the catch block below is dead code on the only path that
+      // would normally reach it.
       const mnemonic = await this.getMasterKeyMnemonic(masterKeyId, pin, false);
       const isValid = mnemonic !== null;
 
       if (isValid) {
         await this.clearPinAuthState(masterKeyId);
+        if (__DEV__) console.log('✅ [StorageService] VERIFY_MASTER_KEY_PIN', { isValid: true });
+        return true;
       }
 
-      if (__DEV__) console.log('✅ [StorageService] VERIFY_MASTER_KEY_PIN', { isValid });
-      return isValid;
+      // Wrong PIN — record the failed attempt and apply backoff.
+      await this.recordFailedPinAttempt(masterKeyId);
+      if (__DEV__) console.log('✅ [StorageService] VERIFY_MASTER_KEY_PIN', { isValid: false });
+      return false;
     } catch (error) {
-      try {
-        const currentState = await this.loadPinAuthState(masterKeyId);
-        const nextFailedAttempts = currentState.failedAttempts + 1;
-        const backoffMs = this.calculateBackoffMs(nextFailedAttempts);
-
-        const nextState: PinAuthState = {
-          failedAttempts: nextFailedAttempts,
-          lockoutUntil: backoffMs > 0 ? Date.now() + backoffMs : 0,
-        };
-
-        await this.savePinAuthState(masterKeyId, nextState);
-      } catch (stateError) {
-        console.error('❌ [StorageService] Failed to persist PIN auth state:', stateError);
-      }
-
+      // Defensive: getMasterKeyMnemonic shouldn't throw on wrong-PIN, but if
+      // any unexpected error bubbles up we still want to treat it as a failed
+      // attempt so an attacker can't bypass lockout by triggering errors.
+      await this.recordFailedPinAttempt(masterKeyId);
       console.error('❌ [StorageService] VERIFY_MASTER_KEY_PIN FAILED', error);
       return false;
+    }
+  }
+
+  /**
+   * Increment the failed-attempts counter and update lockout window.
+   * Errors during the state write are logged but never rethrown — we don't
+   * want a write failure to short-circuit the auth path that called this.
+   */
+  private async recordFailedPinAttempt(masterKeyId: string): Promise<void> {
+    try {
+      const currentState = await this.loadPinAuthState(masterKeyId);
+      const nextFailedAttempts = currentState.failedAttempts + 1;
+      const backoffMs = this.calculateBackoffMs(nextFailedAttempts);
+
+      const nextState: PinAuthState = {
+        failedAttempts: nextFailedAttempts,
+        lockoutUntil: backoffMs > 0 ? Date.now() + backoffMs : 0,
+      };
+
+      await this.savePinAuthState(masterKeyId, nextState);
+
+      if (__DEV__) {
+        console.warn('⚠️ [StorageService] PIN attempt failed', {
+          masterKeyId,
+          failedAttempts: nextFailedAttempts,
+          lockoutMs: backoffMs,
+        });
+      }
+    } catch (stateError) {
+      console.error('❌ [StorageService] Failed to persist PIN auth state:', stateError);
     }
   }
 

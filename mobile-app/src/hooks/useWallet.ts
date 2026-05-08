@@ -18,7 +18,6 @@ import * as BreezSparkService from '../services/breezSparkService';
 import * as WalletCache from '../services/walletCacheService';
 import {
   deriveSubWalletMnemonic,
-  generateMnemonic,
   validateMnemonic,
   generateMasterKeyNickname,
   generateSubWalletNickname,
@@ -61,7 +60,13 @@ export interface WalletState {
 
 export interface WalletActions {
   // Wallet creation/import
-  createMasterKey: (pin: string, nickname?: string, providedMnemonic?: string) => Promise<string>;
+  // SECURITY: providedMnemonic is REQUIRED. Passing undefined / empty used to
+  // silently mint a brand-new seed inside this function, which caused a past
+  // incident where the user wrote down a mnemonic shown on screen while a
+  // different one was stored on device. The caller is responsible for
+  // generating the seed, displaying it to the user, and passing the EXACT
+  // same string here.
+  createMasterKey: (pin: string, nickname: string | undefined, providedMnemonic: string) => Promise<string>;
   importMasterKey: (mnemonic: string, pin: string, nickname?: string) => Promise<string>;
 
   // Sub-wallet operations
@@ -282,12 +287,29 @@ export function useWalletStateInternal(): WalletState & WalletActions {
   // ========================================
 
   const createMasterKey = useCallback(
-    async (pin: string, nickname?: string, providedMnemonic?: string): Promise<string> => {
+    async (
+      pin: string,
+      nickname: string | undefined,
+      providedMnemonic: string
+    ): Promise<string> => {
       try {
         setIsLoading(true);
         setError(null);
 
-        const mnemonic = providedMnemonic?.trim().toLowerCase() || generateMnemonic();
+        // SECURITY: NEVER generate a fallback mnemonic here. The caller must
+        // pass the exact same mnemonic string that was displayed to the user.
+        // Silently regenerating would cause the user to write down one phrase
+        // while a different one is stored on device — funds permanently lost.
+        if (
+          typeof providedMnemonic !== 'string' ||
+          providedMnemonic.trim().length === 0
+        ) {
+          throw new Error(
+            'Refusing to create wallet: providedMnemonic is missing. The caller must pass the mnemonic that was shown to the user.'
+          );
+        }
+
+        const mnemonic = providedMnemonic.trim().toLowerCase();
         if (!validateMnemonic(mnemonic)) {
           throw new Error('Invalid mnemonic phrase');
         }
