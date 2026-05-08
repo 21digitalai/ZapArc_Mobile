@@ -502,13 +502,10 @@ export default function SendScreen() {
         // rather than "50.000000" but keeps "12.345" intact.
         const formatted = display.toFixed(decimals).replace(/\.?0+$/, '');
         setAmount(formatted);
-        // For USDB the input-currency concept is mostly cosmetic; mark
-        // it as 'sats' so existing send-flow code (which switches on
-        // currency for BTC vs USDB) still treats it as the locked-amount
-        // sentinel. The amount is held in display units — see
-        // SwapAmountCard / SwapScreen for how display amounts feed into
-        // the SDK call.
-        setInputCurrency('sats');
+        // Pin the input mode to 'usdb' so handlePreviewPayment routes
+        // through the USDB display→base-units conversion (not the fiat
+        // path) and the picker label reads "USDB".
+        setInputCurrency('usdb');
         setAmountLocked(true);
       } else if (typeof parsed.amountSat === 'number' && parsed.amountSat > 0) {
         setAmount(String(parsed.amountSat));
@@ -915,11 +912,19 @@ export default function SendScreen() {
 
       const availableBalance = isUsdbAsset ? convertUsdbDisplayToBaseUnits(usdbBalance) : balance;
       if (paymentAmount > availableBalance) {
+        // Format amounts in the asset's *display* units so the message
+        // reads naturally for either currency. The underlying
+        // `paymentAmount` / `availableBalance` are sats for BTC and USDB
+        // base units (×10^decimals) for USDB.
+        const fmtAmount = isUsdbAsset
+          ? `${formatUsdbFromBaseUnits(paymentAmount)} USDB`
+          : `${paymentAmount.toLocaleString()} sats`;
+        const fmtBalance = isUsdbAsset
+          ? `${usdbBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDB`
+          : `${balance.toLocaleString()} sats`;
         Alert.alert(
           t('send.insufficientBalance'),
-          t('send.insufficientBalanceMessage')
-            .replace('{{balance}}', balance.toLocaleString())
-            .replace('{{amount}}', paymentAmount.toLocaleString())
+          `${fmtAmount} exceeds your balance of ${fmtBalance}.`,
         );
         return;
       }

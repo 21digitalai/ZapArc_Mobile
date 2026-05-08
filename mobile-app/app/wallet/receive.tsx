@@ -91,6 +91,10 @@ export default function ReceiveScreen() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [expiryTime, setExpiryTime] = useState<number | null>(null);
   const [invoiceSatsAmount, setInvoiceSatsAmount] = useState(0);
+  // Parallel state for USDB invoices — display units (e.g. 1.50). Zero
+  // means amountless. Avoids overloading `invoiceSatsAmount` whose name
+  // misleads when the asset is a token.
+  const [invoiceUsdbAmount, setInvoiceUsdbAmount] = useState(0);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const scrolledInvoiceRef = useRef<string>('');
   const [invoicePreviewY, setInvoicePreviewY] = useState<number | null>(null);
@@ -282,6 +286,10 @@ export default function ReceiveScreen() {
 
       setInvoice(result.paymentRequest);
       setInvoiceSatsAmount(satsAmount);
+      // Track the USDB demand amount (display units) so the invoice
+      // preview can show "1.00 USDB" instead of falling through to
+      // "any amount" when the user requested a specific token amount.
+      setInvoiceUsdbAmount(isUsdbAsset && usdbAmount ? usdbAmount : 0);
       setExpiryTime(Date.now() + 15 * 60 * 1000);
     } catch (error) {
       console.error('Failed to generate invoice:', error);
@@ -314,6 +322,7 @@ export default function ReceiveScreen() {
     setInvoice('');
     setExpiryTime(null);
     setInvoiceSatsAmount(0);
+    setInvoiceUsdbAmount(0);
     setInvoicePreviewY(null);
   }, []);
 
@@ -591,8 +600,14 @@ export default function ReceiveScreen() {
     const unsubscribe = onPaymentReceived((payment) => {
       if (payment.description === '__SYNC_EVENT__') return;
       if (payment.type === 'receive' && payment.amountSat > 0) {
-        const formattedAmount = payment.amountSat.toLocaleString();
-        showSuccess(`Payment received: ${formattedAmount} sats`);
+        // Asset-aware success message. For USDB, `amountSat` actually
+        // carries the token amount in base units; scale it to display
+        // units before showing.
+        const isUsdb = payment.asset === 'USDB';
+        const formattedAmount = isUsdb
+          ? `${(payment.amountSat / 10 ** 6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDB`
+          : `${payment.amountSat.toLocaleString()} sats`;
+        showSuccess(`Payment received: ${formattedAmount}`);
         router.replace('/wallet/home');
       }
     });
@@ -886,10 +901,23 @@ export default function ReceiveScreen() {
 
               {invoice ? (
                 <View style={styles.generatedSection} onLayout={handleGeneratedSectionLayout}>
-                  <Text style={[styles.amountText, { color: primaryTextColor }]}> 
-                    {invoiceSatsAmount > 0
-                      ? `${t('payments.amount')}: ${invoiceSatsAmount.toLocaleString()} sats`
-                      : t('deposit.anyAmount')}
+                  <Text style={[styles.amountText, { color: primaryTextColor }]}>
+                    {(() => {
+                      // Asset-aware preview label. USDB invoices store the
+                      // demand in `invoiceUsdbAmount` (display units);
+                      // BTC invoices in `invoiceSatsAmount` (sats).
+                      if (isUsdbAsset && invoiceUsdbAmount > 0) {
+                        const formatted = invoiceUsdbAmount.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        });
+                        return `${t('payments.amount')}: ${formatted} USDB`;
+                      }
+                      if (!isUsdbAsset && invoiceSatsAmount > 0) {
+                        return `${t('payments.amount')}: ${invoiceSatsAmount.toLocaleString()} sats`;
+                      }
+                      return t('deposit.anyAmount');
+                    })()}
                   </Text>
 
                   <View style={styles.qrContainer}>
