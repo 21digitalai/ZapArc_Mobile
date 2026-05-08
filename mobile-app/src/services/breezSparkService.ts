@@ -1223,33 +1223,35 @@ export async function initializeSDK(
               sdk: sdkInstance,
             });
 
-            // Also register with our Cloud Function for LN Address pushes.
-            // The wallet-scoped webhook above covers direct Bolt11 receives;
-            // this second registration covers payments that arrive via the
-            // user's Lightning Address (handled server-side by Breez's
-            // LNURL server before the wallet sees them). Idempotent.
-            try {
-              const resp = await fetch(
-                'https://europe-west3-investave-1337.cloudfunctions.net/registerLnurlPushTarget',
-                {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    identityPubkey,
-                    fcmToken,
-                    walletNickname: walletNickname || undefined,
-                  }),
-                },
-              );
-              if (resp.ok) {
-                console.log('✅ [LnurlPush] registered push target for', identityPubkey.slice(0, 12) + '…');
-              } else {
-                const text = await resp.text().catch(() => '');
-                console.warn('⚠️ [LnurlPush] register failed:', resp.status, text);
-              }
-            } catch (regErr) {
-              console.warn('⚠️ [LnurlPush] register network error:', regErr);
-            }
+            // NOTE: LN-Address-push relay registration is disabled until
+            // Breez activates our LNURL webhook domain on their side.
+            // Without that, our backend is never invoked for LN-Address
+            // payments, so the registration call is a no-op that only
+            // sends user identifiers to a backend that can't act on them.
+            // Re-enable when Breez confirms domain enrollment.
+            //
+            // try {
+            //   const resp = await fetch(
+            //     'https://europe-west3-investave-1337.cloudfunctions.net/registerLnurlPushTarget',
+            //     {
+            //       method: 'POST',
+            //       headers: { 'Content-Type': 'application/json' },
+            //       body: JSON.stringify({
+            //         identityPubkey,
+            //         fcmToken,
+            //         walletNickname: walletNickname || undefined,
+            //       }),
+            //     },
+            //   );
+            //   if (resp.ok) {
+            //     console.log('✅ [LnurlPush] registered push target for', identityPubkey.slice(0, 12) + '…');
+            //   } else {
+            //     const text = await resp.text().catch(() => '');
+            //     console.warn('⚠️ [LnurlPush] register failed:', resp.status, text);
+            //   }
+            // } catch (regErr) {
+            //   console.warn('⚠️ [LnurlPush] register network error:', regErr);
+            // }
           } else {
             console.warn('⚠️ [BreezWebhook] No FCM token — skipping webhook register');
           }
