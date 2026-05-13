@@ -15,6 +15,7 @@ import {
   BRAND_COLOR,
 } from '../../src/utils/theme-helpers';
 import { BreezSparkService, onPaymentReceived, extractSdkErrorMessage } from '../../src/services/breezSparkService';
+import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
 import { useWallet } from '../../src/hooks/useWallet';
 import { useCurrency } from '../../src/hooks/useCurrency';
 import { type DisplayCurrency } from '../../src/services/displayCurrencyService';
@@ -80,6 +81,9 @@ export default function ReceiveScreen() {
   // params effect runs, and the `inputCurrency` default-effect ends up
   // racing the displayCurrency hydration. Lazy-init removes both races.
   const [activeAsset, setActiveAsset] = useState<'BTC' | 'USDB'>(() => {
+    // v1: when multi-asset UI is gated off, always start on BTC regardless
+    // of incoming params (defence-in-depth — entry points are also hidden).
+    if (!MULTI_ASSET_UI_ENABLED) return 'BTC';
     const incoming = typeof params.asset === 'string' ? params.asset.toUpperCase() : 'BTC';
     return incoming === 'USDB' ? 'USDB' : 'BTC';
   });
@@ -778,7 +782,9 @@ export default function ReceiveScreen() {
         {isUsdbAsset && (
           <View style={styles.usdbBanner}>
             <Text style={styles.usdbBannerText}>USDB transfers stay on Spark.</Text>
-            <Text onPress={handleSwitchToBtc} style={styles.usdbBannerAction}>Swap to BTC →</Text>
+            {SWAP_FEATURE_ENABLED && (
+              <Text onPress={handleSwitchToBtc} style={styles.usdbBannerAction}>Swap to BTC →</Text>
+            )}
           </View>
         )}
 

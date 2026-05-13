@@ -16,6 +16,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
 import { BreezSparkService } from '../../../services/breezSparkService';
+import { MULTI_ASSET_UI_ENABLED } from '../../../config/features';
 
 
 // =============================================================================
@@ -129,6 +130,18 @@ export function QRScannerScreen(): React.JSX.Element {
         const requestedAssetRaw = Array.isArray(params.asset) ? params.asset[0] : params.asset;
         const requestedAsset = (requestedAssetRaw || '').toUpperCase() === 'USDB' ? 'USDB' : 'BTC';
         const tokenLooksUsdb = !!parsed.tokenIdentifier && parsed.tokenIdentifier.toLowerCase().includes('usdb');
+        // v1: when multi-asset UI is gated off, refuse USDB-denominated QR
+        // codes outright. Sending into a hidden asset path would either
+        // silently fail or land the user on a hidden tab. Better to show a
+        // clear "not supported in this version" message.
+        if (!MULTI_ASSET_UI_ENABLED && tokenLooksUsdb) {
+          Alert.alert(
+            'USDB not supported',
+            'USDB transfers are not available in this version. Please scan a Bitcoin or Lightning invoice instead.',
+            [{ text: 'OK', onPress: (): void => { setScanned(false); setIsProcessing(false); } }]
+          );
+          return;
+        }
         const sparkAsset = tokenLooksUsdb || requestedAsset === 'USDB' ? 'USDB' : 'BTC';
 
         switch (parsed.type) {

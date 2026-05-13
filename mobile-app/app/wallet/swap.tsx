@@ -1,8 +1,9 @@
-import React from 'react';
-import { useLocalSearchParams } from 'expo-router';
+import React, { useEffect } from 'react';
+import { useLocalSearchParams, router } from 'expo-router';
 
 import { SwapScreen } from '../../src/features/wallet/screens/SwapScreen';
 import type { SwapDirection } from '../../src/services/breezSparkService';
+import { SWAP_FEATURE_ENABLED } from '../../src/config/features';
 
 function parseDirection(asset: unknown, direction: unknown): SwapDirection {
   const normalizedAsset = Array.isArray(asset) ? asset[0] : asset;
@@ -23,7 +24,20 @@ function parseDirection(asset: unknown, direction: unknown): SwapDirection {
 
 export default function SwapRoute() {
   const params = useLocalSearchParams<{ asset?: string | string[]; direction?: string | string[] }>();
-  const direction = parseDirection(params.asset, params.direction);
 
+  // Swap feature is gated for App Store compliance (see src/config/features.ts).
+  // Redirect any deep-link / orphaned navigation back to home so the swap UI
+  // is genuinely unreachable when the flag is off.
+  useEffect(() => {
+    if (!SWAP_FEATURE_ENABLED) {
+      router.replace('/wallet/home');
+    }
+  }, []);
+
+  if (!SWAP_FEATURE_ENABLED) {
+    return null;
+  }
+
+  const direction = parseDirection(params.asset, params.direction);
   return <SwapScreen initialDirection={direction} />;
 }

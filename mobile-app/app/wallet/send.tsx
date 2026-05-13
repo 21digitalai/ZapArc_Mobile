@@ -16,6 +16,7 @@ import { useAppTheme } from '../../src/contexts/ThemeContext';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { useWallet } from '../../src/hooks/useWallet';
 import { BreezSparkService } from '../../src/services/breezSparkService';
+import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
 import { useCurrency } from '../../src/hooks/useCurrency';
 import { formatFiat, usdbToFiat, fiatToUsdb } from '../../src/utils/currency';
 import { cycleDisplayCurrency, type DisplayCurrency } from '../../src/services/displayCurrencyService';
@@ -247,9 +248,16 @@ export default function SendScreen() {
     }
 
     const incomingInput = hasIncomingInput ? (params.paymentInput as string).trim() : '';
-    const resolvedAsset: 'BTC' | 'USDB' = hasIncomingAsset
+    let resolvedAsset: 'BTC' | 'USDB' = hasIncomingAsset
       ? ((params.asset as string).toUpperCase() === 'USDB' ? 'USDB' : 'BTC')
       : activeAsset;
+    // v1: USDB UI is hidden — coerce any deep-link / scanner-routed USDB
+    // attempt back to BTC. This is defence-in-depth on top of hiding the
+    // entry points; reviewers (or scripted nav) can't land in a half-broken
+    // USDB tab.
+    if (!MULTI_ASSET_UI_ENABLED && resolvedAsset === 'USDB') {
+      resolvedAsset = 'BTC';
+    }
     if (hasIncomingAsset) {
       setActiveAsset(resolvedAsset);
     }
@@ -1353,7 +1361,9 @@ export default function SendScreen() {
         {isUsdbAsset && (
           <View style={styles.usdbBanner}>
             <Text style={styles.usdbBannerText}>USDB transfers stay on Spark.</Text>
-            <Text onPress={handleSwitchToBtc} style={styles.usdbBannerAction}>Swap to BTC →</Text>
+            {SWAP_FEATURE_ENABLED && (
+              <Text onPress={handleSwitchToBtc} style={styles.usdbBannerAction}>Swap to BTC →</Text>
+            )}
           </View>
         )}
 

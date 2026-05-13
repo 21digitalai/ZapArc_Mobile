@@ -29,6 +29,7 @@ import { useCurrency } from '../../../hooks/useCurrency';
 import { useLightningAddress } from '../../../hooks/useLightningAddress';
 import { onPaymentReceived } from '../../../services/breezSparkService';
 import { settingsService } from '../../../services/settingsService';
+import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../../config/features';
 import { formatFiat, usdbToFiat } from '../../../utils/currency';
 import { AssetSelectorPill } from '../components/AssetSelectorPill';
 import { AssetPickerSheet } from '../components/AssetPickerSheet';
@@ -156,8 +157,14 @@ export function HomeScreen(): React.JSX.Element {
   useEffect(() => {
     let mounted = true;
     void settingsService.getActiveAsset().then((stored) => {
-      if (mounted) {
-        setActiveAsset(stored);
+      if (!mounted) return;
+      // When multi-asset UI is off, coerce any persisted USDB selection back
+      // to BTC so existing users aren't stuck on a now-hidden tab.
+      const next: WalletAsset =
+        !MULTI_ASSET_UI_ENABLED && stored === 'USDB' ? 'BTC' : stored;
+      setActiveAsset(next);
+      if (next !== stored) {
+        void settingsService.setActiveAsset(next);
       }
     });
 
@@ -614,12 +621,14 @@ export function HomeScreen(): React.JSX.Element {
             </TouchableOpacity>
           )}
 
-          <View style={styles.assetPillRow}>
-            <AssetSelectorPill
-              ticker={activeAsset}
-              onPress={() => setAssetPickerVisible(true)}
-            />
-          </View>
+          {MULTI_ASSET_UI_ENABLED && (
+            <View style={styles.assetPillRow}>
+              <AssetSelectorPill
+                ticker={activeAsset}
+                onPress={() => setAssetPickerVisible(true)}
+              />
+            </View>
+          )}
 
           {/* Security reminder banner - only one at a time.
               Biometric has priority; notifications takes over once
@@ -736,15 +745,17 @@ export function HomeScreen(): React.JSX.Element {
               onPress={handleScan}
               color="#2196F3"
             />
-            <QuickAction
-              icon="⇄"
-              label={t('swap.title')}
-              onPress={handleSwap}
-              color="#FFB300"
-            />
+            {SWAP_FEATURE_ENABLED && (
+              <QuickAction
+                icon="⇄"
+                label={t('swap.title')}
+                onPress={handleSwap}
+                color="#FFB300"
+              />
+            )}
           </View>
 
-          {showUsdbEmptyState && (
+          {showUsdbEmptyState && SWAP_FEATURE_ENABLED && (
             <View style={styles.usdbEmptyStateCard}>
               <Text style={[styles.usdbEmptyStateTitle, { color: primaryTextColor }]}>{t('home.usdbEmptyState.title')}</Text>
               <Text style={[styles.usdbEmptyStateSubtitle, { color: secondaryTextColor }]}>{t('home.usdbEmptyState.subtitle')}</Text>
@@ -789,20 +800,25 @@ export function HomeScreen(): React.JSX.Element {
         {selectedTransaction && renderDetailsModal()}
 
         {/* Asset picker (replaces the BTC/USDB tab bar). Tapping the
-            asset pill above the balance opens this sheet. */}
-        <AssetPickerSheet
-          visible={assetPickerVisible}
-          selected={activeAsset}
-          getBalanceLine={(ticker) => {
-            if (ticker === 'USDB') {
-              return `${usdbBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDB`;
-            }
-            const sats = getBalanceForAsset(ticker as WalletAsset);
-            return `${sats.toLocaleString()} sats`;
-          }}
-          onSelect={(ticker) => handleAssetChange(ticker as WalletAsset)}
-          onClose={() => setAssetPickerVisible(false)}
-        />
+            asset pill above the balance opens this sheet. v1 keeps this
+            inert — pill is hidden and visible stays false — but we
+            still gate it here so any future reintroduction of a trigger
+            doesn't accidentally re-expose USDB. */}
+        {MULTI_ASSET_UI_ENABLED && (
+          <AssetPickerSheet
+            visible={assetPickerVisible}
+            selected={activeAsset}
+            getBalanceLine={(ticker) => {
+              if (ticker === 'USDB') {
+                return `${usdbBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDB`;
+              }
+              const sats = getBalanceForAsset(ticker as WalletAsset);
+              return `${sats.toLocaleString()} sats`;
+            }}
+            onSelect={(ticker) => handleAssetChange(ticker as WalletAsset)}
+            onClose={() => setAssetPickerVisible(false)}
+          />
+        )}
       </SafeAreaView>
 
       {/* Heads-up toast banner — renders at the top, tinted by tone.
