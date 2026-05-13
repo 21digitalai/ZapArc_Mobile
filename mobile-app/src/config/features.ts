@@ -12,6 +12,45 @@
  * used internally for asset display, pricing, and transaction labelling),
  * but every user-facing entry point — quick actions, banners, settings,
  * and the swap route itself — must check this flag.
+ *
+ * ──────────────────────────────────────────────────────────────────────
+ * BEFORE FLIPPING THIS BACK TO `true` FOR AN APP STORE BUILD — READ:
+ * ──────────────────────────────────────────────────────────────────────
+ *
+ * The original 3.1.5(iii) rejection (submission 1508cc69-…, May 2026)
+ * asked for the items below. They MUST accompany the resubmission, or
+ * Apple will reject again with the same canned response. The DeFi/AMM
+ * framing (Flashnet on Spark) is the path we've publicly committed to
+ * in the prior reply to App Review — don't switch to the centralized-
+ * exchange framing without re-reading what was promised.
+ *
+ *   1. Technical/protocol documentation showing what the app connects to.
+ *      ➜ Link to Flashnet's public AMM docs + Spark L2 docs in the
+ *        review notes. Frame it as a permissionless smart-contract-style
+ *        AMM (Uniswap-v3-equivalent), NOT a centralized exchange.
+ *
+ *   2. Written statement on geographic App Store distribution.
+ *      ➜ Choose territories where DeFi AMM interaction is clearly
+ *        permitted. Sensible default: block US (MSB rules), block UK
+ *        (FCA — see #3), block all OFAC-sanctioned regions. Most of EU
+ *        and LATAM is fine. This is a POLICY call, not engineering.
+ *
+ *   3. UK FCA crypto-asset promotion compliance.
+ *      ➜ EITHER (a) block UK App Store distribution outright (easiest), OR
+ *      ➜ (b) obtain a UK crypto-law legal opinion that ZapArc's swap
+ *        does not constitute a "crypto-asset promotion" under the FCA's
+ *        2023 financial-promotions regime. Plan ~£2–5k of attorney time.
+ *
+ * Frame the app at all times as: self-custodial wallet, no developer
+ * custody, no developer intermediation of exchange transactions, no
+ * partnership with any centralized exchange. The user signs directly
+ * to the on-chain AMM contract from their own keys.
+ *
+ * Apple's checklist for the centralized-exchange / first-party path
+ * (MSB registration, state-by-state licenses, KYC/AML programme, etc.)
+ * is NOT the path we've committed to and should not be touched without
+ * an explicit pivot decision.
+ * ──────────────────────────────────────────────────────────────────────
  */
 export const SWAP_FEATURE_ENABLED = false as boolean;
 
