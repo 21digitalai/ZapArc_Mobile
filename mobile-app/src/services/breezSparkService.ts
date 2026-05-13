@@ -227,22 +227,15 @@ export type SwapOutcome =
 // Native Module Detection
 // =============================================================================
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let BreezSDK: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let RNFS: any = null;
-let _isNativeAvailable = false;
-
-// Try to load native modules - will fail gracefully in Expo Go
-try {
-  BreezSDK = require('@breeztech/breez-sdk-spark-react-native');
-  RNFS = require('react-native-fs');
-  _isNativeAvailable = true;
-  console.log('✅ [BreezSparkService] Native SDK loaded successfully');
-} catch {
-  console.warn('⚠️ [BreezSparkService] Native SDK not available (running in Expo Go?)');
-  console.warn('   To use Lightning features, build with: npx expo run:android');
-}
+// Native modules are REQUIRED. Do NOT wrap these imports in try/catch — a
+// missing core dependency in a wallet must crash the app loudly at startup,
+// not silently let the UI render with a no-op SDK and orphan the user.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const BreezSDK = require('@breeztech/breez-sdk-spark-react-native');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const RNFS = require('react-native-fs');
+const _isNativeAvailable = true;
+console.log('✅ [BreezSparkService] Native SDK loaded successfully');
 
 // =============================================================================
 // Service State
