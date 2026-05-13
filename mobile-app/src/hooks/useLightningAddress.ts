@@ -7,6 +7,7 @@ import {
   LightningAddressService,
   validateUsername,
 } from '../services';
+import { useWallet } from './useWallet';
 
 // =============================================================================
 // Types
@@ -48,16 +49,27 @@ export function useLightningAddress(): LightningAddressState & LightningAddressA
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Wallet/SDK connection signal — used to retry the fetch once the SDK has
+  // actually connected (the first mount typically races SDK init and gets
+  // a cache miss). We also re-fetch when the active master key changes so
+  // switching wallets surfaces the new address.
+  const { isConnected, activeMasterKey } = useWallet();
+  const activeMasterKeyId = activeMasterKey?.id ?? null;
+
   // Derived state
   const isRegistered = addressInfo !== null;
 
   // ========================================
-  // Initialize - Load address on mount
+  // Initialize - Load address on mount, then re-fetch when SDK
+  // connects or the active wallet changes.
   // ========================================
 
   useEffect(() => {
     refresh();
-  }, []);
+    // refresh is stable (useCallback []), and we explicitly want this to
+    // run whenever isConnected flips or the active wallet changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, activeMasterKeyId]);
 
   // ========================================
   // Actions
