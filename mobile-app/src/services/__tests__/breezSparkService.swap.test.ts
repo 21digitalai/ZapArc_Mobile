@@ -11,7 +11,7 @@ jest.mock('expo-constants', () => ({
 jest.mock('../notificationTriggerService', () => ({
   NotificationTriggerService: {
     registerDevice: jest.fn().mockResolvedValue(undefined),
-    sendTransactionNotification: jest.fn().mockResolvedValue(undefined),
+    syncSubscriptions: jest.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -36,13 +36,27 @@ jest.mock('react-native-fs', () => ({
   mkdir: jest.fn().mockResolvedValue(undefined),
 }));
 
-jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
-  Seed: { Mnemonic: function (params: unknown) { return params; } },
-  Network: { Mainnet: 'mainnet' },
-  MaxFee: { NetworkRecommended: function (inner: unknown) { return { ...((inner as object) || {}) }; } },
-  defaultConfig: jest.fn(() => ({})),
-  connect: jest.fn().mockImplementation(async () => mockSdk),
-}));
+jest.mock('@breeztech/breez-sdk-spark-react-native', () => {
+  function FromBitcoin(this: Record<string, unknown>) {
+    this.tag = 'FromBitcoin';
+  }
+  FromBitcoin.new = () => ({ tag: 'FromBitcoin' });
+
+  function ToBitcoin(this: Record<string, unknown>, { fromTokenIdentifier }: { fromTokenIdentifier: string }) {
+    this.tag = 'ToBitcoin';
+    this.fromTokenIdentifier = fromTokenIdentifier;
+  }
+  ToBitcoin.new = ({ fromTokenIdentifier }: { fromTokenIdentifier: string }) => ({ tag: 'ToBitcoin', fromTokenIdentifier });
+
+  return {
+    Seed: { Mnemonic: function (params: unknown) { return params; } },
+    Network: { Mainnet: 'mainnet' },
+    MaxFee: { NetworkRecommended: function (inner: unknown) { return { ...((inner as object) || {}) }; } },
+    ConversionType: { FromBitcoin, ToBitcoin },
+    defaultConfig: jest.fn(() => ({})),
+    connect: jest.fn().mockImplementation(async () => mockSdk),
+  };
+});
 
 describe('breezSparkService swap helpers', () => {
   beforeEach(async () => {
@@ -100,7 +114,10 @@ describe('breezSparkService swap helpers', () => {
     const limits = await svc.fetchSwapLimits('BTC_TO_USDB');
 
     expect(limits).toEqual({ min: 100n, max: 200000n });
-    expect(mockSdk.fetchConversionLimits).toHaveBeenCalledWith({ conversionType: { tag: 'FromBitcoin' } });
+    expect(mockSdk.fetchConversionLimits).toHaveBeenCalledWith(expect.objectContaining({
+      tokenIdentifier: 'usdb-token-id',
+      conversionType: expect.objectContaining({ tag: 'FromBitcoin' }),
+    }));
   });
 
   it('fetches USDB->BTC limits with ToBitcoin + fromTokenIdentifier', async () => {
@@ -120,7 +137,10 @@ describe('breezSparkService swap helpers', () => {
     await svc.prepareSwap({ direction: 'BTC_TO_USDB', amount: 1000n, slippageBps: 50 });
 
     expect(mockSdk.receivePayment).toHaveBeenCalledWith({
-      paymentMethod: { tag: 'SparkAddress', inner: { tokenIdentifier: 'usdb-token-id' } },
+      paymentMethod: expect.objectContaining({
+        tag: 'SparkInvoice',
+        inner: expect.objectContaining({ tokenIdentifier: 'usdb-token-id' }),
+      }),
     });
     expect(mockSdk.prepareSendPayment).toHaveBeenCalledWith(expect.objectContaining({
       amount: 1000n,
@@ -128,12 +148,12 @@ describe('breezSparkService swap helpers', () => {
     }));
   });
 
-  it('prepareSwap USDB_TO_BTC sets source token identifier', async () => {
+  it('prepareSwap USDB_TO_BTC omits top-level token identifier and sets ToBitcoin source token', async () => {
     const svc = await initAndResolve();
     await svc.prepareSwap({ direction: 'USDB_TO_BTC', amount: 2000n, slippageBps: 100 });
 
     expect(mockSdk.prepareSendPayment).toHaveBeenCalledWith(expect.objectContaining({
-      tokenIdentifier: 'usdb-token-id',
+      tokenIdentifier: undefined,
       conversionOptions: expect.objectContaining({
         conversionType: { tag: 'ToBitcoin', fromTokenIdentifier: 'usdb-token-id' },
       }),
@@ -146,7 +166,10 @@ describe('breezSparkService swap helpers', () => {
 
     const outcome = await svc.executeSwap(quote);
 
-    expect(outcome).toEqual({ kind: 'success', result: { paymentId: 'payment-1' } });
+    expect(outcome).toEqual(expect.objectContaining({
+      kind: 'success',
+      result: expect.objectContaining({ paymentId: 'payment-1' }),
+    }));
   });
 
   it('executeSwap returns refunded when sendPayment throws slippage/refund error', async () => {

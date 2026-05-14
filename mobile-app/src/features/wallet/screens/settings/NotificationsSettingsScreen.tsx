@@ -8,11 +8,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
-import Constants from 'expo-constants';
 import { useSettings } from '../../../../hooks/useSettings';
 import { useAppTheme } from '../../../../contexts/ThemeContext';
 import { useLanguage } from '../../../../hooks/useLanguage';
-import { NotificationTriggerService } from '../../../../services/notificationTriggerService';
 import { BRAND_COLOR } from '../../../../utils/theme-helpers';
 
 // =============================================================================
@@ -173,54 +171,6 @@ export function NotificationsSettingsScreen(): React.JSX.Element {
     }
   };
 
-  // Test remote notification via Cloud Function
-  const sendRemoteTestNotification = async (): Promise<void> => {
-    try {
-      console.log('🔔 [Test] Starting remote notification test...');
-
-      if (permissionStatus !== 'granted') {
-        Alert.alert(
-          t('settings.permissionRequired'),
-          t('settings.enableNotificationsFirst')
-        );
-        return;
-      }
-
-      // Get project ID from Constants (app.json extra.expoProjectId)
-      const projectId = Constants.expoConfig?.extra?.expoProjectId;
-      console.log('🔔 [Test] Project ID:', projectId);
-
-      if (!projectId) {
-        Alert.alert('Error', 'Project ID not found in app config');
-        return;
-      }
-
-      // Get current token
-      console.log('🔔 [Test] Getting push token...');
-      const tokenData = await Notifications.getExpoPushTokenAsync({
-        projectId,
-      });
-      const token = tokenData.data;
-
-      console.log('🔔 [Test] Sending remote notification to:', token);
-
-      // Call Cloud Function
-      const result = await NotificationTriggerService.sendTransactionNotification({ pushToken: token }, 2100);
-
-      if (result.success) {
-        Alert.alert(
-          'Success',
-          `Remote notification sent!\n\nToken: ${token.substring(0, 30)}...`
-        );
-      } else {
-        Alert.alert('Error', result.error || 'Failed to send remote notification');
-      }
-    } catch (error) {
-      console.error('❌ [Notifications] Failed to send remote test notification:', error);
-      Alert.alert('Error', `Failed to trigger remote notification: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
-
   return (
     <LinearGradient
       colors={gradientColors as [string, string, ...string[]]}
@@ -335,22 +285,6 @@ export function NotificationsSettingsScreen(): React.JSX.Element {
                 style={styles.listItem}
               />
               
-              <View style={styles.divider} />
-
-              <List.Item
-                title="Send Remote Test (Cloud Function)"
-                description="Triggers real push via Firebase Cloud Function"
-                left={(props) => (
-                  <List.Icon {...props} icon="cloud-upload" color="#2196F3" />
-                )}
-                right={(props) => (
-                  <List.Icon {...props} icon="chevron-right" color={secondaryTextColor} />
-                )}
-                onPress={sendRemoteTestNotification}
-                titleStyle={[styles.listTitle, { color: primaryTextColor }]}
-                descriptionStyle={[styles.listDescription, { color: secondaryTextColor }]}
-                style={styles.listItem}
-              />
             </View>
           )}
 

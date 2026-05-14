@@ -1,11 +1,10 @@
 /**
- * Service to trigger transaction notifications via Firebase Cloud Functions.
+ * Service to sync device push subscriptions with the notification relay.
  */
 import { Platform } from 'react-native';
 
-// URL of the deployed Cloud Functions
+// URL of the deployed Cloud Function relay
 const BASE_URL = 'https://europe-west3-investave-1337.cloudfunctions.net';
-const NOTIFICATION_ENDPOINT = `${BASE_URL}/sendTransactionNotification`;
 const SYNC_SUBSCRIPTIONS_ENDPOINT = `${BASE_URL}/syncSubscriptions`;
 
 interface NotificationResponse {
@@ -72,57 +71,6 @@ export const NotificationTriggerService = {
       return result;
     } catch (error) {
       console.warn('⚠️ [Notification] syncSubscriptions network error:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown network error',
-      };
-    }
-  },
-
-  /**
-   * Triggers a push notification to the recipient device.
-   * Can look up by pushToken, identityPubkey, or lightningAddress.
-   */
-  async sendTransactionNotification(
-    recipient: { pushToken?: string; lightningAddress?: string; identityPubkey?: string },
-    amountSats: number
-  ): Promise<NotificationResponse> {
-    try {
-      if (!recipient.pushToken && !recipient.lightningAddress && !recipient.identityPubkey) {
-        return { success: false, error: 'Must provide pushToken, lightningAddress, or identityPubkey' };
-      }
-
-      if (__DEV__) {
-        console.log('🔔 [Notification] Sending transaction notification');
-      }
-
-      const response = await fetch(NOTIFICATION_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          expoPushToken: recipient.pushToken,
-          recipientLightningAddress: recipient.lightningAddress,
-          recipientPubkey: recipient.identityPubkey,
-          amount: amountSats,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.warn(`⚠️ [Notification] HTTP Error ${response.status}: ${errorText}`);
-        return {
-          success: false,
-          error: `HTTP Error ${response.status}: ${errorText}`,
-        };
-      }
-
-      const result = await response.json();
-      console.log('✅ [Notification] Result:', result);
-      return result;
-    } catch (error) {
-      console.warn('⚠️ [Notification] Network request failed:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown network error',

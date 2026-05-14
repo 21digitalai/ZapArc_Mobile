@@ -11,7 +11,7 @@ jest.mock('expo-constants', () => ({
 jest.mock('../notificationTriggerService', () => ({
   NotificationTriggerService: {
     registerDevice: jest.fn().mockResolvedValue(undefined),
-    sendTransactionNotification: jest.fn().mockResolvedValue(undefined),
+    syncSubscriptions: jest.fn().mockResolvedValue(undefined),
   },
 }));
 

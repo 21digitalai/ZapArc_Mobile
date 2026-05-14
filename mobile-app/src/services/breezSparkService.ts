@@ -7,13 +7,8 @@
 import { BREEZ_API_KEY, BREEZ_STORAGE_DIR } from '../config';
 import { getExchangeRates, getCachedRates } from '../utils/currency';
 import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
-import { NotificationTriggerService } from './notificationTriggerService';
-// expo-notifications and expo-constants imports removed —
-// Push notifications now flow via Breez's own webhook → our stateless
-// Cloud Function relay → Expo Push API. See services/breezWebhookService.ts.
-// The legacy "sender triggers push" pipeline was removed.
-// Note: Local notifications disabled - FCM push handles payment notifications
-// import { sendPaymentReceivedNotification } from './notificationService';
+// Push notifications now flow via Breez's webhook registration + relay.
+// Foreground UX still comes from the local notification/event listeners.
 
 // =============================================================================
 // SDK Error Extraction Helper
@@ -1185,7 +1180,7 @@ export async function initializeSDK(
             // Without permission, iOS won't issue an APNs token, so getToken()
             // will fail or return a token that can't deliver. Bail out
             // gracefully — we'll retry on next wallet open.
-            return;
+            return false;
           }
 
           // Fetch native FCM token. On iOS this also ensures APNs registration
@@ -1429,11 +1424,9 @@ async function setupEventListeners(): Promise<void> {
             // Skip if: not received, no amount, or we recently sent this payment ourselves
             const wasRecentlySent = recentlySentPaymentIds.has(payment.id);
             if (isReceived && payment.amountSat > 0 && !wasRecentlySent) {
-              // NOTE: Local notification disabled - FCM push notifications now handle this
-              // to prevent duplicate notifications when both local and remote fire.
-              // The sender triggers a push notification via Cloud Function.
-              // sendPaymentReceivedNotification(payment.amountSat, payment.description);
-              console.log('🔔 [BreezSparkService] Payment received - push notification expected from sender');
+              // NOTE: Local notification disabled here to avoid duplicate banners.
+              // Remote push comes from the registered Breez webhook relay path instead.
+              console.log('🔔 [BreezSparkService] Payment received - webhook relay push expected');
             }
 
             // Notify all listeners (for UI refresh etc)
@@ -1693,23 +1686,8 @@ export async function payInvoice(
                  }
               }
 
-              if (recipientIdentifier && identifierType === 'lightningAddress') {
-                   if (__DEV__) {
-                     console.log('🔔 [BreezSparkService] Triggering notification (lightningAddress)');
-                   }
-                   // Send async without awaiting so we don't block the UI
-                   NotificationTriggerService.sendTransactionNotification(
-                       { lightningAddress: recipientIdentifier },
-                       _amountSat || 0
-                   )
-                   .then(() => {
-                     if (__DEV__) {
-                       console.log('🔔 [BreezSparkService] Trigger completed');
-                     }
-                   })
-                   .catch((e: unknown) => console.warn('🔔 [BreezSparkService] Trigger failed:', e));
-              } else {
-                  console.warn('⚠️ [BreezSparkService] Skipping remote notification trigger (no unique lightning address identifier)');
+              if (!recipientIdentifier || identifierType !== 'lightningAddress') {
+                console.warn('⚠️ [BreezSparkService] Webhook push now owns remote notifications; skipping legacy client trigger (no unique lightning address identifier)');
               }
           } catch (err) {
               console.warn('⚠️ [BreezSparkService] Failed to parse payment request for notification:', err);
@@ -2811,23 +2789,8 @@ export async function sendPayment(
           }
         }
 
-        if (recipientIdentifier && identifierType === 'lightningAddress') {
-          if (__DEV__) {
-            console.log('🔔 [BreezSparkService] Triggering notification (lightningAddress)');
-          }
-          // Send async without awaiting so we don't block the UI
-          NotificationTriggerService.sendTransactionNotification(
-            { lightningAddress: recipientIdentifier },
-            amountSat || 0
-          )
-          .then(() => {
-            if (__DEV__) {
-              console.log('🔔 [BreezSparkService] Notification completed');
-            }
-          })
-          .catch((e: unknown) => console.warn('🔔 [BreezSparkService] Notification failed:', e));
-        } else {
-          console.warn('⚠️ [BreezSparkService] Skipping remote notification trigger (no unique lightning address identifier)');
+        if (!recipientIdentifier || identifierType !== 'lightningAddress') {
+          console.warn('⚠️ [BreezSparkService] Webhook push now owns remote notifications; skipping legacy client trigger (no unique lightning address identifier)');
         }
       } catch (err) {
         console.warn('⚠️ [BreezSparkService] Failed to trigger notification:', err);
