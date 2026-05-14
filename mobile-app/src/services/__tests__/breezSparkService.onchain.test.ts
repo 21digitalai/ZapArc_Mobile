@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
+/* global require */
 
 jest.mock('expo-notifications', () => ({
   getExpoPushTokenAsync: jest.fn().mockResolvedValue({ data: '' }),

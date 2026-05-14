@@ -1,3 +1,5 @@
+/* global require */
+
 // Breez SDK Spark Service
 // Lightning wallet operations using Breez SDK Nodeless (Spark Implementation)
 //
@@ -965,7 +967,9 @@ export async function executeSwap(quote: SwapQuote): Promise<SwapOutcome> {
         }
       }
       console.error('❌ [executeSwap] sendPayment threw (ownProps)', JSON.stringify(dump));
-    } catch {}
+    } catch {
+      // Best-effort logging only.
+    }
     if (isSlippageRefundError(error)) {
       return { kind: 'refunded' };
     }
@@ -1909,7 +1913,6 @@ export async function listPayments(): Promise<TransactionInfo[]> {
       return mNum === 2 || dTag === 'token';
     };
     const legAmount = (p: any): number => Number(toBig(p?.amount ?? p?.amountSats ?? p?.amountSat ?? 0));
-    const legFee = (p: any): number => Number(toBig(p?.fees ?? p?.feesSats ?? p?.feeSat ?? p?.fee ?? 0));
 
     // Breez emits only the RECEIVE side of each conversion as a Payment
     // (the send is internal to the conversion). So every conversion shows
@@ -1932,7 +1935,9 @@ export async function listPayments(): Promise<TransactionInfo[]> {
       const { getCachedRates } = require('../utils/currency');
       const r = getCachedRates();
       usdPerBtc = r?.usd || 0;
-    } catch {}
+    } catch {
+      // Ignore cache-read failures; we'll fall back to 0.
+    }
     for (const p of payments) {
       const convInfo = p?.details?.inner?.conversionInfo;
       if (!convInfo) continue;
@@ -1945,7 +1950,6 @@ export async function listPayments(): Promise<TransactionInfo[]> {
       const toAsset: 'BTC' | 'USDB' = tokenSide ? 'USDB' : 'BTC';
       const fromAsset: 'BTC' | 'USDB' = tokenSide ? 'BTC' : 'USDB';
       const toAmount = legAmount(p);
-      const toFee = legFee(p);
 
       // Approximate the source amount via current rate. USDB decimals = 6.
       const USDB_DECIMALS = 6;
@@ -2001,7 +2005,7 @@ export async function listPayments(): Promise<TransactionInfo[]> {
     // Skip anything we already emitted as a swap row.
     const swapHandledIds = new Set(out.map((r) => r.id));
     const remaining = payments.filter((p: any) => !swapHandledIds.has(String(p?.id)));
-    const individuals = remaining.map((payment: any, index: number) => {
+    const individuals = remaining.map((payment: any) => {
       // Try multiple field name variations (SDK may return different formats)
       const rawAmount = payment.amount ?? payment.amountSats ?? payment.amountSat ?? 0;
       const amountSat = typeof rawAmount === 'bigint' ? Number(rawAmount) : Number(rawAmount);
@@ -2034,7 +2038,6 @@ export async function listPayments(): Promise<TransactionInfo[]> {
       // Web SDK: method is string ("lightning", "deposit"), details uses {type, txId}
       const methodNum = payment.method;
       const detailsTag = String(payment.details?.tag || '').toLowerCase();
-      const detailsType = String(payment.details?.type || '').toLowerCase();
       const methodStr = String(methodNum ?? '').toLowerCase();
 
       // RN SDK method numbers: 0=Lightning, 1=Spark, 3=Deposit (on-chain receive), 4=Withdraw (on-chain send)
