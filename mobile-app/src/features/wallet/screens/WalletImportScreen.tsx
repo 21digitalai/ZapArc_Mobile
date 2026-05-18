@@ -92,13 +92,18 @@ export function WalletImportScreen(): React.JSX.Element {
   const handleValidateMnemonic = useCallback(() => {
     setError(null);
 
+    if (!mnemonic.trim()) {
+      setError('Please paste or type your 12-word recovery phrase above.');
+      return;
+    }
+
     if (!mnemonicValidation.isValid) {
       setError(mnemonicValidation.error || 'Invalid recovery phrase');
       return;
     }
 
     setCurrentStep('pin');
-  }, [mnemonicValidation]);
+  }, [mnemonic, mnemonicValidation]);
 
   // ========================================
   // Step 2: PIN Setup
@@ -199,10 +204,12 @@ export function WalletImportScreen(): React.JSX.Element {
         <Text style={styles.tipText}>• Make sure to spell each word correctly</Text>
       </View>
 
+      {/* Always tappable — handleValidateMnemonic returns early with an
+          inline error if the field is empty / invalid, instead of leaving
+          a silently-disabled button. */}
       <Button
         mode="contained"
         onPress={handleValidateMnemonic}
-        disabled={!mnemonic.trim()}
         style={styles.primaryButton}
         contentStyle={styles.buttonContent}
         labelStyle={styles.buttonLabel}

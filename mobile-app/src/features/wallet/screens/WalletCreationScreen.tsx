@@ -263,13 +263,38 @@ export function WalletCreationScreen(): React.JSX.Element {
   }, [mnemonic]);
 
   const handleVerify = useCallback(() => {
+    // Give explicit feedback for each failure mode. The Verify button is
+    // always tappable so the user (and App Review) gets immediate guidance
+    // instead of a button that silently does nothing.
+    if (pasteMode) {
+      const pastedCount = pasteText.trim().split(/\s+/).filter(Boolean).length;
+      if (pastedCount === 0) {
+        setError('Paste your 12-word recovery phrase above to continue.');
+        return;
+      }
+      if (pastedCount !== 12) {
+        setError(
+          `Recovery phrase should be 12 words — you pasted ${pastedCount}. Please check and try again.`
+        );
+        return;
+      }
+    } else {
+      if (selectedWords.length !== 12) {
+        const remaining = 12 - selectedWords.length;
+        setError(
+          `Please select ${remaining} more ${remaining === 1 ? 'word' : 'words'} in the correct order to continue.`
+        );
+        return;
+      }
+    }
+
     if (!verificationCorrect) {
       setError('The words are not in the correct order. Please try again.');
       return;
     }
     setError(null);
     setCurrentStep('pin');
-  }, [verificationCorrect]);
+  }, [verificationCorrect, pasteMode, pasteText, selectedWords.length]);
 
   // ========================================
   // Step 4: PIN Setup
@@ -444,10 +469,12 @@ export function WalletCreationScreen(): React.JSX.Element {
         </Text>
       </TouchableOpacity>
 
+      {/* Always tappable. handleConfirmBackup shows an Alert if the
+          checkbox isn't ticked, so the user gets explicit feedback
+          instead of a silently-disabled button. */}
       <Button
         mode="contained"
         onPress={handleConfirmBackup}
-        disabled={!backupConfirmed}
         style={styles.primaryButton}
         contentStyle={styles.buttonContent}
         labelStyle={styles.buttonLabel}
@@ -569,10 +596,13 @@ export function WalletCreationScreen(): React.JSX.Element {
         </>
       )}
 
+      {/* Always tappable. The handler validates and renders an explicit
+          error if the user hasn't selected/pasted all 12 words yet —
+          that's better UX than a silently-disabled button (which Apple's
+          reviewer flagged as "unresponsive" in build 7). */}
       <Button
         mode="contained"
         onPress={handleVerify}
-        disabled={pasteMode ? pasteText.trim().split(/\s+/).length !== 12 : selectedWords.length !== 12}
         style={styles.primaryButton}
         contentStyle={styles.buttonContent}
         labelStyle={styles.buttonLabel}
@@ -651,10 +681,13 @@ export function WalletCreationScreen(): React.JSX.Element {
         <Text style={styles.pinMismatch}>PINs do not match</Text>
       )}
 
+      {/* Tappable while PIN is incomplete — handleCreateWallet returns
+          early with a clear error if pinValid is false. Only the loading
+          state still disables it, to prevent double-submit. */}
       <Button
         mode="contained"
         onPress={handleCreateWallet}
-        disabled={!pinValid || isLoading}
+        disabled={isLoading}
         loading={isLoading}
         style={styles.primaryButton}
         contentStyle={styles.buttonContent}
