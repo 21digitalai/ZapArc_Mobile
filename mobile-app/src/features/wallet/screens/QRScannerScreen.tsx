@@ -255,17 +255,21 @@ export function QRScannerScreen(): React.JSX.Element {
       <SafeAreaView style={styles.permissionContainer}>
         <View style={styles.permissionContent}>
           <Text style={styles.permissionIcon}>📷</Text>
-          <Text style={styles.permissionTitle}>Camera Permission</Text>
+          <Text style={styles.permissionTitle}>Camera Access</Text>
           <Text style={styles.permissionText}>
-            We need camera access to scan QR codes for Lightning payments.
+            We use the camera only to scan QR codes for Lightning payments. You'll see the standard iOS permission prompt next.
           </Text>
+          {/* Per App Review guideline 5.1.1(iv), the button preceding a
+              system permission prompt must use neutral wording ("Continue",
+              "Next") rather than "Grant Permission" / "Allow", which Apple
+              interprets as the app directing the user's decision. */}
           <Button
             mode="contained"
             onPress={requestPermission}
             style={styles.permissionButton}
             labelStyle={styles.permissionButtonLabel}
           >
-            Grant Permission
+            Continue
           </Button>
           <Button
             mode="text"

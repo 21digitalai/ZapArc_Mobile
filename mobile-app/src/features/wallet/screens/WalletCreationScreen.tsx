@@ -7,7 +7,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   Alert,
   BackHandler,
   Keyboard,
@@ -485,7 +484,12 @@ export function WalletCreationScreen(): React.JSX.Element {
   );
 
   const renderVerifyStep = () => (
-    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+    <View style={styles.stickyFooterRoot}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContentSticky}
+        keyboardShouldPersistTaps="handled"
+      >
       <Text style={styles.stepTitle}>Verify Your Phrase</Text>
       <Text style={styles.stepDescription}>
         {pasteMode 
@@ -596,20 +600,24 @@ export function WalletCreationScreen(): React.JSX.Element {
         </>
       )}
 
-      {/* Always tappable. The handler validates and renders an explicit
-          error if the user hasn't selected/pasted all 12 words yet —
-          that's better UX than a silently-disabled button (which Apple's
-          reviewer flagged as "unresponsive" in build 7). */}
-      <Button
-        mode="contained"
-        onPress={handleVerify}
-        style={styles.primaryButton}
-        contentStyle={styles.buttonContent}
-        labelStyle={styles.buttonLabel}
-      >
-        Verify
-      </Button>
-    </ScrollView>
+      </ScrollView>
+      {/* Sticky footer — keeps Verify always reachable without scrolling.
+          Always tappable; handler renders an explicit error if the user
+          hasn't selected/pasted all 12 words yet (better UX than a
+          silently-disabled button, which Apple's reviewer flagged as
+          "unresponsive" in build 7). */}
+      <View style={styles.stickyFooter}>
+        <Button
+          mode="contained"
+          onPress={handleVerify}
+          style={styles.primaryButton}
+          contentStyle={styles.buttonContent}
+          labelStyle={styles.buttonLabel}
+        >
+          Verify
+        </Button>
+      </View>
+    </View>
   );
 
   const renderPinStep = () => (
@@ -744,8 +752,13 @@ export function WalletCreationScreen(): React.JSX.Element {
       colors={gradientColors}
       style={styles.gradient}
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-        <SafeAreaView style={styles.container}>
+      {/* Previously wrapped in <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          to dismiss the keyboard on tap-outside. That wrapper claims the gesture
+          responder for any drag and prevents the inner ScrollViews (Verify step
+          word chips, etc.) from scrolling when the user drags on a child view.
+          Keyboard dismissal is now delegated to each ScrollView via
+          keyboardShouldPersistTaps="handled". */}
+      <SafeAreaView style={styles.container}>{/* drop TouchableWithoutFeedback */}
           {/* Header with navigation */}
           <View style={styles.header}>
             {currentStep === 'generate' ? (
@@ -780,8 +793,7 @@ export function WalletCreationScreen(): React.JSX.Element {
           {/* Content */}
           {renderCurrentStep()}
 
-        </SafeAreaView>
-      </TouchableWithoutFeedback>
+      </SafeAreaView>
     </LinearGradient>
   );
 }
@@ -835,6 +847,23 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 24,
     paddingBottom: 40,
+  },
+  // Used by the Verify step: ScrollView fills the available space and the
+  // primary action sits in a sticky footer below it, so the user can drag
+  // anywhere in the word-chip area to scroll without having to find a thin
+  // unoccupied strip to hit-test the underlying ScrollView.
+  stickyFooterRoot: {
+    flex: 1,
+  },
+  scrollContentSticky: {
+    padding: 24,
+    paddingBottom: 24,
+  },
+  stickyFooter: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 24,
+    backgroundColor: 'transparent',
   },
   stepContent: {
     flex: 1,
@@ -915,11 +944,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    gap: 12,
+    // Don't use `gap` here — on Android (observed on Samsung S22 Ultra) the
+    // gap value gets added to the child's effective width during flex-wrap
+    // calculation, so width:'48%' + gap:12px exceeds 50% and every word
+    // wraps to its own row instead of forming a 2-column grid. We use
+    // marginBottom on the child instead; horizontal spacing comes from
+    // justifyContent:'space-between' on the row.
     marginBottom: 24,
   },
   wordContainer: {
     width: '48%',
+    marginBottom: 12,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
     padding: 12,
