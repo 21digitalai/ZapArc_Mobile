@@ -1000,6 +1000,8 @@ export default function ReceiveScreen() {
                     icon="download"
                     textColor={BRAND_COLOR}
                     style={styles.saveQrButton}
+                    contentStyle={styles.saveQrButtonContent}
+                    labelStyle={styles.saveQrButtonLabel}
                   >
                     {t('common.save') ?? 'Save QR image'}
                   </Button>
@@ -1062,6 +1064,8 @@ export default function ReceiveScreen() {
                     icon="download"
                     textColor={BRAND_COLOR}
                     style={styles.saveQrButton}
+                    contentStyle={styles.saveQrButtonContent}
+                    labelStyle={styles.saveQrButtonLabel}
                   >
                     {t('common.save') ?? 'Save QR image'}
                   </Button>
@@ -1261,6 +1265,14 @@ const styles = StyleSheet.create({
   fullValueText: { fontSize: 12, fontFamily: 'monospace', lineHeight: 18, marginVertical: 8, wordBreak: 'break-all' } as any,
   copyButton: { marginTop: 8, alignSelf: 'center', borderColor: BRAND_COLOR },
   saveQrButton: { marginTop: 4, marginBottom: 8, alignSelf: 'center', borderColor: BRAND_COLOR },
+  // Tighten icon-to-label spacing. Paper's default Button layout adds a
+  // sizeable gap when `icon` is set (so wide rectangular buttons look
+  // balanced), which leaves "Save QR image" pushed visibly to the right
+  // of the download icon on this small, compact button. Removing the
+  // label's inherent marginLeft (which Paper sets to ~8) and tightening
+  // the content padding closes the gap.
+  saveQrButtonContent: { paddingHorizontal: 8 },
+  saveQrButtonLabel: { marginLeft: 4, marginRight: 8, fontSize: 13 },
   invoiceSectionTitle: { marginTop: 20 },
   sectionSubtitle: { fontSize: 13, marginBottom: 14 },
   helperText: { fontSize: 13, marginBottom: 2 },
