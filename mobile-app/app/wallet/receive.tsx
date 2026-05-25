@@ -1,10 +1,12 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Modal, Linking, type LayoutChangeEvent } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Modal, Linking, Platform, PermissionsAndroid, type LayoutChangeEvent } from 'react-native';
 import { Text, Button, Snackbar, IconButton, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
+import * as Sharing from 'expo-sharing';
+import RNFS from 'react-native-fs';
 import QRCode from 'react-native-qrcode-svg';
 import { useAppTheme } from '../../src/contexts/ThemeContext';
 import {
@@ -100,6 +102,12 @@ export default function ReceiveScreen() {
   // misleads when the asset is a token.
   const [invoiceUsdbAmount, setInvoiceUsdbAmount] = useState(0);
   const scrollViewRef = useRef<ScrollView | null>(null);
+  // Refs for the two on-screen <QRCode/> instances. We use the
+  // react-native-qrcode-svg `toDataURL` callback to grab a base64 PNG, write
+  // it to RNFS cache, then hand it to expo-sharing — same flow that the Tip
+  // QR screen has been using since v1.0.
+  const lightningQrRef = useRef<any>(null);
+  const onchainQrRef = useRef<any>(null);
   const scrolledInvoiceRef = useRef<string>('');
   const [invoicePreviewY, setInvoicePreviewY] = useState<number | null>(null);
 
@@ -564,6 +572,56 @@ export default function ReceiveScreen() {
     };
   }, [activeTab, onchainAddress, refreshBalance, refreshTransactions]);
 
+  // Capture the QR as PNG via toDataURL, write to RNFS cache, then open
+  // the system share sheet (which on iOS/Android offers "Save Image" /
+  // "Save to Files" / send-to-app actions). Falls back to writing into the
+  // Downloads directory on Android when expo-sharing isn't available.
+  const handleSaveQR = useCallback(async (
+    qrRef: React.MutableRefObject<any>,
+    filenamePrefix: string,
+  ) => {
+    if (!qrRef.current) {
+      Alert.alert(t('common.error'), 'QR code not ready');
+      return;
+    }
+    qrRef.current.toDataURL(async (dataURL: string) => {
+      try {
+        const fileName = `${filenamePrefix}-${Date.now()}.png`;
+        const filePath = `${RNFS.CachesDirectoryPath}/${fileName}`;
+        await RNFS.writeFile(filePath, dataURL, 'base64');
+
+        const isAvailable = await Sharing.isAvailableAsync();
+        if (isAvailable) {
+          await Sharing.shareAsync(`file://${filePath}`, {
+            mimeType: 'image/png',
+            dialogTitle: 'Save QR Code',
+          });
+          return;
+        }
+
+        // No share sheet available — copy into Downloads on Android.
+        if (Platform.OS === 'android') {
+          const granted = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+          );
+          if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+            const downloadPath = `${RNFS.DownloadDirectoryPath}/${fileName}`;
+            await RNFS.copyFile(filePath, downloadPath);
+            setSnackMsg('QR code saved to Downloads');
+            setSnackVisible(true);
+          } else {
+            Alert.alert(t('common.error'), 'Storage permission denied');
+          }
+        } else {
+          Alert.alert(t('common.error'), 'Sharing not available on this device');
+        }
+      } catch (error) {
+        console.error('Failed to save QR:', error);
+        Alert.alert(t('common.error'), error instanceof Error ? error.message : 'Failed to save QR code');
+      }
+    });
+  }, []);
+
   const handleCopyOnchainAddress = useCallback(async () => {
     if (!onchainAddress) return;
     try {
@@ -932,8 +990,19 @@ export default function ReceiveScreen() {
                       size={200}
                       backgroundColor="#FFFFFF"
                       color="#000000"
+                      getRef={(ref) => { lightningQrRef.current = ref; }}
                     />
                   </View>
+                  <Button
+                    mode="outlined"
+                    onPress={() => handleSaveQR(lightningQrRef, 'zaparc-lightning-qr')}
+                    compact
+                    icon="download"
+                    textColor={BRAND_COLOR}
+                    style={styles.saveQrButton}
+                  >
+                    {t('common.save') ?? 'Save QR image'}
+                  </Button>
 
                   <View style={styles.invoiceContainer}>
                     <Text style={[styles.invoiceLabel, { color: secondaryTextColor }]}>{t('payments.invoice')}</Text>
@@ -969,6 +1038,34 @@ export default function ReceiveScreen() {
                 </View>
               ) : onchainAddress ? (
                 <>
+                  {/* Encode `bitcoin:<address>` (BIP-21) with no query
+                      params. The scheme prefix lets universal QR scanners
+                      route the scan to the user's preferred Bitcoin wallet,
+                      while staying universally decodable. We deliberately
+                      omit the SDK's `minAmountSats` / `minimumAmount` hints:
+                      they're non-standard BIP-21 params that only ZapArc
+                      reads, so they'd just bloat the QR for everyone else.
+                      The minimum is communicated as plain text below. */}
+                  <View style={styles.qrContainer}>
+                    <QRCode
+                      value={`bitcoin:${onchainAddress}`}
+                      size={200}
+                      backgroundColor="#FFFFFF"
+                      color="#000000"
+                      getRef={(ref) => { onchainQrRef.current = ref; }}
+                    />
+                  </View>
+                  <Button
+                    mode="outlined"
+                    onPress={() => handleSaveQR(onchainQrRef, 'zaparc-onchain-qr')}
+                    compact
+                    icon="download"
+                    textColor={BRAND_COLOR}
+                    style={styles.saveQrButton}
+                  >
+                    {t('common.save') ?? 'Save QR image'}
+                  </Button>
+
                   <Text style={[styles.invoiceLabel, { color: secondaryTextColor }]}>{t('deposit.bitcoinAddress')}</Text>
                   <Text style={[styles.fullValueText, { color: primaryTextColor }]} selectable>
                     {onchainAddress}
@@ -1163,6 +1260,7 @@ const styles = StyleSheet.create({
   qrContainer: { alignItems: 'center', marginVertical: 16, padding: 16, backgroundColor: '#FFFFFF', borderRadius: 12, alignSelf: 'center' },
   fullValueText: { fontSize: 12, fontFamily: 'monospace', lineHeight: 18, marginVertical: 8, wordBreak: 'break-all' } as any,
   copyButton: { marginTop: 8, alignSelf: 'center', borderColor: BRAND_COLOR },
+  saveQrButton: { marginTop: 4, marginBottom: 8, alignSelf: 'center', borderColor: BRAND_COLOR },
   invoiceSectionTitle: { marginTop: 20 },
   sectionSubtitle: { fontSize: 13, marginBottom: 14 },
   helperText: { fontSize: 13, marginBottom: 2 },
