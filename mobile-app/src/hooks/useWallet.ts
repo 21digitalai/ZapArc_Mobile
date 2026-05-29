@@ -1151,10 +1151,89 @@ export function useWalletStateInternal(): WalletState & WalletActions {
   // ========================================
   // Real-time Payment Event Listener
   // ========================================
-  
-  // NOTE: Disabled - The SDK addEventListener was causing native crashes
-  // Real-time payment updates will be reimplemented when proper Breez SDK event API is available
-  // For now, users need to pull-to-refresh manually to see new transactions
+  //
+  // Subscribe to the Breez/Spark `onPaymentReceived` event so that an
+  // incoming payment is credited to the displayed balance immediately,
+  // and — crucially — protect that credit from being clobbered by a
+  // stale `getBalance()` read.
+  //
+  // Why the window matters: the Spark operator commits new deposits
+  // asynchronously. Between the moment the SDK fires the event ("here's
+  // a 250-sat receive") and the moment a follow-up `getBalance()` query
+  // returns the new total, there's a window (seconds-to-minutes) during
+  // which the operator still reports the *pre-deposit* balance. A
+  // routine `refreshBalance()` triggered by focus / navigation in that
+  // window would write the stale value over the optimistic credit and
+  // make the user's balance momentarily "disappear" — observed in
+  // production for users receiving their very first Lightning payment
+  // (BTC: 0 → 250 → 0 → 250 after ~5 min).
+  //
+  // The fix: when the event fires, (a) apply the delta locally and
+  // (b) hold `optimisticAuthoritativeUntilRef` for 60 s so the guard at
+  // lines ~748 / ~776 refuses to overwrite the balance with a lower SDK
+  // value during the window. After the window expires the SDK is the
+  // authority again and any genuine subsequent changes converge.
+  useEffect(() => {
+    if (!isConnected) return;
+
+    const unsubscribe = BreezSparkService.onPaymentReceived((payment) => {
+      // Skip the SDK's internal sync probe events.
+      if (payment.description === '__SYNC_EVENT__') return;
+      // Only credit RECEIVED payments. Sends are debited synchronously
+      // by the send flow + the operator commits spends atomically, so
+      // the race only affects receives.
+      if (payment.type !== 'receive' || payment.amountSat <= 0) return;
+
+      const isUsdb = payment.asset === 'USDB';
+
+      if (isUsdb && payment.tokenIdentifier) {
+        // USDB receives: payment.amountSat carries the token amount in
+        // base units (see service docs); add it to the matching token
+        // entry, or synthesise a minimal row if this is a first-time
+        // receive (the next refresh fills in the full SDK shape).
+        const tokenId = payment.tokenIdentifier;
+        const delta = BigInt(payment.amountSat);
+        setTokenBalances((prev) => {
+          const idx = prev.findIndex((e) => {
+            const r = e as Record<string, unknown>;
+            const id = String(r.tokenIdentifier || (r.tokenMetadata as any)?.identifier || '').trim();
+            return id === tokenId;
+          });
+          if (idx >= 0) {
+            const existing = prev[idx] as Record<string, unknown>;
+            const prevBal = typeof existing.balance === 'bigint'
+              ? existing.balance
+              : BigInt(String(existing.balance ?? '0'));
+            const next = [...prev];
+            next[idx] = { ...existing, balance: prevBal + delta } as TokenBalanceEntry;
+            return next;
+          }
+          return [
+            ...prev,
+            {
+              balance: delta,
+              tokenIdentifier: tokenId,
+              ticker: 'USDB',
+              decimals: 6,
+              tokenMetadata: { identifier: tokenId, ticker: 'USDB', decimals: 6 },
+            } as unknown as TokenBalanceEntry,
+          ];
+        });
+      } else {
+        // BTC receive — increment the displayed sat balance. Even if a
+        // stale `refreshBalance()` already overwrote us with the pre-
+        // deposit total, this `prev + amountSat` re-credits the delta.
+        // Double-counting against a *fresh* refresh is impossible because
+        // the SDK can't return the post-deposit balance before it has
+        // observed (and emitted the event for) the deposit.
+        setBalance((prev) => prev + payment.amountSat);
+      }
+
+      optimisticAuthoritativeUntilRef.current = Date.now() + 60_000;
+    });
+
+    return unsubscribe;
+  }, [isConnected]);
 
   // ========================================
   // SDK Connection StatusSync

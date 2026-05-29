@@ -1412,6 +1412,11 @@ export default function SendScreen() {
                 style={[styles.input, styles.inputWithButton]}
                 multiline
                 numberOfLines={2}
+                // Top-align so pasted invoices read from the top of the box
+                // instead of getting pushed to the bottom border (Android's
+                // default vertical-center on a multiline-sized TextInput).
+                textAlignVertical="top"
+                contentStyle={styles.pasteInputContent}
               />
               <TouchableOpacity
                 style={styles.addressBookButton}
@@ -1428,7 +1433,13 @@ export default function SendScreen() {
               value={paymentInput}
               onChangeText={handlePaymentInputChange}
               style={styles.input}
-              multiline={false}
+              // Bitcoin addresses are long enough that they overflow the
+              // visible field width; enable multiline + wrap so the entire
+              // address is readable. Top-align matches the Lightning input.
+              multiline
+              numberOfLines={2}
+              textAlignVertical="top"
+              contentStyle={styles.pasteInputContent}
               error={!!addressError}
             />
           )}
@@ -1796,6 +1807,13 @@ const styles = StyleSheet.create({
   },
   input: {
     marginBottom: 0,
+  },
+  // Symmetric vertical padding for the paste-address / paste-invoice inputs
+  // so the text sits centered when it's a single line and grows top-down
+  // when wrapped (paired with `textAlignVertical="top"` on the input).
+  pasteInputContent: {
+    paddingTop: 12,
+    paddingBottom: 12,
   },
   addressErrorText: {
     color: '#ef4444',
