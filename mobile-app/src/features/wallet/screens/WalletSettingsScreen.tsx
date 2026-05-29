@@ -21,7 +21,7 @@ import { getActiveSecurityReminder } from '../utils/walletSecurityOnboarding';
 
 export function WalletSettingsScreen(): React.JSX.Element {
   const { settings, isLoading: settingsLoading, loadSettings } = useSettings();
-  const appVersion = Constants.expoConfig?.version ?? '1.0.1';
+  const appVersion = Constants.expoConfig?.version ?? '1.1.2';
   const { currentLanguage, t } = useLanguage();
   const { themeMode } = useAppTheme();
 
