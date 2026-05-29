@@ -13,6 +13,7 @@ import { useWalletAuth } from '../../../../hooks/useWalletAuth';
 import { useLanguage } from '../../../../hooks/useLanguage';
 import { useAppTheme } from '../../../../contexts/ThemeContext';
 import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_COLOR } from '../../../../utils/theme-helpers';
+import { PinLockoutBanner } from '../../components/PinLockoutBanner';
 
 // =============================================================================
 // Component
@@ -104,29 +105,35 @@ export function SecuritySettingsScreen(): React.JSX.Element {
 
     try {
       if (enabled) {
-        const success = await enableBiometric();
-        if (!success) {
-          // enableBiometric already logged the specific reason (missing
-          // session PIN, cancelled OS prompt, keystore write failed, ...).
+        const result = await enableBiometric();
+        if (!result.ok) {
           setBiometricEnabled(false);
+          // Surface the specific reason returned by useWalletAuth so the
+          // user knows whether to set up biometrics in system settings,
+          // re-unlock their wallet, retry the OS prompt, etc. — not just
+          // a generic "verification failed".
           Alert.alert(
             t('settings.failed'),
-            t('settings.biometricVerificationFailed'),
+            result.reason ?? t('settings.biometricVerificationFailed'),
           );
           return;
         }
       } else {
-        const success = await disableBiometric();
-        if (!success) {
+        const result = await disableBiometric();
+        if (!result.ok) {
           setBiometricEnabled(true);
-          Alert.alert(t('common.error'), t('settings.failedToSaveSettings'));
+          Alert.alert(
+            t('common.error'),
+            result.reason ?? t('settings.failedToSaveSettings'),
+          );
           return;
         }
       }
       console.log(`🔐 [SecuritySettings] Biometric ${enabled ? 'enabled' : 'disabled'}`);
     } catch (err) {
       console.error('❌ [SecuritySettings] Failed to toggle biometric:', err);
-      Alert.alert(t('common.error'), t('settings.failedToSaveSettings'));
+      const detail = err instanceof Error ? err.message : String(err);
+      Alert.alert(t('common.error'), detail || t('settings.failedToSaveSettings'));
       setBiometricEnabled(!enabled);
     }
   };
@@ -155,6 +162,11 @@ export function SecuritySettingsScreen(): React.JSX.Element {
 
         <ScrollView style={styles.scrollView}>
           <View style={styles.content}>
+            {/* If the user has hit the PIN lockout threshold elsewhere
+                (e.g. failed unlock attempts), surface that here so they
+                don't think the biometric toggle is just "broken". */}
+            <PinLockoutBanner />
+
             {/* Biometric Authentication */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>

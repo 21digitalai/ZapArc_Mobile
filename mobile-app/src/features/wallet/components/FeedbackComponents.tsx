@@ -18,6 +18,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Text, Button, Portal } from 'react-native-paper';
+import { setGlobalErrorSink } from '../../../utils/globalErrorSink';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
 
@@ -122,6 +123,15 @@ export function FeedbackProvider({ children }: FeedbackProviderProps): React.JSX
     (message: string) => showToast('error', message, 4000),
     [showToast]
   );
+
+  // Register this provider as the global error sink so callers outside
+  // the React tree (background services, the global RN error handler in
+  // globalErrorSink.ts) can surface errors to the same Snackbar surface.
+  // Re-registers if `showError` identity changes; clears on unmount.
+  useEffect(() => {
+    setGlobalErrorSink(showError);
+    return () => setGlobalErrorSink(null);
+  }, [showError]);
 
   const showWarning = useCallback(
     (message: string) => showToast('warning', message),

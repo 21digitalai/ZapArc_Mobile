@@ -12,6 +12,12 @@ import { LanguageProvider } from '../src/contexts/LanguageContext';
 import { WalletProvider } from '../src/contexts/WalletContext';
 import { FeedbackProvider } from '../src/features/wallet/components/FeedbackComponents';
 import { initializeTlsPinning } from '../src/services/tlsPinningService';
+import { installGlobalErrorHandler } from '../src/utils/globalErrorSink';
+
+// Install before React mounts: catches errors thrown by import-time
+// initialisers and any background promise that escapes a try/catch.
+// Routes through the FeedbackProvider's Snackbar once it registers.
+installGlobalErrorHandler();
 
 /**
  * Clear the app icon badge. iOS keeps the badge counter sticky after a push

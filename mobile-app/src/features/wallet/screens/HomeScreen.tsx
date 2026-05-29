@@ -175,11 +175,20 @@ export function HomeScreen(): React.JSX.Element {
 
   const handleEnableBiometric = useCallback(async (): Promise<void> => {
     // The banner tap IS the user's opt-in, so we skip any confirm alert.
-    // If the user cancels the OS prompt, enableBiometric returns false and
-    // the banner simply stays - refreshSecurityBanner re-derives state.
-    await enableBiometric();
+    // If enableBiometric fails (cancelled OS prompt, missing session PIN,
+    // hardware unavailable, keystore write failed, ...), surface the
+    // actual reason via toast so the user knows what to fix instead of
+    // tapping into a silent no-op. The banner re-derives state after.
+    const result = await enableBiometric();
+    if (!result.ok && result.reason) {
+      showToast({
+        title: t('settings.failed'),
+        subtitle: result.reason,
+        tone: 'danger',
+      });
+    }
     await refreshSecurityBanner();
-  }, [enableBiometric, refreshSecurityBanner]);
+  }, [enableBiometric, refreshSecurityBanner, showToast, t]);
 
   const handleDismissBiometric = useCallback((): void => {
     setActiveReminder(null);

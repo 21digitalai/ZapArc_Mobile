@@ -9,6 +9,7 @@ import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSettings } from '../../../../hooks/useSettings';
 import { useLanguage } from '../../../../hooks/useLanguage';
+import { useFeedback } from '../../components/FeedbackComponents';
 import { useAppTheme } from '../../../../contexts/ThemeContext';
 import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_COLOR } from '../../../../utils/theme-helpers';
 import type { PrimaryDenomination, FiatCurrency } from '../../../settings/types';
@@ -73,6 +74,7 @@ export function CurrencySettingsScreen(): React.JSX.Element {
   const { settings, updateSettings } = useSettings();
   const { t } = useLanguage();
   const { themeMode } = useAppTheme();
+  const { showError } = useFeedback();
 
   const gradientColors = getGradientColors(themeMode);
   const primaryText = getPrimaryTextColor(themeMode);
@@ -105,6 +107,7 @@ export function CurrencySettingsScreen(): React.JSX.Element {
   // Handle primary denomination change - save immediately
   const handlePrimaryDenominationChange = async (value: string): Promise<void> => {
     const newValue = value as PrimaryDenomination;
+    const previousValue = primaryDenomination;
     setPrimaryDenomination(newValue);
 
     try {
@@ -114,6 +117,13 @@ export function CurrencySettingsScreen(): React.JSX.Element {
         currency: newValue,
       });
     } catch (error) {
+      // Revert the optimistic UI flip so the radio reflects what's
+      // actually persisted, and surface the real failure cause so the
+      // user knows the change didn't stick (instead of seeing a
+      // silently-non-functional toggle).
+      setPrimaryDenomination(previousValue);
+      const detail = error instanceof Error ? error.message : String(error);
+      showError(`Could not save currency preference: ${detail}`);
       console.error('❌ [CurrencySettings] Failed to save primaryDenomination:', error);
     }
   };
@@ -121,6 +131,7 @@ export function CurrencySettingsScreen(): React.JSX.Element {
   // Handle fiat currency change - save immediately
   const handleFiatCurrencyChange = async (value: string): Promise<void> => {
     const newValue = value as FiatCurrency;
+    const previousValue = secondaryFiatCurrency;
     setSecondaryFiatCurrency(newValue);
 
     try {
@@ -128,6 +139,9 @@ export function CurrencySettingsScreen(): React.JSX.Element {
         secondaryFiatCurrency: newValue,
       });
     } catch (error) {
+      setSecondaryFiatCurrency(previousValue);
+      const detail = error instanceof Error ? error.message : String(error);
+      showError(`Could not save fiat preference: ${detail}`);
       console.error('❌ [CurrencySettings] Failed to save secondaryFiatCurrency:', error);
     }
   };

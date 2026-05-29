@@ -45,23 +45,19 @@ function askContinue(context: WalletSecurityContext): Promise<boolean> {
   });
 }
 
-async function enableBiometricsIfNeeded(): Promise<void> {
-  const settings = await settingsService.getUserSettings();
-  if (settings.biometricEnabled) return;
-
-  const hasHardware = await LocalAuthentication.hasHardwareAsync();
-  const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-  if (!hasHardware || !isEnrolled) return;
-
-  const authResult = await LocalAuthentication.authenticateAsync({
-    promptMessage: 'Enable biometric unlock',
-    cancelLabel: 'Skip',
-  });
-
-  if (authResult.success) {
-    await settingsService.updateUserSettings({ biometricEnabled: true });
-  }
-}
+// NOTE: A previous version of this file had `enableBiometricsIfNeeded`
+// flip `biometricEnabled = true` directly in settings without storing
+// the PIN to the OS keystore. That left the wallet in a poisoned state
+// where the setting said "biometric on" but no PIN was bound to the
+// keystore entry, which then caused every subsequent unlockWithBiometric
+// to silently fail (returns null mnemonic ⇒ now counted as a failed PIN
+// attempt by the security commit, eventually triggering PIN lockout).
+//
+// We've removed the broken path entirely. Biometric setup now happens
+// exclusively through the home-screen banner ⇒ `useWalletAuth.enableBiometric`,
+// which keeps the setting and the keystore PIN in lockstep. The
+// onboarding alert still runs and asks the user to opt-in; the banner
+// then surfaces on the next render after wallet creation if they did.
 
 export async function enableNotificationsIfNeeded(): Promise<void> {
   const settings = await settingsService.getUserSettings();
@@ -97,7 +93,9 @@ export async function runWalletSecurityOnboarding(
     return;
   }
 
-  await enableBiometricsIfNeeded();
+  // Biometric setup intentionally NOT triggered here — see the comment
+  // block above `enableBiometricsIfNeeded` for the rationale. The home
+  // banner picks it up immediately after wallet creation.
   await enableNotificationsIfNeeded();
   await setOnboardingState({ skipped: false });
 }

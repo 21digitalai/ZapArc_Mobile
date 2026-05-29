@@ -69,8 +69,15 @@ export interface WalletAuthActions {
 
   // Biometric
   unlockWithBiometric: () => Promise<boolean>;
-  enableBiometric: () => Promise<boolean>;
-  disableBiometric: () => Promise<boolean>;
+  /**
+   * Try to enable biometric unlock. Returns `{ ok: true }` on success
+   * or `{ ok: false, reason }` with a user-presentable explanation
+   * (PIN required / hardware unavailable / OS prompt cancelled /
+   * keystore write failed / etc.) so the caller can surface the actual
+   * cause instead of a generic "verification failed" string.
+   */
+  enableBiometric: () => Promise<{ ok: boolean; reason?: string }>;
+  disableBiometric: () => Promise<{ ok: boolean; reason?: string }>;
 
   // Wallet selection
   selectWallet: (masterKeyId: string, subWalletIndex: number, pin: string) => Promise<boolean>;
@@ -633,15 +640,18 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
    * Returns true only if the PIN was actually stored AND the setting flipped.
    * Returns false (without changing the setting) on any failure.
    */
-  const enableBiometric = useCallback(async (): Promise<boolean> => {
+  const enableBiometric = useCallback(async (): Promise<{ ok: boolean; reason?: string }> => {
     try {
       setError(null);
 
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
       if (!hasHardware || !isEnrolled) {
-        setError('Biometric authentication is not set up on this device.');
-        return false;
+        const reason = !hasHardware
+          ? 'This device does not have biometric hardware.'
+          : 'No fingerprint or face is enrolled on this device. Add one in system Settings first.';
+        setError(reason);
+        return { ok: false, reason };
       }
 
       const masterKeyId = currentMasterKeyId;
@@ -654,8 +664,9 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
           hasMasterKeyId: Boolean(masterKeyId),
           hasSessionPin: Boolean(pin),
         });
-        setError('Unlock your wallet with your PIN first, then enable biometric.');
-        return false;
+        const reason = 'Unlock your wallet with your PIN first, then enable biometric.';
+        setError(reason);
+        return { ok: false, reason };
       }
 
       // The setItemAsync call below triggers the single OS biometric prompt.
@@ -665,19 +676,26 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         await storageService.storeBiometricPin(masterKeyId, pin);
       } catch (storeErr) {
         console.error('❌ [useWalletAuth] enableBiometric: storeBiometricPin failed', storeErr);
-        // User cancelled the OS prompt or the keystore write failed. Do NOT
-        // enable the setting — leave the wallet in its previous state so the
-        // banner will reappear and the user can retry.
-        return false;
+        const detail = storeErr instanceof Error ? storeErr.message : String(storeErr);
+        // Distinguish user-cancel (common, expected) from a real keystore
+        // failure so the message we surface matches what actually happened.
+        const isCancel = /cancel|UserCancel|user_cancel|biometric_canceled/i.test(detail);
+        const reason = isCancel
+          ? 'Biometric prompt was cancelled. Try again to enable.'
+          : `Could not save the biometric key (${detail}).`;
+        setError(reason);
+        return { ok: false, reason };
       }
 
       await settingsService.updateUserSettings({ biometricEnabled: true });
       setBiometricEnabled(true);
       console.log('✅ [useWalletAuth] Biometric unlock enabled for master key:', masterKeyId);
-      return true;
+      return { ok: true };
     } catch (err) {
       console.error('❌ [useWalletAuth] enableBiometric failed:', err);
-      return false;
+      const reason = err instanceof Error ? err.message : 'Unknown error enabling biometric.';
+      setError(reason);
+      return { ok: false, reason };
     }
   }, [currentMasterKeyId]);
 
@@ -687,7 +705,7 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
    * Keeping these two in lockstep prevents the previous failure mode where the
    * setting said "on" but no PIN was bound, leading to broken-state recovery.
    */
-  const disableBiometric = useCallback(async (): Promise<boolean> => {
+  const disableBiometric = useCallback(async (): Promise<{ ok: boolean; reason?: string }> => {
     try {
       setError(null);
       const masterKeyId = currentMasterKeyId;
@@ -701,10 +719,11 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       await settingsService.updateUserSettings({ biometricEnabled: false });
       setBiometricEnabled(false);
       console.log('✅ [useWalletAuth] Biometric unlock disabled');
-      return true;
+      return { ok: true };
     } catch (err) {
       console.error('❌ [useWalletAuth] disableBiometric failed:', err);
-      return false;
+      const reason = err instanceof Error ? err.message : 'Unknown error disabling biometric.';
+      return { ok: false, reason };
     }
   }, [currentMasterKeyId]);
 
