@@ -2,7 +2,7 @@
 // Manages wallet PIN authentication, session, and auto-lock
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { AppState, AppStateStatus } from 'react-native';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { storageService, settingsService } from '../services';
 import * as BreezSparkService from '../services/breezSparkService';
@@ -214,13 +214,27 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
 
       if (hasHardware && isEnrolled) {
         const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
+        const hasFacial = types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION);
+        const hasFingerprint = types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT);
+        const hasIris = types.includes(LocalAuthentication.AuthenticationType.IRIS);
 
-        if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
-          setBiometricType('facial');
-        } else if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
-          setBiometricType('fingerprint');
-        } else if (types.includes(LocalAuthentication.AuthenticationType.IRIS)) {
-          setBiometricType('iris');
+        // IMPORTANT: supportedAuthenticationTypesAsync() reports what the
+        // HARDWARE can do, NOT what the user has enrolled. Many Android
+        // phones (e.g. Samsung) report BOTH facial + fingerprint even when
+        // the user only enrolled a fingerprint — and on Android, face
+        // unlock is typically a weak (Class 2) biometric that the OS won't
+        // use for an app-level prompt anyway. So on Android we prefer
+        // fingerprint, which is what authenticateAsync / SecureStore will
+        // actually prompt for. On iOS, Face ID and Touch ID are mutually
+        // exclusive, so reporting facial == Face ID is correct.
+        if (Platform.OS === 'android') {
+          if (hasFingerprint) setBiometricType('fingerprint');
+          else if (hasFacial) setBiometricType('facial');
+          else if (hasIris) setBiometricType('iris');
+        } else {
+          if (hasFacial) setBiometricType('facial');
+          else if (hasFingerprint) setBiometricType('fingerprint');
+          else if (hasIris) setBiometricType('iris');
         }
       }
     } catch (err) {
@@ -267,14 +281,33 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       }
 
       if (!pin) {
-        // Biometric enabled but keystore returned no PIN. This can happen when
-        // the keystore was wiped (e.g. backup restore) or a prior enable flow
-        // silently failed to store the PIN. DO NOT silently flip the setting
-        // off — that was aggressive behaviour that disabled biometric after a
-        // single cancelled prompt. Instead, show a hint and let the user
-        // re-enable from Settings → Security if they want to rebind the PIN.
-        console.warn('⚠️ [useWalletAuth] Biometric PIN missing from keystore — user should re-enable from Settings');
-        setError('Biometric unlock unavailable. Enter your PIN, then re-enable biometric in Settings.');
+        // Reaching here means getBiometricPin RESOLVED to null (not threw) —
+        // i.e. there is genuinely NO biometric key bound for THIS wallet's
+        // masterKeyId. A user-cancelled prompt throws instead and is handled
+        // in the catch above, so we can safely distinguish the two: this is
+        // the keystore↔setting DRIFT case, not a cancel.
+        //
+        // How drift happens: `biometricEnabled` is a GLOBAL setting but the
+        // biometric PIN is stored PER-WALLET. Restoring/importing a wallet
+        // creates a new masterKeyId with no bound biometric PIN, while the
+        // global `biometricEnabled` flag carries over from a previously
+        // created wallet — so the button shows but no key exists, and the
+        // SecureStore read returns null without ever prompting.
+        //
+        // Self-heal: flip the setting off for this state so the stale
+        // biometric button disappears and the home banner re-surfaces,
+        // letting the user re-enable (which binds a PIN for THIS wallet).
+        // This is safe precisely because we've confirmed there's no key to
+        // protect — unlike the old aggressive behaviour that disabled on a
+        // mere cancel.
+        console.warn('⚠️ [useWalletAuth] No biometric key bound for this wallet — disabling stale biometric flag so the user can re-enable');
+        try {
+          await settingsService.updateUserSettings({ biometricEnabled: false });
+          setBiometricEnabled(false);
+        } catch (healErr) {
+          console.warn('⚠️ [useWalletAuth] Failed to reconcile biometric flag:', healErr);
+        }
+        setError('Biometric unlock isn’t set up for this wallet yet. Enter your PIN, then enable it from the home screen or Settings.');
         return false;
       }
 

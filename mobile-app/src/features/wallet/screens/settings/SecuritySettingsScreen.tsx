@@ -57,14 +57,15 @@ export function SecuritySettingsScreen(): React.JSX.Element {
             // iOS: Face ID or Touch ID — one or the other
             setBiometricType(hasFace ? 'Face ID' : 'Fingerprint');
           } else {
-            // Android: often supports both — use generic "Biometric"
-            // unless only one type is available
-            if (hasFace && hasFingerprint) {
-              setBiometricType('Biometric');
+            // Android: supportedAuthenticationTypesAsync reports HARDWARE
+            // capability, not what's enrolled, and many phones report both
+            // even when only a fingerprint is enrolled. Android face unlock
+            // is also typically not usable for app-level prompts, so prefer
+            // fingerprint when the hardware lists it.
+            if (hasFingerprint) {
+              setBiometricType('Fingerprint');
             } else if (hasFace) {
               setBiometricType('Face ID');
-            } else if (hasFingerprint) {
-              setBiometricType('Fingerprint');
             }
           }
         }
