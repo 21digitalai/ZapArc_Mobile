@@ -41,6 +41,8 @@ import {
   getActiveSecurityReminder,
   dismissBiometricBanner,
   dismissNotificationsBanner,
+  snoozeCloudBackupBanner,
+  dismissLightningAddressBanner,
   type SecurityReminderKind,
 } from '../utils/walletSecurityOnboarding';
 
@@ -143,12 +145,14 @@ export function HomeScreen(): React.JSX.Element {
   // is resolved (enabled, dismissed, or unavailable on this device).
   const refreshSecurityBanner = useCallback(async (): Promise<void> => {
     try {
-      const next = await getActiveSecurityReminder();
+      const next = await getActiveSecurityReminder({
+        masterKeyId: activeWalletInfo?.masterKeyId,
+      });
       setActiveReminder(next);
     } catch {
       setActiveReminder(null);
     }
-  }, []);
+  }, [activeWalletInfo?.masterKeyId]);
 
   useEffect(() => {
     void refreshSecurityBanner();
@@ -205,6 +209,36 @@ export function HomeScreen(): React.JSX.Element {
   const handleDismissNotifications = useCallback((): void => {
     setActiveReminder(null);
     void dismissNotificationsBanner().finally(() => {
+      void refreshSecurityBanner();
+    });
+  }, [refreshSecurityBanner]);
+
+  // Cloud-backup banner: tapping "Set up" routes to the Google Drive
+  // backup settings. We hide the banner immediately for a snappy feel;
+  // the next refresh re-derives state (it'll stay hidden if a backup now
+  // exists, or re-surface after the snooze if the user backed out).
+  const handleEnableCloudBackup = useCallback((): void => {
+    setActiveReminder(null);
+    router.push('/wallet/settings/google-drive-backup');
+  }, []);
+
+  const handleDismissCloudBackup = useCallback((): void => {
+    setActiveReminder(null);
+    void snoozeCloudBackupBanner().finally(() => {
+      void refreshSecurityBanner();
+    });
+  }, [refreshSecurityBanner]);
+
+  // Lightning-address banner: tapping "Claim" routes to the LN address
+  // settings where the user generates username@zaparc.app.
+  const handleClaimLightningAddress = useCallback((): void => {
+    setActiveReminder(null);
+    router.push('/wallet/settings/lightning-address');
+  }, []);
+
+  const handleDismissLightningAddress = useCallback((): void => {
+    setActiveReminder(null);
+    void dismissLightningAddressBanner().finally(() => {
       void refreshSecurityBanner();
     });
   }, [refreshSecurityBanner]);
@@ -693,6 +727,64 @@ export function HomeScreen(): React.JSX.Element {
                   style={styles.securityBannerDismiss}
                 >
                   <Text style={[styles.securityBannerDismissText, { color: secondaryTextColor }]}> 
+                    {t('home.securityBanner.notNow')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {activeReminder === 'cloud-backup' && (
+            <View style={styles.securityBanner}>
+              <View style={styles.securityBannerTextWrap}>
+                <Text style={[styles.securityBannerTitle, { color: primaryTextColor }]}>
+                  {t('home.securityBanner.cloudBackupTitle')}
+                </Text>
+                <Text style={[styles.securityBannerSubtitle, { color: secondaryTextColor }]}>
+                  {t('home.securityBanner.cloudBackupSubtitle')}
+                </Text>
+              </View>
+              <View style={styles.securityBannerActions}>
+                <TouchableOpacity
+                  onPress={handleEnableCloudBackup}
+                  style={[styles.securityBannerPrimary, { backgroundColor: BRAND_COLOR }]}
+                >
+                  <Text style={styles.securityBannerPrimaryText}>{t('home.securityBanner.backUp')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleDismissCloudBackup}
+                  style={styles.securityBannerDismiss}
+                >
+                  <Text style={[styles.securityBannerDismissText, { color: secondaryTextColor }]}>
+                    {t('home.securityBanner.notNow')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {activeReminder === 'lightning-address' && (
+            <View style={styles.securityBanner}>
+              <View style={styles.securityBannerTextWrap}>
+                <Text style={[styles.securityBannerTitle, { color: primaryTextColor }]}>
+                  {t('home.securityBanner.lightningAddressTitle')}
+                </Text>
+                <Text style={[styles.securityBannerSubtitle, { color: secondaryTextColor }]}>
+                  {t('home.securityBanner.lightningAddressSubtitle')}
+                </Text>
+              </View>
+              <View style={styles.securityBannerActions}>
+                <TouchableOpacity
+                  onPress={handleClaimLightningAddress}
+                  style={[styles.securityBannerPrimary, { backgroundColor: BRAND_COLOR }]}
+                >
+                  <Text style={styles.securityBannerPrimaryText}>{t('home.securityBanner.claim')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleDismissLightningAddress}
+                  style={styles.securityBannerDismiss}
+                >
+                  <Text style={[styles.securityBannerDismissText, { color: secondaryTextColor }]}>
                     {t('home.securityBanner.notNow')}
                   </Text>
                 </TouchableOpacity>
