@@ -11,8 +11,9 @@ import {
   btcToSats,
   formatSats,
   formatFiat,
-  formatFiatCompact,
   satsToFiat,
+  formatAmountWithSettings,
+  formatTransactionAmountWithSettings,
 } from '../utils/currency';
 import type { PrimaryDenomination, FiatCurrency } from '../features/settings/types';
 import type { ExchangeRates, FormattedAmount, CurrencySettings } from '../utils/currency';
@@ -138,51 +139,22 @@ export function useCurrency(): UseCurrencyReturn {
     await loadSettings();
   }, [loadSettings]);
 
-  // Format amount with current display currency
+  // Format amount using the canonical split-settings formatter:
+  //   primary  = Bitcoin in the user's denomination (sats or BTC)
+  //   secondary = fiat conversion in the user's chosen currency (USD/EUR)
+  //
+  // IMPORTANT: this delegates to formatAmountWithSettings(currencySettings)
+  // rather than the legacy single-value `displayCurrency`. The Currency
+  // Settings screen writes primaryDenomination + secondaryFiatCurrency, but
+  // `displayCurrency` lives in a SEPARATE store that the settings screen
+  // never updates — so the old implementation showed a stale fiat symbol
+  // (e.g. kept "$" after the user switched to EUR). Sourcing from
+  // currencySettings makes the home balance track the settings UI exactly.
   const format = useCallback(
     (sats: number, options?: { hideBalance?: boolean }): FormattedAmount => {
-      const { hideBalance = false } = options || {};
-      if (hideBalance) {
-        return {
-          primary: '••••••',
-          secondary: null,
-          secondaryCompact: null,
-        };
-      }
-
-      const safeSats = typeof sats === 'number' && !isNaN(sats) ? sats : 0;
-
-      if (displayCurrency === 'sats') {
-        // When the user has sats as their primary display, show their
-        // configured secondary fiat equivalent below — e.g. sats as primary,
-        // "≈ €122.45" as secondary. Previously returned null for secondary
-        // which hid the fiat conversion entirely.
-        const fiatCode = secondaryFiatCurrency || 'usd';
-        const hasRate = !!rates && rates[fiatCode] > 0;
-        const fiatAmount = hasRate ? satsToFiat(safeSats, rates, fiatCode) : null;
-        return {
-          primary: `${formatSats(safeSats)} sats`,
-          secondary: fiatAmount !== null ? `≈ ${formatFiat(fiatAmount, fiatCode)}` : null,
-          secondaryCompact: fiatAmount !== null ? formatFiatCompact(fiatAmount, fiatCode) : null,
-        };
-      }
-
-      if (!rates || rates[displayCurrency] <= 0) {
-        return {
-          primary: `${formatSats(safeSats)} sats`,
-          secondary: null,
-          secondaryCompact: null,
-        };
-      }
-
-      const fiatAmount = satsToFiat(safeSats, rates, displayCurrency);
-      return {
-        primary: formatFiat(fiatAmount, displayCurrency),
-        secondary: `${formatSats(safeSats)} sats`,
-        secondaryCompact: `${formatSats(safeSats)} sats`,
-      };
+      return formatAmountWithSettings(sats, currencySettings, rates, options);
     },
-    [displayCurrency, rates, secondaryFiatCurrency]
+    [currencySettings, rates]
   );
 
   // Format transaction amount. `amount` is denominated per the tx's asset:
@@ -214,14 +186,9 @@ export function useCurrency(): UseCurrencyReturn {
         };
       }
 
-      const formatted = format(amount);
-      return {
-        primary: `${prefix}${formatted.primary}`,
-        secondary: formatted.secondary,
-        secondaryCompact: formatted.secondaryCompact,
-      };
+      return formatTransactionAmountWithSettings(amount, isReceived, currencySettings, rates);
     },
-    [format]
+    [currencySettings, rates]
   );
 
   // Format compact (for tight spaces like transaction list)
