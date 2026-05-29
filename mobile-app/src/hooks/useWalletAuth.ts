@@ -35,6 +35,19 @@ function setModuleSessionPin(pin: string | null): void {
   moduleSessionPin = pin;
 }
 
+/**
+ * Module-level setter usable from outside the hook (e.g. useWallet's
+ * createMasterKey / importMasterKey). The session PIN normally gets set
+ * by unlock()/selectWallet(), but wallet creation lands the user on the
+ * home screen WITHOUT going through those paths — so without this the
+ * session PIN stays null and the home biometric banner fails with
+ * "Unlock your wallet with your PIN first" even though the user just set
+ * one. Keep this the single writer alongside setModuleSessionPin.
+ */
+export function primeSessionPin(pin: string): void {
+  setModuleSessionPin(pin);
+}
+
 // =============================================================================
 // Types
 // =============================================================================

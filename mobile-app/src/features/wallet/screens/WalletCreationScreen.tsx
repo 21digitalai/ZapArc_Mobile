@@ -26,7 +26,6 @@ import { useWallet } from '../../../hooks/useWallet';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import { getGradientColors, BRAND_COLOR } from '../../../utils/theme-helpers';
 import { WALLET_PIN_LENGTH } from '../constants/security';
-import { runWalletSecurityOnboarding } from '../utils/walletSecurityOnboarding';
 
 // =============================================================================
 // Types
@@ -350,8 +349,10 @@ export function WalletCreationScreen(): React.JSX.Element {
   // Step 5: Complete
   // ========================================
 
-  const handleComplete = useCallback(async () => {
-    await runWalletSecurityOnboarding('create');
+  const handleComplete = useCallback(() => {
+    // No up-front security prompt here anymore — biometric, notifications,
+    // cloud-backup and lightning-address are all surfaced (and paced) by
+    // the home-screen banner system. Just land the user on home.
     router.replace('/wallet/home');
   }, []);
 

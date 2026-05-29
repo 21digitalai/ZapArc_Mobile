@@ -16,6 +16,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import { storageService } from '../services';
 import * as BreezSparkService from '../services/breezSparkService';
 import * as WalletCache from '../services/walletCacheService';
+import { primeSessionPin } from './useWalletAuth';
 import {
   deriveSubWalletMnemonic,
   validateMnemonic,
@@ -323,6 +324,13 @@ export function useWalletStateInternal(): WalletState & WalletActions {
           pin
         );
 
+        // Creation lands the user on the home screen without routing
+        // through unlock()/selectWallet(), so prime the module session PIN
+        // here. Otherwise the home biometric banner's "Enable" fails with
+        // "Unlock your wallet with your PIN first" right after the user
+        // just set one.
+        primeSessionPin(pin);
+
         // Biometric PIN is stored lazily when the user explicitly enables
         // biometric unlock from the home banner / security settings. Eagerly
         // writing it here would trigger an OS fingerprint dialog (to bind the
@@ -384,6 +392,11 @@ export function useWalletStateInternal(): WalletState & WalletActions {
           name,
           pin
         );
+
+        // Same as createMasterKey: prime the module session PIN so the
+        // home biometric banner works immediately after restore without a
+        // "Unlock your wallet with your PIN first" error.
+        primeSessionPin(pin);
 
         // Biometric PIN is stored lazily when the user explicitly enables
         // biometric unlock from the home banner / security settings. Eagerly

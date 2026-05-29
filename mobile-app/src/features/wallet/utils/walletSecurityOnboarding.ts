@@ -1,12 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Notifications from 'expo-notifications';
 import { settingsService } from '../../../services';
 import { googleDriveBackupService } from '../../../services/googleDriveBackupService';
 import { getCachedAddress } from '../../../services/lightningAddressService';
 
-const WALLET_SECURITY_ONBOARDING_KEY = '@zap_arc/wallet_security_onboarding_v1';
 const WALLET_SECURITY_BANNER_DISMISSED_KEY = '@zap_arc/wallet_security_banner_dismissed_v1';
 const BIOMETRIC_BANNER_DISMISSED_KEY = '@zap_arc/wallet_biometric_banner_dismissed_v1';
 const NOTIFICATIONS_BANNER_DISMISSED_KEY = '@zap_arc/wallet_notifications_banner_dismissed_v1';
@@ -75,40 +73,6 @@ async function getOrSetFirstSeenAt(now: number): Promise<number> {
   return now;
 }
 
-type WalletSecurityContext = 'create' | 'restore';
-
-interface OnboardingState {
-  skipped: boolean;
-}
-
-async function getOnboardingState(): Promise<OnboardingState | null> {
-  try {
-    const value = await AsyncStorage.getItem(WALLET_SECURITY_ONBOARDING_KEY);
-    return value ? (JSON.parse(value) as OnboardingState) : null;
-  } catch {
-    return null;
-  }
-}
-
-async function setOnboardingState(state: OnboardingState): Promise<void> {
-  await AsyncStorage.setItem(WALLET_SECURITY_ONBOARDING_KEY, JSON.stringify(state));
-}
-
-function askContinue(context: WalletSecurityContext): Promise<boolean> {
-  const title = context === 'restore' ? 'Secure your restored wallet' : 'Protect your wallet';
-  const message =
-    context === 'restore'
-      ? 'Enable biometric unlock and payment alerts to secure your restored wallet and stay on top of incoming transactions.'
-      : 'Enable biometric unlock and payment alerts for stronger security and instant payment updates.';
-
-  return new Promise((resolve) => {
-    Alert.alert(title, message, [
-      { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },
-      { text: 'Continue', onPress: () => resolve(true) },
-    ]);
-  });
-}
-
 // NOTE: A previous version of this file had `enableBiometricsIfNeeded`
 // flip `biometricEnabled = true` directly in settings without storing
 // the PIN to the OS keystore. That left the wallet in a poisoned state
@@ -144,25 +108,15 @@ export async function enableNotificationsIfNeeded(): Promise<void> {
   });
 }
 
-export async function runWalletSecurityOnboarding(
-  context: WalletSecurityContext,
-  options: { force?: boolean } = {}
-): Promise<void> {
-  const existingState = await getOnboardingState();
-  if (existingState && !options.force) return;
-
-  const shouldContinue = await askContinue(context);
-  if (!shouldContinue) {
-    await setOnboardingState({ skipped: true });
-    return;
-  }
-
-  // Biometric setup intentionally NOT triggered here — see the comment
-  // block above `enableBiometricsIfNeeded` for the rationale. The home
-  // banner picks it up immediately after wallet creation.
-  await enableNotificationsIfNeeded();
-  await setOnboardingState({ skipped: false });
-}
+// NOTE: `runWalletSecurityOnboarding` was removed. It showed a custom
+// "Protect your wallet" alert during wallet creation/restore asking the
+// user to opt into biometric + notifications. That up-front alert was
+// intrusive (especially right after the user finished the PIN step) and
+// duplicated what the home-screen banners already do. All security/
+// convenience setup now happens exclusively through the paced banner
+// system (biometric → notifications → cloud-backup → lightning-address),
+// each surfaced at the right time and dismissible. `enableNotificationsIfNeeded`
+// is kept because the notifications banner's "Enable" action calls it.
 
 /**
  * Decide which (if any) security banner to show on the home screen.
