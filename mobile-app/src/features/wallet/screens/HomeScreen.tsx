@@ -230,7 +230,7 @@ export function HomeScreen(): React.JSX.Element {
   }, [refreshSecurityBanner]);
 
   // Lightning-address banner: tapping "Claim" routes to the LN address
-  // settings where the user generates username@zaparc.app.
+  // settings where the user generates username@breez.tips.
   const handleClaimLightningAddress = useCallback((): void => {
     setActiveReminder(null);
     router.push('/wallet/settings/lightning-address');
