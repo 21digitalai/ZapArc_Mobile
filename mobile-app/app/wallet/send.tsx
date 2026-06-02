@@ -1064,6 +1064,24 @@ export default function SendScreen() {
             // Non-critical — ignore storage errors
           }
         }
+        // Persist the recipient when we paid a Lightning Address / LNURL.
+        // The SDK's payment history doesn't reliably surface the human-
+        // readable destination, but we know exactly what the user entered
+        // here — store it locally so the transaction details can show
+        // "To: name@domain" later. Only store address-style inputs (skip
+        // raw BOLT11 invoices, which aren't a meaningful recipient label).
+        if (result.paymentId) {
+          const recipientRaw = paymentInput.trim();
+          const looksLikeAddress = recipientRaw.includes('@') && !recipientRaw.toLowerCase().startsWith('ln');
+          const looksLikeLnurl = recipientRaw.toLowerCase().startsWith('lnurl');
+          if (looksLikeAddress || looksLikeLnurl) {
+            try {
+              await AsyncStorage.setItem(`payment_recipient_${result.paymentId}`, recipientRaw);
+            } catch {
+              // Non-critical — ignore storage errors
+            }
+          }
+        }
         await refreshBalance();
         await new Promise(resolve => setTimeout(resolve, 1000));
         router.navigate('/wallet/home');

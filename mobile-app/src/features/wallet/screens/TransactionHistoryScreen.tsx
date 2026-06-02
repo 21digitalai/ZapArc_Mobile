@@ -1,7 +1,7 @@
 // Transaction History Screen
 // Full transaction list with filtering and details
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
@@ -12,6 +12,7 @@ import {
   Modal,
   Linking,
   ToastAndroid,
+  Dimensions,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Text, IconButton, Chip, Button, Divider } from 'react-native-paper';
@@ -56,20 +57,36 @@ export function TransactionHistoryScreen(): React.JSX.Element {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [selectedSwapRow, setSelectedSwapRow] = useState<TransactionRow | null>(null);
   const [selectedTxNote, setSelectedTxNote] = useState<string | null>(null);
+  const [selectedTxRecipient, setSelectedTxRecipient] = useState<string | null>(null);
+  // Full-text popover for truncated detail values. Holds the label + full
+  // value + the on-screen anchor rect (measured from the tapped row) so we
+  // can float a bubble just above it.
+  const [detailPopover, setDetailPopover] = useState<
+    { label: string; value: string; x: number; y: number; width: number } | null
+  >(null);
 
-  // Load stored user note when a transaction detail is opened
+  // Load stored user note + recipient when a transaction detail is opened.
+  // Both are written locally at send time (see send.tsx): the note is the
+  // sender's message to the recipient; the recipient is the Lightning
+  // Address / LNURL the user paid (the SDK history doesn't surface it).
   useEffect(() => {
-    if (!selectedTransaction) {
+    if (!selectedTransaction?.id) {
       setSelectedTxNote(null);
+      setSelectedTxRecipient(null);
       return;
     }
-    if (!selectedTransaction.id) {
-      setSelectedTxNote(null);
-      return;
-    }
-    AsyncStorage.getItem(`payment_note_${selectedTransaction.id}`)
+    const id = selectedTransaction.id;
+    AsyncStorage.getItem(`payment_note_${id}`)
       .then((note) => setSelectedTxNote(note))
       .catch(() => setSelectedTxNote(null));
+    AsyncStorage.getItem(`payment_recipient_${id}`)
+      .then((r) => setSelectedTxRecipient(r))
+      .catch(() => setSelectedTxRecipient(null));
+  }, [selectedTransaction]);
+
+  // Dismiss the popover whenever the detail modal closes.
+  useEffect(() => {
+    if (!selectedTransaction) setDetailPopover(null);
   }, [selectedTransaction]);
 
   // Filtered transactions
@@ -213,6 +230,7 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     const date = new Date(tx.timestamp);
 
     return (
+      <>
       <Modal
         visible={!!selectedTransaction}
         transparent
@@ -277,11 +295,28 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                 })}
               />
               <DetailRow label={t('wallet.time')} value={formatTime(tx.timestamp)} />
+              {!isReceived && selectedTxRecipient && (
+                <DetailRow
+                  label={t('wallet.to')}
+                  value={selectedTxRecipient}
+                  copyable
+                  fullValue={selectedTxRecipient}
+                  onShowFull={setDetailPopover}
+                />
+              )}
               {tx.description && (
-                <DetailRow label={t('payments.description')} value={tx.description} />
+                <DetailRow
+                  label={t('payments.description')}
+                  value={tx.description}
+                  onShowFull={setDetailPopover}
+                />
               )}
               {selectedTxNote && (
-                <DetailRow label="Note" value={selectedTxNote} />
+                <DetailRow
+                  label={t('wallet.yourMessage')}
+                  value={selectedTxNote}
+                  onShowFull={setDetailPopover}
+                />
               )}
               {tx.feeSats !== undefined && tx.feeSats > 0 && (
                 <DetailRow
@@ -340,6 +375,7 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                   value={String(tx.id)}
                   copyable
                   fullValue={String(tx.id)}
+                  onShowFull={setDetailPopover}
                 />
               )}
               {tx.tokenIdentifier && (
@@ -348,6 +384,7 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                   value={String(tx.tokenIdentifier)}
                   copyable
                   fullValue={String(tx.tokenIdentifier)}
+                  onShowFull={setDetailPopover}
                 />
               )}
               {method === 'onchain' && tx.txid && (
@@ -357,6 +394,7 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                     value={`${tx.txid.slice(0, 16)}...`}
                     copyable
                     fullValue={tx.txid}
+                    onShowFull={setDetailPopover}
                   />
                   <TouchableOpacity onPress={() => Linking.openURL(`https://mempool.space/tx/${tx.txid}`)}>
                     <Text style={styles.mempoolLink}>{t('wallet.viewOnMempool')}</Text>
@@ -369,6 +407,7 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                   value={`${tx.paymentHash.slice(0, 16)}...`}
                   copyable
                   fullValue={tx.paymentHash}
+                  onShowFull={setDetailPopover}
                 />
               )}
             </View>
@@ -385,6 +424,63 @@ export function TransactionHistoryScreen(): React.JSX.Element {
           </View>
         </View>
       </Modal>
+
+      {/* Full-text bubble. Tapping a truncated detail value floats this
+          above the tapped row, showing the complete text (selectable) with
+          a copy action. Tapping the backdrop dismisses it. Rendered as its
+          own transparent Modal so it overlays the detail sheet cleanly and
+          isn't clipped by the sheet's max height / scroll. */}
+      <Modal
+        visible={!!detailPopover}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDetailPopover(null)}
+      >
+        <TouchableOpacity
+          style={styles.popoverBackdrop}
+          activeOpacity={1}
+          onPress={() => setDetailPopover(null)}
+        >
+          {detailPopover && (() => {
+            const screen = Dimensions.get('window');
+            const BUBBLE_MARGIN = 16;
+            const maxWidth = screen.width - BUBBLE_MARGIN * 2;
+            // Anchor horizontally to the tapped value but clamp on-screen.
+            let left = detailPopover.x + detailPopover.width - Math.min(maxWidth, 320);
+            if (left < BUBBLE_MARGIN) left = BUBBLE_MARGIN;
+            if (left + Math.min(maxWidth, 320) > screen.width - BUBBLE_MARGIN) {
+              left = screen.width - BUBBLE_MARGIN - Math.min(maxWidth, 320);
+            }
+            // Place the bubble just above the row; if too close to the top,
+            // flip below instead.
+            const flipBelow = detailPopover.y < 140;
+            const top = flipBelow ? detailPopover.y + 28 : undefined;
+            const bottom = flipBelow ? undefined : screen.height - detailPopover.y + 8;
+            return (
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={async () => {
+                  try {
+                    await Clipboard.setStringAsync(detailPopover.value);
+                    ToastAndroid && ToastAndroid.show?.(t('common.copied'), ToastAndroid.SHORT);
+                  } catch {}
+                }}
+                style={[
+                  styles.popoverBubble,
+                  { left, maxWidth: Math.min(maxWidth, 320), top, bottom },
+                ]}
+              >
+                <Text style={styles.popoverLabel}>{detailPopover.label}</Text>
+                <Text style={styles.popoverValue} selectable>
+                  {detailPopover.value}
+                </Text>
+                <Text style={styles.popoverHint}>{t('wallet.tapToCopy')}</Text>
+              </TouchableOpacity>
+            );
+          })()}
+        </TouchableOpacity>
+      </Modal>
+      </>
     );
   };
 
@@ -488,19 +584,25 @@ export function TransactionHistoryScreen(): React.JSX.Element {
 // Detail Row Component
 // =============================================================================
 
+type DetailPopover = { label: string; value: string; x: number; y: number; width: number };
+
 interface DetailRowProps {
   label: string;
   value: string;
   copyable?: boolean;
   fullValue?: string;
+  /** When provided, tapping the (possibly truncated) value floats a
+   *  bubble showing the full text just above the row. */
+  onShowFull?: (popover: DetailPopover) => void;
 }
 
-function DetailRow({ label, value, copyable, fullValue }: DetailRowProps): React.JSX.Element {
+function DetailRow({ label, value, copyable, fullValue, onShowFull }: DetailRowProps): React.JSX.Element {
   const { t } = useLanguage();
   const { themeMode } = useAppTheme();
   const primaryTextColor = getPrimaryTextColor(themeMode);
   const secondaryTextColor = getSecondaryTextColor(themeMode);
   const iconColor = getIconColor(themeMode);
+  const valueRef = useRef<View | null>(null);
 
   const handleCopy = async (): Promise<void> => {
     try {
@@ -509,25 +611,39 @@ function DetailRow({ label, value, copyable, fullValue }: DetailRowProps): React
     } catch {}
   };
 
-  // Whole row is tappable when copyable — tapping anywhere copies the
-  // full value to the clipboard. Also allows slightly longer visible text
-  // since users don't need to aim for the small copy icon.
+  // Tapping the value measures the row's on-screen rect and asks the parent
+  // to float a full-text bubble above it. Falls back to copy if no
+  // onShowFull handler is wired (preserves prior copyable-row behaviour).
+  const handleValuePress = (): void => {
+    if (!onShowFull) {
+      if (copyable) void handleCopy();
+      return;
+    }
+    const node = valueRef.current;
+    if (!node || typeof node.measureInWindow !== 'function') return;
+    node.measureInWindow((x, y, width) => {
+      onShowFull({ label, value: fullValue || value, x, y, width });
+    });
+  };
+
   return (
-    <TouchableOpacity
-      style={styles.detailRow}
-      onPress={copyable ? handleCopy : undefined}
-      disabled={!copyable}
-      activeOpacity={copyable ? 0.6 : 1}
-    >
+    <View style={styles.detailRow}>
       <Text style={[styles.detailLabel, { color: secondaryTextColor }]}>{label}</Text>
       <View style={styles.detailValueContainer}>
-        <Text
-          style={[styles.detailValue, { color: primaryTextColor }]}
-          numberOfLines={1}
-          ellipsizeMode="middle"
+        <TouchableOpacity
+          ref={valueRef}
+          style={styles.detailValueTouch}
+          onPress={handleValuePress}
+          activeOpacity={0.6}
         >
-          {value}
-        </Text>
+          <Text
+            style={[styles.detailValue, { color: primaryTextColor }]}
+            numberOfLines={1}
+            ellipsizeMode="middle"
+          >
+            {value}
+          </Text>
+        </TouchableOpacity>
         {copyable && (
           <IconButton
             icon="content-copy"
@@ -538,7 +654,7 @@ function DetailRow({ label, value, copyable, fullValue }: DetailRowProps): React
           />
         )}
       </View>
-    </TouchableOpacity>
+    </View>
   );
 }
 
@@ -746,14 +862,54 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
   },
+  detailValueTouch: {
+    flexShrink: 1,
+    maxWidth: '90%',
+  },
   detailValue: {
     fontSize: 14,
     textAlign: 'right',
-    maxWidth: '80%',
   },
   copyButton: {
     margin: 0,
     marginLeft: 4,
+  },
+  popoverBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  popoverBubble: {
+    position: 'absolute',
+    backgroundColor: '#10131f',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  popoverLabel: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 6,
+  },
+  popoverValue: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontFamily: 'monospace',
+    lineHeight: 20,
+  },
+  popoverHint: {
+    color: BRAND_COLOR,
+    fontSize: 11,
+    marginTop: 8,
   },
   mempoolLink: {
     color: BRAND_COLOR,
