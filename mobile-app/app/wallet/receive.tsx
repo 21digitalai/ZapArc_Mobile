@@ -6,6 +6,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import * as Sharing from 'expo-sharing';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNFS from 'react-native-fs';
 import QRCode from 'react-native-qrcode-svg';
 import { useAppTheme } from '../../src/contexts/ThemeContext';
@@ -56,6 +57,14 @@ const currencyLabels: Record<InvoiceCurrency, string> = {
   eur: 'EUR',
   usdb: 'USDB',
 };
+
+// Persisted list of the most recent on-chain claims that failed (dust /
+// too-small / error). Unlike the in-progress `pendingDeposits` (which is
+// transient session state), these survive navigation + app restarts so the
+// user can always see why a recent on-chain receive didn't land. Capped at
+// the 5 newest; no time-based expiry.
+const FAILED_CLAIMS_KEY = '@zap_arc/recent_failed_onchain_claims_v1';
+const MAX_FAILED_CLAIMS = 5;
 
 export default function ReceiveScreen() {
   const params = useLocalSearchParams<{ asset?: string; tab?: string }>();
@@ -117,6 +126,32 @@ export default function ReceiveScreen() {
   const [onchainClaimStatus, setOnchainClaimStatus] = useState<string | null>(null);
   const [pendingDeposits, setPendingDeposits] = useState<PendingDepositItem[]>([]);
   const [selectedPendingDeposit, setSelectedPendingDeposit] = useState<PendingDepositItem | null>(null);
+  // Persisted, always-shown list of the 5 most recent failed on-chain claims.
+  const [recentFailedClaims, setRecentFailedClaims] = useState<PendingDepositItem[]>([]);
+
+  // Load the persisted failed claims once on mount.
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(FAILED_CLAIMS_KEY)
+      .then((raw) => {
+        if (cancelled || !raw) return;
+        const parsed = JSON.parse(raw) as PendingDepositItem[];
+        if (Array.isArray(parsed)) setRecentFailedClaims(parsed.slice(0, MAX_FAILED_CLAIMS));
+      })
+      .catch(() => {/* ignore corrupt/missing */});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Upsert a failed claim into the persisted list (newest first, deduped by
+  // key, capped at MAX_FAILED_CLAIMS). No time-based expiry — they stay
+  // until pushed out by 5 newer failures.
+  const recordFailedClaim = useCallback((item: PendingDepositItem) => {
+    setRecentFailedClaims((prev) => {
+      const next = [item, ...prev.filter((d) => d.key !== item.key)].slice(0, MAX_FAILED_CLAIMS);
+      void AsyncStorage.setItem(FAILED_CLAIMS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, []);
 
   // Seed from the active asset + persisted display preference. For USDB
   // we always start at USDB (sats are never an appropriate USDB unit). For
@@ -547,9 +582,19 @@ export default function ReceiveScreen() {
             if (isCancelled) return;
             const errMsg = extractSdkErrorMessage(claimError, 'Claim failed');
             const isDust = errMsg.includes('dust') || errMsg.includes('less than');
-            setPendingDeposits(prev => prev.map(d =>
-              d.key === key ? { ...d, status: isDust ? 'too-small' : 'failed', failureReason: errMsg } : d
-            ));
+            const failedItem: PendingDepositItem = {
+              key,
+              txid: deposit.txid,
+              vout: deposit.vout,
+              amountSats: deposit.amountSats,
+              status: isDust ? 'too-small' : 'failed',
+              timestamp: Date.now(),
+              failureReason: errMsg,
+            };
+            // Persist into the always-shown "recent failed" list and drop it
+            // from the transient in-progress list (avoids a duplicate row).
+            recordFailedClaim(failedItem);
+            setPendingDeposits(prev => prev.filter(d => d.key !== key));
             console.warn(`⚠️ [ReceiveScreen] Failed to claim ${key}:`, claimError);
           }
         }
@@ -570,7 +615,7 @@ export default function ReceiveScreen() {
       clearInterval(interval);
       setOnchainClaimStatus(null);
     };
-  }, [activeTab, onchainAddress, refreshBalance, refreshTransactions]);
+  }, [activeTab, onchainAddress, refreshBalance, refreshTransactions, recordFailedClaim]);
 
   // Capture the QR as PNG via toDataURL, write to RNFS cache, then open
   // the system share sheet (which on iOS/Android offers "Save Image" /
@@ -1086,12 +1131,24 @@ export default function ReceiveScreen() {
 
                   <Text style={[styles.onchainNote, { color: secondaryTextColor }]}>{t('deposit.onchainNote')}</Text>
 
-                  {pendingDeposits.length > 0 && (
+                  {(() => {
+                    // Combine the transient in-progress deposits with the
+                    // persisted "recent failed" list (deduped by key — a key
+                    // moves from one to the other, never both). In-progress
+                    // first, then the last 5 failures, newest first.
+                    const combined = [
+                      ...pendingDeposits,
+                      ...recentFailedClaims.filter(
+                        (f) => !pendingDeposits.some((p) => p.key === f.key)
+                      ),
+                    ];
+                    if (combined.length === 0) return null;
+                    return (
                     <View style={{ marginTop: 12 }}>
                       <Text style={{ fontSize: 12, fontWeight: '600', color: secondaryTextColor, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-                        Pending Receives
+                        {t('deposit.recentReceives')}
                       </Text>
-                      {pendingDeposits.map((dep) => {
+                      {combined.map((dep) => {
                         const statusConfig = getPendingDepositStatusConfig(dep.status);
                         const shortTxid = `${dep.txid.slice(0, 8)}…${dep.txid.slice(-6)}`;
                         return (
@@ -1118,7 +1175,8 @@ export default function ReceiveScreen() {
                         );
                       })}
                     </View>
-                  )}
+                    );
+                  })()}
                 </>
               ) : null}
             </View>
