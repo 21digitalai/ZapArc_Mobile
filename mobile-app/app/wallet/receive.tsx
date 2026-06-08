@@ -124,6 +124,9 @@ export default function ReceiveScreen() {
   const [isGeneratingOnchain, setIsGeneratingOnchain] = useState(false);
   const [onchainError, setOnchainError] = useState<string | null>(null);
   const [onchainClaimStatus, setOnchainClaimStatus] = useState<string | null>(null);
+  // Live claim fee (sats) reported by the SDK for the current deposit
+  // address — the dynamic floor below which a deposit can't be claimed.
+  const [onchainClaimFeeSats, setOnchainClaimFeeSats] = useState<number | null>(null);
   const [pendingDeposits, setPendingDeposits] = useState<PendingDepositItem[]>([]);
   const [selectedPendingDeposit, setSelectedPendingDeposit] = useState<PendingDepositItem | null>(null);
   // Persisted, always-shown list of the 5 most recent failed on-chain claims.
@@ -426,13 +429,9 @@ export default function ReceiveScreen() {
       }
     }
 
-    // If SDK didn't provide a minimum, enforce our own based on dust limit + fees
-    // Dust limit is 546 sats; claim tx ~140 vBytes at ~5 sat/vB = ~700 sats fee
-    // So minimum safe deposit is ~1500 sats; use 2000 for safety
-    if (minimumSats === null || minimumSats < 2000) {
-      minimumSats = 2000;
-    }
-
+    // Return the raw BIP21-embedded minimum (or null). The effective
+    // minimum shown to the user is computed separately so it can prefer the
+    // SDK's live claim fee (see effectiveMinimumSats below).
     return { address, minimumSats };
   }, []);
 
@@ -440,8 +439,9 @@ export default function ReceiveScreen() {
     try {
       setIsGeneratingOnchain(true);
       setOnchainError(null);
-      const request = await BreezSparkService.receiveOnchain();
-      setOnchainRequest(request);
+      const info = await BreezSparkService.receiveOnchain();
+      setOnchainRequest(info.paymentRequest);
+      setOnchainClaimFeeSats(info.claimFeeSats);
     } catch (error) {
       console.error('Failed to generate on-chain address:', error);
       const message = error instanceof Error ? error.message : t('deposit.generatingAddress');
@@ -527,6 +527,21 @@ export default function ReceiveScreen() {
 
   const onchainParsed = parseOnchainRequest(onchainRequest);
   const onchainAddress = onchainParsed.address;
+
+  // Effective minimum receive amount, preferring live SDK data:
+  //   1. An explicit minimum embedded in the BIP21 request, if any.
+  //   2. The SDK's live claim fee + dust (546) — a deposit must clear the
+  //      fee to leave anything claimable.
+  //   3. A conservative static fallback when the SDK reports no fee.
+  // We also keep the raw claim fee around so the warning copy can cite it.
+  const DUST_SATS = 546;
+  const effectiveMinimumSats = useMemo(() => {
+    if (onchainParsed.minimumSats !== null) return onchainParsed.minimumSats;
+    if (onchainClaimFeeSats !== null && onchainClaimFeeSats > 0) {
+      return onchainClaimFeeSats + DUST_SATS;
+    }
+    return 2000;
+  }, [onchainParsed.minimumSats, onchainClaimFeeSats]);
 
   useEffect(() => {
     if (activeTab !== 'onchain' || !onchainAddress) {
@@ -1123,11 +1138,23 @@ export default function ReceiveScreen() {
                     {t('deposit.copyAddress')}
                   </Button>
 
-                  {onchainParsed.minimumSats !== null && (
-                    <Text style={[styles.minimumText, { color: secondaryTextColor }]}> 
-                      {t('deposit.minimumDeposit').replace('{{amount}}', onchainParsed.minimumSats.toLocaleString())}
+                  <Text style={[styles.minimumText, { color: secondaryTextColor }]}>
+                    {t('deposit.minimumDeposit').replace('{{amount}}', effectiveMinimumSats.toLocaleString())}
+                  </Text>
+
+                  {/* Explicit warning so users understand a tiny deposit is
+                      effectively unrecoverable on-chain. Cites the live
+                      claim fee when the SDK reported one. */}
+                  <View style={styles.minWarnBox}>
+                    <Text style={styles.minWarnText}>
+                      {onchainClaimFeeSats !== null && onchainClaimFeeSats > 0
+                        ? t('deposit.minWarningWithFee').replace(
+                            '{{fee}}',
+                            onchainClaimFeeSats.toLocaleString(),
+                          )
+                        : t('deposit.minWarning')}
                     </Text>
-                  )}
+                  </View>
 
                   <Text style={[styles.onchainNote, { color: secondaryTextColor }]}>{t('deposit.onchainNote')}</Text>
 
@@ -1389,6 +1416,16 @@ const styles = StyleSheet.create({
   errorWrap: { gap: 10, marginTop: 8 },
   errorText: { fontSize: 14 },
   minimumText: { fontSize: 13, marginTop: 10 },
+  minWarnBox: {
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 193, 7, 0.4)',
+    backgroundColor: 'rgba(255, 193, 7, 0.10)',
+  },
+  minWarnText: { color: '#ffca28', fontSize: 12, lineHeight: 17 },
   onchainNote: { fontSize: 13, lineHeight: 18, marginTop: 8 },
   claimStatusText: { fontSize: 14, marginTop: 12, fontWeight: '600' },
   addressLoadingContainer: { paddingVertical: 10, alignItems: 'center' },

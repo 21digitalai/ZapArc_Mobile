@@ -144,6 +144,10 @@ export interface DepositInfo {
   vout: number;
   amountSats: number;
   claimError?: unknown;
+  /** When the claim failed because the fee exceeds the deposit, the exact
+   *  fee the SDK said was required (sats). Lets the UI show a precise
+   *  "needs N sats to claim" instead of a generic "too small". */
+  requiredFeeSats?: number;
 }
 
 export interface LightningAddressInfo {
@@ -1797,7 +1801,19 @@ export async function receivePayment(
 /**
  * Generate an on-chain bitcoin receive address/URI
  */
-export async function receiveOnchain(): Promise<string> {
+export interface OnchainReceiveInfo {
+  /** The BIP21 `bitcoin:` payment request / address. */
+  paymentRequest: string;
+  /**
+   * The current fee (in sats) to CLAIM an on-chain deposit at this address,
+   * as reported live by the SDK. This is the dynamic floor for a useful
+   * receive: an incoming deposit at or below this fee can't be economically
+   * claimed. `null` if the SDK didn't report a fee.
+   */
+  claimFeeSats: number | null;
+}
+
+export async function receiveOnchain(): Promise<OnchainReceiveInfo> {
   if (!_isNativeAvailable || !sdkInstance) {
     throw new Error('SDK not available');
   }
@@ -1814,7 +1830,15 @@ export async function receiveOnchain(): Promise<string> {
       }),
     });
 
-    return response.paymentRequest;
+    // ReceivePaymentResponse.fee is the on-chain claim fee in sats (U128).
+    let claimFeeSats: number | null = null;
+    const rawFee = (response as { fee?: unknown })?.fee;
+    if (rawFee !== undefined && rawFee !== null) {
+      const n = typeof rawFee === 'bigint' ? Number(rawFee) : Number(rawFee);
+      if (Number.isFinite(n) && n >= 0) claimFeeSats = n;
+    }
+
+    return { paymentRequest: response.paymentRequest, claimFeeSats };
   } catch (error) {
     console.error('Failed to generate on-chain receive address:', error);
     throw error;
@@ -1834,12 +1858,24 @@ export async function listDeposits(): Promise<DepositInfo[]> {
     const deposits = response?.deposits || [];
     console.log(`🔍 [BreezSparkService] listUnclaimedDeposits: ${deposits.length} found`);
 
-    return deposits.map((deposit: any) => ({
-      txid: String(deposit?.txid || ''),
-      vout: Number(deposit?.vout || 0),
-      amountSats: Number(deposit?.amountSats || deposit?.amountSat || 0),
-      claimError: deposit?.claimError,
-    })).filter((deposit: DepositInfo) => !!deposit.txid);
+    return deposits.map((deposit: any) => {
+      // Pull the exact required fee out of a MaxDepositClaimFeeExceeded error
+      // when present (inner.requiredFeeSats), so the UI can be precise.
+      let requiredFeeSats: number | undefined;
+      const ce = deposit?.claimError;
+      const reqRaw = ce?.inner?.requiredFeeSats ?? ce?.requiredFeeSats;
+      if (reqRaw !== undefined && reqRaw !== null) {
+        const n = typeof reqRaw === 'bigint' ? Number(reqRaw) : Number(reqRaw);
+        if (Number.isFinite(n) && n >= 0) requiredFeeSats = n;
+      }
+      return {
+        txid: String(deposit?.txid || ''),
+        vout: Number(deposit?.vout || 0),
+        amountSats: Number(deposit?.amountSats || deposit?.amountSat || 0),
+        claimError: deposit?.claimError,
+        requiredFeeSats,
+      };
+    }).filter((deposit: DepositInfo) => !!deposit.txid);
   } catch (error) {
     console.error('❌ [BreezSparkService] Failed to list deposits:', error);
     return [];
