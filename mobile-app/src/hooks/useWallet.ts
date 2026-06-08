@@ -166,6 +166,15 @@ export function useWalletStateInternal(): WalletState & WalletActions {
   const activeWalletKeyRef = useRef<string | null>(null);
   const isSwitchingRef = useRef(false); // Guards against effect overrides during wallet switch
   const subWalletActivityCacheRef = useRef<Map<string, boolean>>(new Map());
+  // Latest refresh fns, kept in a ref so the payment-event listener can call
+  // them without re-subscribing every time their identity changes.
+  const refreshFnsRef = useRef<{ balance: () => Promise<void>; txs: () => Promise<void> }>({
+    balance: async () => {},
+    txs: async () => {},
+  });
+  // Debounce timer so a burst of SDK events (e.g. Synced + claim succeeded)
+  // collapses into a single balance/transaction refresh.
+  const eventRefreshTimerRef = useRef<ReturnType<typeof global.setTimeout> | null>(null);
 
   useEffect(() => {
     balanceRef.current = balance;
@@ -1186,16 +1195,48 @@ export function useWalletStateInternal(): WalletState & WalletActions {
   // lines ~748 / ~776 refuses to overwrite the balance with a lower SDK
   // value during the window. After the window expires the SDK is the
   // authority again and any genuine subsequent changes converge.
+  // Keep the refresh-fns ref pointing at the latest callbacks.
+  useEffect(() => {
+    refreshFnsRef.current = { balance: refreshBalance, txs: refreshTransactions };
+  }, [refreshBalance, refreshTransactions]);
+
   useEffect(() => {
     if (!isConnected) return;
 
+    // Coalesce a burst of events into one refresh. We ALWAYS reconcile
+    // against the SDK after any event — the optimistic bump below is just
+    // for instant UX; this is what makes the balance actually settle to
+    // the real value (and is the ONLY path that updates the UI after an
+    // on-chain deposit is auto-claimed, which arrives as a sync event with
+    // no amount). `delayMs` lets us wait briefly for the Spark operator to
+    // commit before reading getInfo.
+    const scheduleRefresh = (delayMs: number): void => {
+      if (eventRefreshTimerRef.current) clearTimeout(eventRefreshTimerRef.current);
+      eventRefreshTimerRef.current = global.setTimeout(() => {
+        eventRefreshTimerRef.current = null;
+        void refreshFnsRef.current.balance();
+        void refreshFnsRef.current.txs();
+      }, delayMs);
+    };
+
     const unsubscribe = BreezSparkService.onPaymentReceived((payment) => {
-      // Skip the SDK's internal sync probe events.
-      if (payment.description === '__SYNC_EVENT__') return;
+      // Sync / claim-succeeded probe events carry no amount. They're our
+      // signal that the SDK state changed (most importantly: an on-chain
+      // deposit was just claimed into the balance) — reconcile from the
+      // SDK. The optimistic window is NOT set here, so the refresh reads
+      // the fresh balance directly.
+      if (payment.description === '__SYNC_EVENT__') {
+        scheduleRefresh(800);
+        return;
+      }
       // Only credit RECEIVED payments. Sends are debited synchronously
       // by the send flow + the operator commits spends atomically, so
       // the race only affects receives.
-      if (payment.type !== 'receive' || payment.amountSat <= 0) return;
+      if (payment.type !== 'receive' || payment.amountSat <= 0) {
+        // Still reconcile for any other non-receive event shape.
+        scheduleRefresh(800);
+        return;
+      }
 
       const isUsdb = payment.asset === 'USDB';
 
@@ -1243,9 +1284,21 @@ export function useWalletStateInternal(): WalletState & WalletActions {
       }
 
       optimisticAuthoritativeUntilRef.current = Date.now() + 60_000;
+
+      // Reconcile against the SDK shortly after the optimistic bump so the
+      // transaction list picks up the new payment and the canonical balance
+      // settles. The optimistic window above protects the bumped value from
+      // being clobbered by a still-lagging operator read.
+      scheduleRefresh(1500);
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      if (eventRefreshTimerRef.current) {
+        clearTimeout(eventRefreshTimerRef.current);
+        eventRefreshTimerRef.current = null;
+      }
+    };
   }, [isConnected]);
 
   // ========================================
