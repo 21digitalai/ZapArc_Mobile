@@ -906,7 +906,13 @@ export default function ReceiveScreen() {
           </View>
         )}
 
-        <ScrollView ref={scrollViewRef} style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
           {isLightningTab ? (
             <View style={styles.card}>
               <Text style={[styles.sectionTitle, { color: primaryTextColor }]}>{t('deposit.lightningAddressSectionTitle')}</Text>
@@ -999,6 +1005,17 @@ export default function ReceiveScreen() {
                 contentStyle={styles.inputContent}
                 multiline
                 numberOfLines={2}
+                // The description sits near the bottom of the form; without
+                // this the on-screen keyboard covers it and the field can't
+                // be scrolled into view. Scroll to the end on focus so the
+                // field (and what the user types) stays visible above the
+                // keyboard. A short delay lets the keyboard finish animating
+                // in so the post-resize viewport is correct.
+                onFocus={() => {
+                  setTimeout(() => {
+                    scrollViewRef.current?.scrollToEnd({ animated: true });
+                  }, 150);
+                }}
                 theme={{
                   colors: {
                     background: inputBackgroundColor,
@@ -1332,7 +1349,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   scrollView: { flex: 1 },
-  scrollContent: { padding: 24, paddingTop: 16, paddingBottom: 36 },
+  scrollContent: { padding: 24, paddingTop: 16, paddingBottom: 120 },
   card: {
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderRadius: 16,

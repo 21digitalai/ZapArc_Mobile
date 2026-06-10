@@ -765,16 +765,36 @@ export function useWalletStateInternal(): WalletState & WalletActions {
         // our fresh state with stale values. Skip SDK writes in that case.
         const optimisticWindowActive = Date.now() < optimisticAuthoritativeUntilRef.current;
 
-        // Don't overwrite a known balance with 0 from SDK — likely transitional state
-        // A true 0 balance will be set once confirmed (transactions also empty)
-        if (!optimisticWindowActive && (walletBalance.balanceSat > 0 || balanceRef.current === 0)) {
-          setBalance(walletBalance.balanceSat);
+        // Don't overwrite a known balance with 0 from the SDK — that's almost
+        // always a transitional/unsynced read (e.g. getInfo returning 0 right
+        // after the app reopens following a payment that arrived while it was
+        // closed, or before an on-chain deposit is claimed).
+        //
+        // CRITICAL: decide using the React state-updater's `prev` value, NOT
+        // `balanceRef.current`. `balanceRef` is updated in a useEffect and so
+        // lags the real state by a render — under back-to-back refreshes a
+        // transient 0 could slip past the guard (balanceRef still 0 while the
+        // displayed balance was just set to a positive value) and reset the
+        // balance to 0. Reading `prev` inside the updater is always current
+        // and closes that race. We also sync `balanceRef` immediately inside
+        // the updater so it never lags for any other reader.
+        if (!optimisticWindowActive) {
+          setBalance((prev) => {
+            const next = (walletBalance.balanceSat > 0 || prev === 0)
+              ? walletBalance.balanceSat
+              : prev;
+            balanceRef.current = next;
+            return next;
+          });
         }
         setIsLoading(false);
         setIsRefreshing(false);
 
-        // Update cache with fresh data (only if non-zero or wallet truly empty)
-        if (!optimisticWindowActive && (walletBalance.balanceSat > 0 || balanceRef.current === 0)) {
+        // Only ever persist a POSITIVE balance to cache. Caching a positive
+        // value is always correct; skipping the 0 case means we never
+        // overwrite a known-good cached balance with a transitional 0 (which
+        // would make the wrong value flash on the next reopen).
+        if (!optimisticWindowActive && walletBalance.balanceSat > 0) {
           await WalletCache.cacheBalance(
             walletInfo.masterKeyId,
             walletInfo.subWalletIndex,
