@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Modal, FlatList } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text, Button, IconButton } from 'react-native-paper';
@@ -190,6 +190,13 @@ export default function SendScreen() {
   const [paymentInput, setPaymentInput] = useState('');
   const [amount, setAmount] = useState('');
   const [comment, setComment] = useState('');
+  const formScrollRef = useRef<ScrollView | null>(null);
+  // Scroll a focused field into view above the keyboard (the comment/amount
+  // inputs sit near the bottom of the form). Short delay lets the keyboard
+  // finish animating so the resized viewport is correct.
+  const scrollFieldIntoView = useCallback(() => {
+    setTimeout(() => formScrollRef.current?.scrollToEnd({ animated: true }), 150);
+  }, []);
   const [preview, setPreview] = useState<PaymentPreview | null>(null);
   const [isPreparing, setIsPreparing] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -1385,7 +1392,13 @@ export default function SendScreen() {
           </View>
         )}
 
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          ref={formScrollRef}
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
           <View style={styles.balanceContainer}>
             <Text style={[styles.balanceLabel, { color: secondaryTextColor }]}>{t('send.availableBalance')}</Text>
             <Text style={styles.balanceAmount}>{isUsdbAsset ? `${usdbBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDB` : `${balance.toLocaleString()} sats`}</Text>
@@ -1501,6 +1514,7 @@ export default function SendScreen() {
                   label={t('send.amountInCurrency').replace('{{currency}}', currencyLabels[effectiveInputCurrency])}
                   value={amount}
                   onChangeText={setAmount}
+                  onFocus={scrollFieldIntoView}
                   keyboardType="decimal-pad"
                   editable={!amountLocked}
                   style={[styles.input, styles.amountInput, amountLocked && { opacity: 0.7 }]}
@@ -1537,6 +1551,7 @@ export default function SendScreen() {
                 placeholder={t('send.paymentDescriptionPlaceholder')}
                 value={comment}
                 onChangeText={setComment}
+                onFocus={scrollFieldIntoView}
                 style={styles.input}
               />
             </>
@@ -1549,6 +1564,7 @@ export default function SendScreen() {
                   label={t('send.amountInCurrency').replace('{{currency}}', currencyLabels[effectiveInputCurrency])}
                   value={amount}
                   onChangeText={setAmount}
+                  onFocus={scrollFieldIntoView}
                   keyboardType="decimal-pad"
                   editable={!amountLocked}
                   style={[styles.input, styles.amountInput, amountLocked && { opacity: 0.7 }]}
@@ -1775,6 +1791,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 24,
     paddingTop: 16,
+    paddingBottom: 120,
   },
   balanceContainer: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',

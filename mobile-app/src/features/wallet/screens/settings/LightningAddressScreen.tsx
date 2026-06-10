@@ -243,7 +243,7 @@ export function LightningAddressScreen(): React.JSX.Element {
           <View style={styles.headerSpacer} />
         </View>
 
-        <ScrollView style={styles.scrollView}>
+        <ScrollView style={styles.scrollView} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
           <View style={styles.content}>
             {isRegistered && addressInfo ? (
               /* ===== REGISTERED STATE ===== */

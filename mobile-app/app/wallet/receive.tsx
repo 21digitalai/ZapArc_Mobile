@@ -954,6 +954,9 @@ export default function ReceiveScreen() {
                   label={`${t('payments.amount')} (${currencyLabels[effectiveInputCurrency]})`}
                   value={amount}
                   onChangeText={setAmount}
+                  onFocus={() => {
+                    setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 150);
+                  }}
                   keyboardType="decimal-pad"
                   style={[styles.input, styles.amountInput]}
                 />
