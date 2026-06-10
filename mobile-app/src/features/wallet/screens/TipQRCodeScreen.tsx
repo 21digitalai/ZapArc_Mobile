@@ -178,6 +178,12 @@ export function TipQRCodeScreen(): React.JSX.Element {
                 size={220}
                 color="#1a1a2e"
                 backgroundColor="#FFFFFF"
+                ecl="H"
+                logo={require('../../../../assets/icon.png')}
+                logoSize={Math.round(220 * 0.22)}
+                logoBackgroundColor="#FFFFFF"
+                logoMargin={4}
+                logoBorderRadius={10}
                 getRef={(ref) => (qrRef.current = ref)}
               />
             </View>

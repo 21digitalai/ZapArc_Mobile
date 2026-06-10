@@ -66,6 +66,23 @@ const currencyLabels: Record<InvoiceCurrency, string> = {
 const FAILED_CLAIMS_KEY = '@zap_arc/recent_failed_onchain_claims_v1';
 const MAX_FAILED_CLAIMS = 5;
 
+// Centered brand logo for QR codes (Wallet-of-Satoshi style). QR error
+// correction level "H" tolerates ~30% occlusion, so a ~22% center logo with
+// a white backing stays reliably scannable.
+const QR_LOGO = require('../../assets/icon.png');
+const QR_SIZE = 200;
+const QR_BRAND_PROPS = {
+  size: QR_SIZE,
+  backgroundColor: '#FFFFFF',
+  color: '#000000',
+  ecl: 'H' as const,
+  logo: QR_LOGO,
+  logoSize: Math.round(QR_SIZE * 0.22),
+  logoBackgroundColor: '#FFFFFF',
+  logoMargin: 4,
+  logoBorderRadius: 10,
+};
+
 export default function ReceiveScreen() {
   const params = useLocalSearchParams<{ asset?: string; tab?: string }>();
   const { themeMode } = useAppTheme();
@@ -1067,11 +1084,10 @@ export default function ReceiveScreen() {
                   <View style={styles.qrContainer}>
                     <QRCode
                       value={invoice}
-                      size={200}
-                      backgroundColor="#FFFFFF"
-                      color="#000000"
+                      {...QR_BRAND_PROPS}
                       getRef={(ref) => { lightningQrRef.current = ref; }}
                     />
+                    <Text style={styles.qrBrandName}>ZapArc</Text>
                   </View>
                   <Button
                     mode="outlined"
@@ -1131,11 +1147,10 @@ export default function ReceiveScreen() {
                   <View style={styles.qrContainer}>
                     <QRCode
                       value={`bitcoin:${onchainAddress}`}
-                      size={200}
-                      backgroundColor="#FFFFFF"
-                      color="#000000"
+                      {...QR_BRAND_PROPS}
                       getRef={(ref) => { onchainQrRef.current = ref; }}
                     />
+                    <Text style={styles.qrBrandName}>ZapArc</Text>
                   </View>
                   <Button
                     mode="outlined"
@@ -1367,6 +1382,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 18, fontWeight: '700', marginBottom: 10 },
   snackbar: { marginBottom: 16 },
   qrContainer: { alignItems: 'center', marginVertical: 16, padding: 16, backgroundColor: '#FFFFFF', borderRadius: 12, alignSelf: 'center' },
+  qrBrandName: { marginTop: 10, color: '#1a1a2e', fontSize: 14, fontWeight: '700', letterSpacing: 0.5 },
   fullValueText: { fontSize: 12, fontFamily: 'monospace', lineHeight: 18, marginVertical: 8, wordBreak: 'break-all' } as any,
   copyButton: { marginTop: 8, alignSelf: 'center', borderColor: BRAND_COLOR },
   saveQrButton: { marginTop: 4, marginBottom: 8, alignSelf: 'center', borderColor: BRAND_COLOR },
