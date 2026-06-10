@@ -9,6 +9,7 @@ import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNFS from 'react-native-fs';
 import QRCode from 'react-native-qrcode-svg';
+import { captureRef } from 'react-native-view-shot';
 import { useAppTheme } from '../../src/contexts/ThemeContext';
 import {
   getGradientColors,
@@ -132,8 +133,11 @@ export default function ReceiveScreen() {
   // react-native-qrcode-svg `toDataURL` callback to grab a base64 PNG, write
   // it to RNFS cache, then hand it to expo-sharing — same flow that the Tip
   // QR screen has been using since v1.0.
-  const lightningQrRef = useRef<any>(null);
-  const onchainQrRef = useRef<any>(null);
+  // Refs on the QR *cards* (the white container that holds the QR + centered
+  // logo + ZapArc pill). We capture the whole card with react-native-view-shot
+  // so the saved/shared PNG includes the branding — not just the bare QR.
+  const lightningCardRef = useRef<View>(null);
+  const onchainCardRef = useRef<View>(null);
   const scrolledInvoiceRef = useRef<string>('');
   const [invoicePreviewY, setInvoicePreviewY] = useState<number | null>(null);
 
@@ -649,54 +653,61 @@ export default function ReceiveScreen() {
     };
   }, [activeTab, onchainAddress, refreshBalance, refreshTransactions, recordFailedClaim]);
 
-  // Capture the QR as PNG via toDataURL, write to RNFS cache, then open
-  // the system share sheet (which on iOS/Android offers "Save Image" /
-  // "Save to Files" / send-to-app actions). Falls back to writing into the
-  // Downloads directory on Android when expo-sharing isn't available.
+  // Capture the whole QR *card* (QR + centered logo + ZapArc pill) as a PNG
+  // via react-native-view-shot, then open the system share sheet (Save Image
+  // / Save to Files / send-to-app). Falls back to writing into the Downloads
+  // directory on Android when expo-sharing isn't available. Capturing the
+  // card (not just the QR) means the saved/shared image carries the branding.
   const handleSaveQR = useCallback(async (
-    qrRef: React.MutableRefObject<any>,
+    cardRef: React.RefObject<View | null>,
     filenamePrefix: string,
   ) => {
-    if (!qrRef.current) {
+    if (!cardRef.current) {
       Alert.alert(t('common.error'), 'QR code not ready');
       return;
     }
-    qrRef.current.toDataURL(async (dataURL: string) => {
-      try {
-        const fileName = `${filenamePrefix}-${Date.now()}.png`;
-        const filePath = `${RNFS.CachesDirectoryPath}/${fileName}`;
-        await RNFS.writeFile(filePath, dataURL, 'base64');
+    try {
+      const tmpUri = await captureRef(cardRef, {
+        format: 'png',
+        quality: 1,
+        result: 'tmpfile',
+      });
 
-        const isAvailable = await Sharing.isAvailableAsync();
-        if (isAvailable) {
-          await Sharing.shareAsync(`file://${filePath}`, {
-            mimeType: 'image/png',
-            dialogTitle: 'Save QR Code',
-          });
-          return;
-        }
+      const fileName = `${filenamePrefix}-${Date.now()}.png`;
+      const filePath = `${RNFS.CachesDirectoryPath}/${fileName}`;
+      // captureRef returns a file:// path; normalise for RNFS copy.
+      const srcPath = tmpUri.replace('file://', '');
+      await RNFS.copyFile(srcPath, filePath);
 
-        // No share sheet available — copy into Downloads on Android.
-        if (Platform.OS === 'android') {
-          const granted = await PermissionsAndroid.request(
-            PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
-          );
-          if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-            const downloadPath = `${RNFS.DownloadDirectoryPath}/${fileName}`;
-            await RNFS.copyFile(filePath, downloadPath);
-            setSnackMsg('QR code saved to Downloads');
-            setSnackVisible(true);
-          } else {
-            Alert.alert(t('common.error'), 'Storage permission denied');
-          }
-        } else {
-          Alert.alert(t('common.error'), 'Sharing not available on this device');
-        }
-      } catch (error) {
-        console.error('Failed to save QR:', error);
-        Alert.alert(t('common.error'), error instanceof Error ? error.message : 'Failed to save QR code');
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(`file://${filePath}`, {
+          mimeType: 'image/png',
+          dialogTitle: 'Save QR Code',
+        });
+        return;
       }
-    });
+
+      // No share sheet available — copy into Downloads on Android.
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+        );
+        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+          const downloadPath = `${RNFS.DownloadDirectoryPath}/${fileName}`;
+          await RNFS.copyFile(filePath, downloadPath);
+          setSnackMsg('QR code saved to Downloads');
+          setSnackVisible(true);
+        } else {
+          Alert.alert(t('common.error'), 'Storage permission denied');
+        }
+      } else {
+        Alert.alert(t('common.error'), 'Sharing not available on this device');
+      }
+    } catch (error) {
+      console.error('Failed to save QR:', error);
+      Alert.alert(t('common.error'), error instanceof Error ? error.message : 'Failed to save QR code');
+    }
   }, []);
 
   const handleCopyOnchainAddress = useCallback(async () => {
@@ -1081,17 +1092,16 @@ export default function ReceiveScreen() {
                     })()}
                   </Text>
 
-                  <View style={styles.qrContainer}>
+                  <View style={styles.qrContainer} ref={lightningCardRef} collapsable={false}>
                     <QRCode
                       value={invoice}
                       {...QR_BRAND_PROPS}
-                      getRef={(ref) => { lightningQrRef.current = ref; }}
                     />
                     <Text style={styles.qrBrandPill}>ZapArc</Text>
                   </View>
                   <Button
                     mode="outlined"
-                    onPress={() => handleSaveQR(lightningQrRef, 'zaparc-lightning-qr')}
+                    onPress={() => handleSaveQR(lightningCardRef, 'zaparc-lightning-qr')}
                     compact
                     icon="download"
                     textColor={BRAND_COLOR}
@@ -1144,17 +1154,16 @@ export default function ReceiveScreen() {
                       they're non-standard BIP-21 params that only ZapArc
                       reads, so they'd just bloat the QR for everyone else.
                       The minimum is communicated as plain text below. */}
-                  <View style={styles.qrContainer}>
+                  <View style={styles.qrContainer} ref={onchainCardRef} collapsable={false}>
                     <QRCode
                       value={`bitcoin:${onchainAddress}`}
                       {...QR_BRAND_PROPS}
-                      getRef={(ref) => { onchainQrRef.current = ref; }}
                     />
                     <Text style={styles.qrBrandPill}>ZapArc</Text>
                   </View>
                   <Button
                     mode="outlined"
-                    onPress={() => handleSaveQR(onchainQrRef, 'zaparc-onchain-qr')}
+                    onPress={() => handleSaveQR(onchainCardRef, 'zaparc-onchain-qr')}
                     compact
                     icon="download"
                     textColor={BRAND_COLOR}

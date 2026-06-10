@@ -13,6 +13,7 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import * as Sharing from 'expo-sharing';
 import RNFS from 'react-native-fs';
+import { captureRef } from 'react-native-view-shot';
 import { Text, IconButton, Button } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -30,6 +31,8 @@ import { useFeedback } from '../components/FeedbackComponents';
 export function TipQRCodeScreen(): React.JSX.Element {
   const params = useLocalSearchParams<{ encoded: string }>();
   const qrRef = useRef<any>(null);
+  // Card ref so saving captures the QR + centered logo + ZapArc pill together.
+  const qrCardRef = useRef<View>(null);
   const { themeMode } = useAppTheme();
   const { showSuccess, showError } = useFeedback();
 
@@ -65,56 +68,40 @@ export function TipQRCodeScreen(): React.JSX.Element {
     showSuccess('Copied to clipboard!');
   }, [params.encoded, showSuccess]);
 
-  // Handle save QR image
+  // Handle save QR image — captures the whole card (QR + centered logo +
+  // ZapArc pill) so the saved/shared image carries the branding.
   const handleSaveQR = useCallback(async () => {
-    if (!qrRef.current) {
+    if (!qrCardRef.current) {
       showError('QR code not ready');
       return;
     }
-
     try {
-      // Get QR code as base64 data URL
-      qrRef.current.toDataURL(async (dataURL: string) => {
-        try {
-          const fileName = `tip-qr-${Date.now()}.png`;
-          const filePath = `${RNFS.CachesDirectoryPath}/${fileName}`;
+      const tmpUri = await captureRef(qrCardRef, { format: 'png', quality: 1, result: 'tmpfile' });
+      const fileName = `tip-qr-${Date.now()}.png`;
+      const filePath = `${RNFS.CachesDirectoryPath}/${fileName}`;
+      await RNFS.copyFile(tmpUri.replace('file://', ''), filePath);
 
-          // Write base64 image to cache
-          await RNFS.writeFile(filePath, dataURL, 'base64');
-
-          // Check if sharing is available and share the file
-          const isAvailable = await Sharing.isAvailableAsync();
-          if (isAvailable) {
-            await Sharing.shareAsync(`file://${filePath}`, {
-              mimeType: 'image/png',
-              dialogTitle: 'Save QR Code',
-            });
-            showSuccess('QR code ready to save!');
-          } else {
-            // On Android, try to save directly to Downloads
-            if (Platform.OS === 'android') {
-              const granted = await PermissionsAndroid.request(
-                PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE
-              );
-              if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-                const downloadPath = `${RNFS.DownloadDirectoryPath}/${fileName}`;
-                await RNFS.copyFile(filePath, downloadPath);
-                showSuccess('QR code saved to Downloads!');
-              } else {
-                showError('Storage permission denied');
-              }
-            } else {
-              showError('Sharing not available on this device');
-            }
-          }
-
-          // Clean up cache file
-          await RNFS.unlink(filePath).catch(() => {});
-        } catch (error) {
-          console.error('Save QR failed:', error);
-          showError('Failed to save QR code');
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(`file://${filePath}`, {
+          mimeType: 'image/png',
+          dialogTitle: 'Save QR Code',
+        });
+        showSuccess('QR code ready to save!');
+      } else if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE
+        );
+        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+          const downloadPath = `${RNFS.DownloadDirectoryPath}/${fileName}`;
+          await RNFS.copyFile(filePath, downloadPath);
+          showSuccess('QR code saved to Downloads!');
+        } else {
+          showError('Storage permission denied');
         }
-      });
+      } else {
+        showError('Sharing not available on this device');
+      }
     } catch (error) {
       console.error('Save QR failed:', error);
       showError('Failed to save QR code');
@@ -172,7 +159,7 @@ export function TipQRCodeScreen(): React.JSX.Element {
           <View style={styles.qrCard}>
             <Text style={styles.qrTitle}>⚡ Scan to Tip</Text>
             
-            <View style={styles.qrCodeWrapper}>
+            <View style={styles.qrCodeWrapper} ref={qrCardRef} collapsable={false}>
               <QRCode
                 value={params.encoded}
                 size={220}
