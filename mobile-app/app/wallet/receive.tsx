@@ -1087,7 +1087,7 @@ export default function ReceiveScreen() {
                       {...QR_BRAND_PROPS}
                       getRef={(ref) => { lightningQrRef.current = ref; }}
                     />
-                    <Text style={styles.qrBrandName}>ZapArc</Text>
+                    <Text style={styles.qrBrandPill}>ZapArc</Text>
                   </View>
                   <Button
                     mode="outlined"
@@ -1150,7 +1150,7 @@ export default function ReceiveScreen() {
                       {...QR_BRAND_PROPS}
                       getRef={(ref) => { onchainQrRef.current = ref; }}
                     />
-                    <Text style={styles.qrBrandName}>ZapArc</Text>
+                    <Text style={styles.qrBrandPill}>ZapArc</Text>
                   </View>
                   <Button
                     mode="outlined"
@@ -1381,8 +1381,24 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 18, fontWeight: '700', marginBottom: 10 },
   snackbar: { marginBottom: 16 },
-  qrContainer: { alignItems: 'center', marginVertical: 16, padding: 16, backgroundColor: '#FFFFFF', borderRadius: 12, alignSelf: 'center' },
-  qrBrandName: { marginTop: 10, color: '#1a1a2e', fontSize: 14, fontWeight: '700', letterSpacing: 0.5 },
+  qrContainer: { alignItems: 'center', marginVertical: 16, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 14, backgroundColor: '#FFFFFF', borderRadius: 16, alignSelf: 'center' },
+  // "ZapArc" rendered as a branded pill badge sitting on the white QR card,
+  // just under the code. A Text with a background + radius + overflow hidden
+  // renders as a pill. Kept in the card's white area (not over the QR data
+  // modules) so the centered logo + label together stay within the QR error-
+  // correction budget and the code remains reliably scannable.
+  qrBrandPill: {
+    marginTop: 12,
+    color: '#FFFFFF',
+    backgroundColor: '#1a1a2e',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: 13,
+    overflow: 'hidden',
+  },
   fullValueText: { fontSize: 12, fontFamily: 'monospace', lineHeight: 18, marginVertical: 8, wordBreak: 'break-all' } as any,
   copyButton: { marginTop: 8, alignSelf: 'center', borderColor: BRAND_COLOR },
   saveQrButton: { marginTop: 4, marginBottom: 8, alignSelf: 'center', borderColor: BRAND_COLOR },

@@ -186,6 +186,7 @@ export function TipQRCodeScreen(): React.JSX.Element {
                 logoBorderRadius={10}
                 getRef={(ref) => (qrRef.current = ref)}
               />
+              <Text style={styles.qrBrandPill}>ZapArc</Text>
             </View>
             
             {/* Amounts Display */}
@@ -331,9 +332,24 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   qrCodeWrapper: {
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 10,
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  qrBrandPill: {
+    marginTop: 12,
+    color: '#FFFFFF',
+    backgroundColor: '#1a1a2e',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: 13,
+    overflow: 'hidden',
   },
   amountsContainer: {
     marginTop: 16,
