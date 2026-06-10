@@ -167,7 +167,7 @@ export function TipQRCodeScreen(): React.JSX.Element {
                 backgroundColor="#FFFFFF"
                 ecl="H"
                 logo={require('../../../../assets/icon.png')}
-                logoSize={Math.round(220 * 0.22)}
+                logoSize={Math.round(220 * 0.18)}
                 logoBackgroundColor="#FFFFFF"
                 logoMargin={4}
                 logoBorderRadius={10}

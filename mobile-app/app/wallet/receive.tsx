@@ -78,7 +78,7 @@ const QR_BRAND_PROPS = {
   color: '#000000',
   ecl: 'H' as const,
   logo: QR_LOGO,
-  logoSize: Math.round(QR_SIZE * 0.22),
+  logoSize: Math.round(QR_SIZE * 0.18),
   logoBackgroundColor: '#FFFFFF',
   logoMargin: 4,
   logoBorderRadius: 10,
