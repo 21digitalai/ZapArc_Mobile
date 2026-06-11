@@ -43,6 +43,7 @@ import {
 } from '../services/contactValidator';
 import { ContactValidationError } from '../services/contactService';
 import { t } from '../../../services/i18nService';
+import { contactDisplayName } from '../utils/contactDisplay';
 
 export function EditContactScreen(): React.JSX.Element {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -291,7 +292,7 @@ export function EditContactScreen(): React.JSX.Element {
             {/* Name Input */}
             <View style={styles.inputContainer}>
               <StyledTextInput
-                label="Name"
+                label={t('addressBook.nameOptional')}
                 value={name}
                 onChangeText={setName}
                 error={!!nameError}
@@ -382,7 +383,7 @@ export function EditContactScreen(): React.JSX.Element {
             <Dialog.Title style={styles.dialogTitle}>Delete Contact</Dialog.Title>
             <Dialog.Content>
               <Text style={styles.dialogContent}>
-                Are you sure you want to delete "{contact.name}"? This action
+                Are you sure you want to delete "{contactDisplayName(contact)}"? This action
                 cannot be undone.
               </Text>
             </Dialog.Content>

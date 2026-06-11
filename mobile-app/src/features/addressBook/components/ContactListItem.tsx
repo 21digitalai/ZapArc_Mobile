@@ -7,6 +7,7 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { List, Text, Avatar } from 'react-native-paper';
 import { Contact } from '../types';
+import { contactDisplayName, contactInitials } from '../utils/contactDisplay';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
 import { t } from '../../../services/i18nService';
 
@@ -26,19 +27,15 @@ export function ContactListItem({
   secondaryTextColor,
   isSelf = false,
 }: ContactListItemProps): React.JSX.Element {
-  const initials = contact.name
-    .split(' ')
-    .map((word) => word[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
+  const initials = contactInitials(contact);
+  const hasName = !!contact.name?.trim();
 
   return (
     <List.Item
       title={() => (
         <View style={styles.titleContainer}>
           <Text style={[styles.title, { color: primaryTextColor }]}>
-            {contact.name}
+            {contactDisplayName(contact)}
           </Text>
           {isSelf && (
             <View style={styles.selfBadge}>
@@ -47,7 +44,9 @@ export function ContactListItem({
           )}
         </View>
       )}
-      description={contact.lightningAddress}
+      // When the contact has no name the title already shows the address, so
+      // skip the duplicate description line.
+      description={hasName ? contact.lightningAddress : undefined}
       left={() => (
         <View style={styles.avatarContainer}>
           <Avatar.Text

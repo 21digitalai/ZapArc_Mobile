@@ -27,6 +27,7 @@ import { useContacts } from '../../src/features/addressBook/hooks/useContacts';
 import { ContactSelectionModal } from '../../src/features/addressBook/components/ContactSelectionModal';
 import { Contact } from '../../src/features/addressBook/types';
 import { normalizeLightningAddress } from '../../src/features/addressBook/services/contactValidator';
+import { contactDisplayName } from '../../src/features/addressBook/utils/contactDisplay';
 import { t } from '../../src/services/i18nService';
 
 function isValidBitcoinAddress(address: string): boolean {
@@ -1136,16 +1137,17 @@ export default function SendScreen() {
     }
   }, [preview, prepareResponse, refreshBalance, step, selectedSpeed, paymentInput, comment, contacts, t]);
 
-  // "Save as contact" prompt actions. Save → Add Contact screen with both
-  // fields prefilled to the address just paid; we replace the send screen so
-  // Back from Add Contact (and its post-save) lands on home, not here.
+  // "Save as contact" prompt actions. Save → Add Contact screen with the
+  // address prefilled (name is left blank — it's optional, and the address is
+  // shown when no name is set). We replace the send screen so Back from Add
+  // Contact (and its post-save) lands on home, not here.
   const handleSaveRecipientAsContact = useCallback(() => {
     const address = saveContactAddress;
     if (!address) return;
     setSaveContactAddress(null);
     router.replace({
       pathname: '/wallet/settings/address-book/add',
-      params: { name: address, address },
+      params: { address },
     });
   }, [saveContactAddress]);
 
@@ -1461,7 +1463,7 @@ export default function SendScreen() {
           {isLightningTab && selectedContact ? (
             <View style={styles.selectedContactContainer}>
               <View style={styles.selectedContactHeader}>
-                <Text style={styles.selectedContactName}>{selectedContact.name}</Text>
+                <Text style={styles.selectedContactName}>{contactDisplayName(selectedContact)}</Text>
                 <IconButton
                   icon="close"
                   iconColor="rgba(255, 255, 255, 0.7)"

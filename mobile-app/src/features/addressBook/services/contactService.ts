@@ -15,13 +15,19 @@ import {
   validateContactInput,
   normalizeLightningAddress,
 } from './contactValidator';
+import { contactDisplayName } from '../utils/contactDisplay';
+
+/** Alphabetical comparison on the display label (name, or address fallback). */
+function byDisplayName(a: Contact, b: Contact): number {
+  return contactDisplayName(a).localeCompare(contactDisplayName(b));
+}
 
 /**
  * Get all contacts sorted by name
  */
 export async function getAllContacts(): Promise<Contact[]> {
   const contacts = await loadContacts();
-  return contacts.sort((a, b) => a.name.localeCompare(b.name));
+  return contacts.sort(byDisplayName);
 }
 
 /**
@@ -41,7 +47,7 @@ export async function searchContacts(query: string): Promise<Contact[]> {
   const contacts = await loadContacts();
 
   if (!query.trim()) {
-    return contacts.sort((a, b) => a.name.localeCompare(b.name));
+    return contacts.sort(byDisplayName);
   }
 
   const normalizedQuery = query.trim().toLowerCase();
@@ -53,7 +59,7 @@ export async function searchContacts(query: string): Promise<Contact[]> {
       contact.sparkAddress?.toLowerCase().includes(normalizedQuery)
   );
 
-  return filtered.sort((a, b) => a.name.localeCompare(b.name));
+  return filtered.sort(byDisplayName);
 }
 
 /**

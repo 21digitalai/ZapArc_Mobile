@@ -197,10 +197,10 @@ export function AddContactScreen(): React.JSX.Element {
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
           >
-            {/* Name Input */}
+            {/* Name Input (optional — falls back to the address when blank) */}
             <View style={styles.inputContainer}>
               <StyledTextInput
-                label={t('addressBook.name')}
+                label={t('addressBook.nameOptional')}
                 value={name}
                 onChangeText={setName}
                 error={!!nameError}

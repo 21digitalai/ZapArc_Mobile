@@ -3,6 +3,9 @@
 // Types
 export * from './types';
 
+// Utils
+export * from './utils/contactDisplay';
+
 // Services
 export * from './services/contactStorage';
 export * from './services/contactValidator';

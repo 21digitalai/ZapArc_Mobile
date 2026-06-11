@@ -91,18 +91,18 @@ export function validateLightningAddress(address: string): ValidationResult {
 }
 
 /**
- * Validate a contact display name
+ * Validate a contact display name.
+ *
+ * The name is OPTIONAL — an empty name is valid. When a contact has no name,
+ * the UI falls back to showing its lightning address (see contactDisplayName).
+ * We only enforce the max length when a name is provided.
  */
 export function validateName(name: string): ValidationResult {
   const errors: ValidationError[] = [];
   const trimmed = name.trim();
 
   if (!trimmed) {
-    errors.push({
-      field: 'name',
-      message: 'Contact name is required',
-    });
-    return { isValid: false, errors };
+    return { isValid: true, errors: [] };
   }
 
   if (trimmed.length > VALIDATION_LIMITS.NAME_MAX_LENGTH) {

@@ -8,6 +8,7 @@ import { StyleSheet, View, FlatList, TouchableOpacity } from 'react-native';
 import { Modal, Portal, Text, IconButton, Avatar, Divider } from 'react-native-paper';
 import { router } from 'expo-router';
 import { Contact } from '../types';
+import { contactDisplayName, contactInitials } from '../utils/contactDisplay';
 import { ContactSearchBar } from './ContactSearchBar';
 import { useContactSearch } from '../hooks/useContactSearch';
 import { t } from '../../../services/i18nService';
@@ -61,12 +62,7 @@ export function ContactSelectionModal({
   };
 
   const renderContact = ({ item }: { item: Contact }) => {
-    const initials = item.name
-      .split(' ')
-      .map((word) => word[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
+    const initials = contactInitials(item);
 
     const isSelf = myAddress ? item.lightningAddress.toLowerCase().trim() === myAddress.toLowerCase().trim() : false;
 
@@ -84,7 +80,7 @@ export function ContactSelectionModal({
         />
         <View style={styles.contactInfo}>
           <View style={styles.nameRow}>
-            <Text style={styles.contactName}>{item.name}</Text>
+            <Text style={styles.contactName}>{contactDisplayName(item)}</Text>
             {isSelf && (
               <View style={styles.selfBadge}>
                 <Text style={styles.selfBadgeText}>{t('addressBook.self')}</Text>
