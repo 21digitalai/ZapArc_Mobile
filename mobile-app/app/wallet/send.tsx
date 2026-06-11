@@ -202,6 +202,9 @@ export default function SendScreen() {
   const [preview, setPreview] = useState<PaymentPreview | null>(null);
   const [isPreparing, setIsPreparing] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  // True for the duration of an in-flight send — blocks a duplicate submit of
+  // the same prepared payment (which the SDK rejects as "already exists").
+  const sendInFlightRef = useRef(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [prepareResponse, setPrepareResponse] = useState<any>(null);
   const [scanned, setScanned] = useState(false);
@@ -1059,6 +1062,14 @@ export default function SendScreen() {
     if (!preview || !prepareResponse) {
       return;
     }
+    // Guard against a second submit reusing the same prepared payment. The
+    // SDK rejects a re-send of an already-used payment hash ("payment request
+    // already exists"), so we drop any tap that lands while one is in flight —
+    // a ref (not state) so it's correct even within the same render tick.
+    if (sendInFlightRef.current) {
+      return;
+    }
+    sendInFlightRef.current = true;
 
     try {
       setIsSending(true);
@@ -1109,6 +1120,9 @@ export default function SendScreen() {
               normalizeLightningAddress(recipientRaw)
           );
         if (isSavableRecipient && !alreadyAContact) {
+          // We stay on the screen to show the prompt — clear the prepared
+          // payment so the (covered) Send button can't re-submit it.
+          setPrepareResponse(null);
           setSaveContactAddress(recipientRaw);
           return;
         }
@@ -1134,6 +1148,7 @@ export default function SendScreen() {
       setPrepareResponse(null);
     } finally {
       setIsSending(false);
+      sendInFlightRef.current = false;
     }
   }, [preview, prepareResponse, refreshBalance, step, selectedSpeed, paymentInput, comment, contacts, t]);
 
@@ -1155,6 +1170,50 @@ export default function SendScreen() {
     setSaveContactAddress(null);
     router.navigate('/wallet/home');
   }, []);
+
+  // Rendered in BOTH the preview and input screens so it shows no matter which
+  // step we're on when a send succeeds (the Send button lives on the preview
+  // screen — the modal must be mounted there, not only on the input screen).
+  const saveContactModal = (
+    <Modal
+      visible={!!saveContactAddress}
+      transparent
+      animationType="fade"
+      onRequestClose={handleDismissSaveContact}
+    >
+      <View style={styles.saveContactOverlay}>
+        <View style={styles.saveContactCard}>
+          <View style={styles.saveContactIcon}>
+            <IconButton icon="account-plus" iconColor={BRAND_COLOR} size={32} />
+          </View>
+          <Text style={styles.saveContactTitle}>{t('send.saveContactTitle')}</Text>
+          <Text style={styles.saveContactBody}>{t('send.saveContactBody')}</Text>
+          <View style={styles.saveContactAddressPill}>
+            <Text style={styles.saveContactAddressText} numberOfLines={1}>
+              {saveContactAddress}
+            </Text>
+          </View>
+          <Button
+            mode="contained"
+            onPress={handleSaveRecipientAsContact}
+            buttonColor={BRAND_COLOR}
+            textColor="#1a1a2e"
+            style={styles.saveContactPrimaryBtn}
+            contentStyle={styles.saveContactPrimaryBtnContent}
+          >
+            {t('send.saveContactConfirm')}
+          </Button>
+          <Button
+            mode="text"
+            onPress={handleDismissSaveContact}
+            textColor="rgba(255, 255, 255, 0.7)"
+          >
+            {t('send.saveContactDismiss')}
+          </Button>
+        </View>
+      </View>
+    </Modal>
+  );
 
   const handleBackToInput = useCallback(() => {
     setStep('input');
@@ -1378,6 +1437,7 @@ export default function SendScreen() {
               </Button>
             </View>
           </ScrollView>
+          {saveContactModal}
         </SafeAreaView>
       </LinearGradient>
     );
@@ -1547,46 +1607,7 @@ export default function SendScreen() {
             activeAsset={activeAsset}
           />
 
-          {/* Post-send prompt: offer to save a freshly-paid Lightning Address /
-              LNURL as a contact (only shown when it isn't already saved). */}
-          <Modal
-            visible={!!saveContactAddress}
-            transparent
-            animationType="fade"
-            onRequestClose={handleDismissSaveContact}
-          >
-            <View style={styles.saveContactOverlay}>
-              <View style={styles.saveContactCard}>
-                <View style={styles.saveContactIcon}>
-                  <IconButton icon="account-plus" iconColor={BRAND_COLOR} size={32} />
-                </View>
-                <Text style={styles.saveContactTitle}>{t('send.saveContactTitle')}</Text>
-                <Text style={styles.saveContactBody}>{t('send.saveContactBody')}</Text>
-                <View style={styles.saveContactAddressPill}>
-                  <Text style={styles.saveContactAddressText} numberOfLines={1}>
-                    {saveContactAddress}
-                  </Text>
-                </View>
-                <Button
-                  mode="contained"
-                  onPress={handleSaveRecipientAsContact}
-                  buttonColor={BRAND_COLOR}
-                  textColor="#1a1a2e"
-                  style={styles.saveContactPrimaryBtn}
-                  contentStyle={styles.saveContactPrimaryBtnContent}
-                >
-                  {t('send.saveContactConfirm')}
-                </Button>
-                <Button
-                  mode="text"
-                  onPress={handleDismissSaveContact}
-                  textColor="rgba(255, 255, 255, 0.7)"
-                >
-                  {t('send.saveContactDismiss')}
-                </Button>
-              </View>
-            </View>
-          </Modal>
+          {saveContactModal}
 
           {isLightningTab ? (
             <>
