@@ -26,6 +26,7 @@ import { CurrencyPickerSheet, type PickerCurrency } from '../../src/features/wal
 import { useContacts } from '../../src/features/addressBook/hooks/useContacts';
 import { ContactSelectionModal } from '../../src/features/addressBook/components/ContactSelectionModal';
 import { Contact } from '../../src/features/addressBook/types';
+import { normalizeLightningAddress } from '../../src/features/addressBook/services/contactValidator';
 import { t } from '../../src/services/i18nService';
 
 function isValidBitcoinAddress(address: string): boolean {
@@ -218,6 +219,9 @@ export default function SendScreen() {
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [activeAsset, setActiveAsset] = useState<'BTC' | 'USDB'>('BTC');
   const [contactModalVisible, setContactModalVisible] = useState(false);
+  // After paying a Lightning Address / LNURL that isn't already saved, we hold
+  // it here to offer a "save as contact" prompt before leaving the screen.
+  const [saveContactAddress, setSaveContactAddress] = useState<string | null>(null);
   const [isFetchingFees, setIsFetchingFees] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
   const [usdbLightningError, setUsdbLightningError] = useState<string | null>(null);
@@ -1071,25 +1075,43 @@ export default function SendScreen() {
             // Non-critical — ignore storage errors
           }
         }
+        // Detect whether the recipient was a human-readable Lightning Address
+        // (name@domain) or an LNURL — the only inputs worth labelling / saving
+        // as a contact. Raw BOLT11 invoices aren't a meaningful recipient.
+        const recipientRaw = paymentInput.trim();
+        const looksLikeAddress = recipientRaw.includes('@') && !recipientRaw.toLowerCase().startsWith('ln');
+        const looksLikeLnurl = recipientRaw.toLowerCase().startsWith('lnurl');
+        const isSavableRecipient = looksLikeAddress || looksLikeLnurl;
+
         // Persist the recipient when we paid a Lightning Address / LNURL.
         // The SDK's payment history doesn't reliably surface the human-
         // readable destination, but we know exactly what the user entered
         // here — store it locally so the transaction details can show
-        // "To: name@domain" later. Only store address-style inputs (skip
-        // raw BOLT11 invoices, which aren't a meaningful recipient label).
-        if (result.paymentId) {
-          const recipientRaw = paymentInput.trim();
-          const looksLikeAddress = recipientRaw.includes('@') && !recipientRaw.toLowerCase().startsWith('ln');
-          const looksLikeLnurl = recipientRaw.toLowerCase().startsWith('lnurl');
-          if (looksLikeAddress || looksLikeLnurl) {
-            try {
-              await AsyncStorage.setItem(`payment_recipient_${result.paymentId}`, recipientRaw);
-            } catch {
-              // Non-critical — ignore storage errors
-            }
+        // "To: name@domain" later.
+        if (result.paymentId && isSavableRecipient) {
+          try {
+            await AsyncStorage.setItem(`payment_recipient_${result.paymentId}`, recipientRaw);
+          } catch {
+            // Non-critical — ignore storage errors
           }
         }
         await refreshBalance();
+
+        // Offer to save the recipient as a contact — but only for a Lightning
+        // Address / LNURL that isn't already in the address book. When shown,
+        // we stay on the screen; the modal's buttons handle navigation.
+        const alreadyAContact =
+          isSavableRecipient &&
+          contacts.some(
+            (c) =>
+              normalizeLightningAddress(c.lightningAddress) ===
+              normalizeLightningAddress(recipientRaw)
+          );
+        if (isSavableRecipient && !alreadyAContact) {
+          setSaveContactAddress(recipientRaw);
+          return;
+        }
+
         await new Promise(resolve => setTimeout(resolve, 1000));
         router.navigate('/wallet/home');
       } else {
@@ -1112,7 +1134,25 @@ export default function SendScreen() {
     } finally {
       setIsSending(false);
     }
-  }, [preview, prepareResponse, refreshBalance, step, selectedSpeed, paymentInput, comment, t]);
+  }, [preview, prepareResponse, refreshBalance, step, selectedSpeed, paymentInput, comment, contacts, t]);
+
+  // "Save as contact" prompt actions. Save → Add Contact screen with both
+  // fields prefilled to the address just paid; we replace the send screen so
+  // Back from Add Contact (and its post-save) lands on home, not here.
+  const handleSaveRecipientAsContact = useCallback(() => {
+    const address = saveContactAddress;
+    if (!address) return;
+    setSaveContactAddress(null);
+    router.replace({
+      pathname: '/wallet/settings/address-book/add',
+      params: { name: address, address },
+    });
+  }, [saveContactAddress]);
+
+  const handleDismissSaveContact = useCallback(() => {
+    setSaveContactAddress(null);
+    router.navigate('/wallet/home');
+  }, []);
 
   const handleBackToInput = useCallback(() => {
     setStep('input');
@@ -1504,6 +1544,47 @@ export default function SendScreen() {
             myAddress={addressInfo?.lightningAddress}
             activeAsset={activeAsset}
           />
+
+          {/* Post-send prompt: offer to save a freshly-paid Lightning Address /
+              LNURL as a contact (only shown when it isn't already saved). */}
+          <Modal
+            visible={!!saveContactAddress}
+            transparent
+            animationType="fade"
+            onRequestClose={handleDismissSaveContact}
+          >
+            <View style={styles.saveContactOverlay}>
+              <View style={styles.saveContactCard}>
+                <View style={styles.saveContactIcon}>
+                  <IconButton icon="account-plus" iconColor={BRAND_COLOR} size={32} />
+                </View>
+                <Text style={styles.saveContactTitle}>{t('send.saveContactTitle')}</Text>
+                <Text style={styles.saveContactBody}>{t('send.saveContactBody')}</Text>
+                <View style={styles.saveContactAddressPill}>
+                  <Text style={styles.saveContactAddressText} numberOfLines={1}>
+                    {saveContactAddress}
+                  </Text>
+                </View>
+                <Button
+                  mode="contained"
+                  onPress={handleSaveRecipientAsContact}
+                  buttonColor={BRAND_COLOR}
+                  textColor="#1a1a2e"
+                  style={styles.saveContactPrimaryBtn}
+                  contentStyle={styles.saveContactPrimaryBtnContent}
+                >
+                  {t('send.saveContactConfirm')}
+                </Button>
+                <Button
+                  mode="text"
+                  onPress={handleDismissSaveContact}
+                  textColor="rgba(255, 255, 255, 0.7)"
+                >
+                  {t('send.saveContactDismiss')}
+                </Button>
+              </View>
+            </View>
+          </Modal>
 
           {isLightningTab ? (
             <>
@@ -2241,5 +2322,67 @@ const styles = StyleSheet.create({
   },
   addressBookIcon: {
     margin: 0,
+  },
+  saveContactOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  saveContactCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#1a1a2e',
+    borderRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 16,
+    alignItems: 'center',
+  },
+  saveContactIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(247, 147, 26, 0.16)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  saveContactTitle: {
+    fontSize: 19,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  saveContactBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: 'rgba(255, 255, 255, 0.7)',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  saveContactAddressPill: {
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 20,
+  },
+  saveContactAddressText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  saveContactPrimaryBtn: {
+    alignSelf: 'stretch',
+    borderRadius: 14,
+    marginBottom: 4,
+  },
+  saveContactPrimaryBtnContent: {
+    paddingVertical: 6,
   },
 });

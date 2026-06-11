@@ -21,7 +21,7 @@ import {
 import { StyledTextInput } from '../../../components';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import {
   getGradientColors,
@@ -45,12 +45,19 @@ export function AddContactScreen(): React.JSX.Element {
   const { themeMode } = useAppTheme();
   const { createContact } = useContacts();
 
+  // Optional prefill — e.g. the "Save as contact" prompt after paying a
+  // Lightning Address routes here with both fields set to the address the
+  // user just paid.
+  const params = useLocalSearchParams<{ name?: string; address?: string }>();
+  const prefillName = typeof params.name === 'string' ? params.name : '';
+  const prefillAddress = typeof params.address === 'string' ? params.address : '';
+
   const gradientColors = getGradientColors(themeMode);
   const primaryTextColor = getPrimaryTextColor(themeMode);
   const secondaryTextColor = getSecondaryTextColor(themeMode);
 
-  const [name, setName] = useState('');
-  const [lightningAddress, setLightningAddress] = useState('');
+  const [name, setName] = useState(prefillName);
+  const [lightningAddress, setLightningAddress] = useState(prefillAddress);
   const [sparkAddress, setSparkAddress] = useState('');
   const [preferredAsset, setPreferredAsset] = useState<'BTC' | 'USDB'>('BTC');
   const [notes, setNotes] = useState('');
