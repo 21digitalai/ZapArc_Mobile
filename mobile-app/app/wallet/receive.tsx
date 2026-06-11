@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Modal, Linking, Platform, PermissionsAndroid, Image, type LayoutChangeEvent } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Modal, Linking, Platform, PermissionsAndroid, type LayoutChangeEvent } from 'react-native';
 import { Text, Button, Snackbar, IconButton, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -67,33 +67,23 @@ const currencyLabels: Record<InvoiceCurrency, string> = {
 const FAILED_CLAIMS_KEY = '@zap_arc/recent_failed_onchain_claims_v1';
 const MAX_FAILED_CLAIMS = 5;
 
-// Centered brand badge for QR codes (Wallet-of-Satoshi style). QR error
-// correction level "H" tolerates ~30% occlusion, so a compact white chip
-// carrying the icon + "ZapArc" wordmark in the center stays reliably
-// scannable while keeping the branding *inside* the code (not below it).
-const QR_LOGO = require('../../assets/icon.png');
+// Centered brand logo for QR codes (Wallet-of-Satoshi style). A single
+// pre-composited asset — bolt icon + the "ZapArc" wordmark (white "Zap" +
+// orange "Arc", matching the store feature graphic) on a navy rounded badge.
+// QR error-correction level "H" tolerates ~30% occlusion, so a ~30% center
+// logo stays reliably scannable. Baked into the saved/shared image too.
+const QR_BRAND_LOGO = require('../../assets/qr-brand-logo.png');
 const QR_SIZE = 200;
 const QR_BRAND_PROPS = {
   size: QR_SIZE,
   backgroundColor: '#FFFFFF',
   color: '#000000',
   ecl: 'H' as const,
+  logo: QR_BRAND_LOGO,
+  logoSize: Math.round(QR_SIZE * 0.30),
+  // Transparent so the asset's own navy rounded badge shows (no white box).
+  logoBackgroundColor: 'transparent',
 };
-
-// Branded center badge overlaid on the QR: app icon + "ZapArc" wordmark on a
-// white rounded chip. Rendered absolutely-centered over the code and captured
-// as part of the saved/shared image. pointerEvents="none" so it never eats
-// taps. Kept short/wide so the occluded area stays within the H-level budget.
-function QrCenterBrand() {
-  return (
-    <View style={styles.qrCenterOverlay} pointerEvents="none">
-      <View style={styles.qrCenterBadge}>
-        <Image source={QR_LOGO} style={styles.qrCenterIcon} />
-        <Text style={styles.qrCenterText}>ZapArc</Text>
-      </View>
-    </View>
-  );
-}
 
 export default function ReceiveScreen() {
   const params = useLocalSearchParams<{ asset?: string; tab?: string }>();
@@ -1104,13 +1094,10 @@ export default function ReceiveScreen() {
                   </Text>
 
                   <View style={styles.qrContainer} ref={lightningCardRef} collapsable={false}>
-                    <View style={styles.qrInner}>
-                      <QRCode
-                        value={invoice}
-                        {...QR_BRAND_PROPS}
-                      />
-                      <QrCenterBrand />
-                    </View>
+                    <QRCode
+                      value={invoice}
+                      {...QR_BRAND_PROPS}
+                    />
                   </View>
                   <Button
                     mode="outlined"
@@ -1168,13 +1155,10 @@ export default function ReceiveScreen() {
                       reads, so they'd just bloat the QR for everyone else.
                       The minimum is communicated as plain text below. */}
                   <View style={styles.qrContainer} ref={onchainCardRef} collapsable={false}>
-                    <View style={styles.qrInner}>
-                      <QRCode
-                        value={`bitcoin:${onchainAddress}`}
-                        {...QR_BRAND_PROPS}
-                      />
-                      <QrCenterBrand />
-                    </View>
+                    <QRCode
+                      value={`bitcoin:${onchainAddress}`}
+                      {...QR_BRAND_PROPS}
+                    />
                   </View>
                   <Button
                     mode="outlined"
@@ -1406,24 +1390,6 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 18, fontWeight: '700', marginBottom: 10 },
   snackbar: { marginBottom: 16 },
   qrContainer: { alignItems: 'center', marginVertical: 16, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 14, backgroundColor: '#FFFFFF', borderRadius: 16, alignSelf: 'center' },
-  // Relative wrapper so the brand badge can be absolutely centered on the QR.
-  qrInner: { position: 'relative', alignItems: 'center', justifyContent: 'center' },
-  // Full-size overlay that centers the brand chip over the QR modules.
-  qrCenterOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
-  // White rounded chip carrying the icon + "ZapArc" wordmark in the QR center.
-  qrCenterBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 11,
-    paddingLeft: 5,
-    paddingRight: 8,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.06)',
-  },
-  qrCenterIcon: { width: 22, height: 22, borderRadius: 6, marginRight: 5 },
-  qrCenterText: { color: '#1a1a2e', fontSize: 13, fontWeight: '800', letterSpacing: 0.2 },
   fullValueText: { fontSize: 12, fontFamily: 'monospace', lineHeight: 18, marginVertical: 8, wordBreak: 'break-all' } as any,
   copyButton: { marginTop: 8, alignSelf: 'center', borderColor: BRAND_COLOR },
   saveQrButton: { marginTop: 4, marginBottom: 8, alignSelf: 'center', borderColor: BRAND_COLOR },
