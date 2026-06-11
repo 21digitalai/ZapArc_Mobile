@@ -4,6 +4,7 @@
 import React, { useCallback, useMemo, useRef } from 'react';
 import {
   View,
+  Image,
   StyleSheet,
   Share,
   TouchableOpacity,
@@ -160,20 +161,25 @@ export function TipQRCodeScreen(): React.JSX.Element {
             <Text style={styles.qrTitle}>⚡ Scan to Tip</Text>
             
             <View style={styles.qrCodeWrapper} ref={qrCardRef} collapsable={false}>
-              <QRCode
-                value={params.encoded}
-                size={220}
-                color="#1a1a2e"
-                backgroundColor="#FFFFFF"
-                ecl="H"
-                logo={require('../../../../assets/icon.png')}
-                logoSize={Math.round(220 * 0.18)}
-                logoBackgroundColor="#FFFFFF"
-                logoMargin={4}
-                logoBorderRadius={10}
-                getRef={(ref) => (qrRef.current = ref)}
-              />
-              <Text style={styles.qrBrandPill}>ZapArc</Text>
+              <View style={styles.qrInner}>
+                <QRCode
+                  value={params.encoded}
+                  size={220}
+                  color="#1a1a2e"
+                  backgroundColor="#FFFFFF"
+                  ecl="H"
+                  getRef={(ref) => (qrRef.current = ref)}
+                />
+                {/* Branded center badge: icon + "ZapArc" wordmark overlaid on the
+                    QR. ecl="H" keeps it scannable; pointerEvents none so it can't
+                    block taps. Captured as part of the saved/shared image. */}
+                <View style={styles.qrCenterOverlay} pointerEvents="none">
+                  <View style={styles.qrCenterBadge}>
+                    <Image source={require('../../../../assets/icon.png')} style={styles.qrCenterIcon} />
+                    <Text style={styles.qrCenterText}>ZapArc</Text>
+                  </View>
+                </View>
+              </View>
             </View>
             
             {/* Amounts Display */}
@@ -326,18 +332,21 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
   },
-  qrBrandPill: {
-    marginTop: 12,
-    color: '#FFFFFF',
-    backgroundColor: '#1a1a2e',
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    paddingHorizontal: 14,
-    paddingVertical: 5,
-    borderRadius: 13,
-    overflow: 'hidden',
+  qrInner: { position: 'relative', alignItems: 'center', justifyContent: 'center' },
+  qrCenterOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  qrCenterBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 11,
+    paddingLeft: 5,
+    paddingRight: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
   },
+  qrCenterIcon: { width: 24, height: 24, borderRadius: 6, marginRight: 5 },
+  qrCenterText: { color: '#1a1a2e', fontSize: 14, fontWeight: '800', letterSpacing: 0.2 },
   amountsContainer: {
     marginTop: 16,
     alignItems: 'center',
