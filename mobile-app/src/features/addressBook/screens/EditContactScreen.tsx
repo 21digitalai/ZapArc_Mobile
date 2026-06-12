@@ -16,12 +16,12 @@ import {
   Button,
   IconButton,
   HelperText,
-  Snackbar,
   Dialog,
   Portal,
   ActivityIndicator,
 } from 'react-native-paper';
 import { StyledTextInput } from '../../../components';
+import { useFeedback } from '../../wallet/components/FeedbackComponents';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -64,8 +64,7 @@ export function EditContactScreen(): React.JSX.Element {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
-  const [snackbarVisible, setSnackbarVisible] = useState(false);
-  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const { showError } = useFeedback();
 
   const [nameError, setNameError] = useState<string | null>(null);
   const [addressError, setAddressError] = useState<string | null>(null);
@@ -91,8 +90,7 @@ export function EditContactScreen(): React.JSX.Element {
         }
       } catch (err) {
         console.error('❌ EditContact: Failed to load contact', err);
-        setSnackbarMessage('Failed to load contact');
-        setSnackbarVisible(true);
+        showError('Failed to load contact');
       } finally {
         setLoading(false);
       }
@@ -169,12 +167,10 @@ export function EditContactScreen(): React.JSX.Element {
         if (addressErrors.length > 0) {
           setAddressError(addressErrors[0].message);
         } else {
-          setSnackbarMessage(err.message);
-          setSnackbarVisible(true);
+          showError(err.message);
         }
       } else {
-        setSnackbarMessage('Failed to save contact. Please try again.');
-        setSnackbarVisible(true);
+        showError('Failed to save contact. Please try again.');
       }
     } finally {
       setSaving(false);
@@ -190,8 +186,7 @@ export function EditContactScreen(): React.JSX.Element {
       await deleteContact(contact.id);
       router.back();
     } catch (err) {
-      setSnackbarMessage('Failed to delete contact. Please try again.');
-      setSnackbarVisible(true);
+      showError('Failed to delete contact. Please try again.');
     } finally {
       setDeleting(false);
     }
@@ -400,18 +395,6 @@ export function EditContactScreen(): React.JSX.Element {
             </Dialog.Actions>
           </Dialog>
         </Portal>
-
-        <Snackbar
-          visible={snackbarVisible}
-          onDismiss={() => setSnackbarVisible(false)}
-          duration={3000}
-          action={{
-            label: 'OK',
-            onPress: () => setSnackbarVisible(false),
-          }}
-        >
-          {snackbarMessage}
-        </Snackbar>
       </SafeAreaView>
     </LinearGradient>
   );

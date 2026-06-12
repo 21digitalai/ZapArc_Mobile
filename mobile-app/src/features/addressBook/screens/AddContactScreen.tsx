@@ -16,9 +16,9 @@ import {
   Button,
   IconButton,
   HelperText,
-  Snackbar,
 } from 'react-native-paper';
 import { StyledTextInput } from '../../../components';
+import { useFeedback } from '../../wallet/components/FeedbackComponents';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -63,8 +63,7 @@ export function AddContactScreen(): React.JSX.Element {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [snackbarVisible, setSnackbarVisible] = useState(false);
-  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const { showError } = useFeedback();
 
   const [nameError, setNameError] = useState<string | null>(null);
   const [addressError, setAddressError] = useState<string | null>(null);
@@ -151,12 +150,10 @@ export function AddContactScreen(): React.JSX.Element {
         if (addressErrors.length > 0) {
           setAddressError(addressErrors[0].message);
         } else {
-          setSnackbarMessage(err.message);
-          setSnackbarVisible(true);
+          showError(err.message);
         }
       } else {
-        setSnackbarMessage('Failed to save contact. Please try again.');
-        setSnackbarVisible(true);
+        showError('Failed to save contact. Please try again.');
       }
     } finally {
       setSaving(false);
@@ -265,18 +262,6 @@ export function AddContactScreen(): React.JSX.Element {
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
-
-        <Snackbar
-          visible={snackbarVisible}
-          onDismiss={() => setSnackbarVisible(false)}
-          duration={3000}
-          action={{
-            label: t('common.ok'),
-            onPress: () => setSnackbarVisible(false),
-          }}
-        >
-          {snackbarMessage}
-        </Snackbar>
       </SafeAreaView>
     </LinearGradient>
   );

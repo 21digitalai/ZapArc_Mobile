@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Modal, Linking, Platform, PermissionsAndroid, type LayoutChangeEvent } from 'react-native';
-import { Text, Button, Snackbar, IconButton, Divider } from 'react-native-paper';
+import { Text, Button, IconButton, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
@@ -34,6 +34,7 @@ import { fiatToUsdb } from '../../src/utils/currency';
  */
 type InvoiceCurrency = DisplayCurrency | 'usdb';
 import { CurrencyPickerSheet } from '../../src/features/wallet/components/CurrencyPickerSheet';
+import { useFeedback } from '../../src/features/wallet/components/FeedbackComponents';
 import { useLightningAddress } from '../../src/hooks/useLightningAddress';
 import { StyledTextInput, KeyboardDoneAccessory, keyboardDoneAccessoryId } from '../../src/components';
 import { t } from '../../src/services/i18nService';
@@ -375,13 +376,11 @@ export default function ReceiveScreen() {
     }
   }, [amount, description, inputCurrency, convertToSats, isUsdbAsset, usdbTokenIdentifier, rates]);
 
-  const [snackMsg, setSnackMsg] = useState('');
-  const [snackVisible, setSnackVisible] = useState(false);
+  const { showSuccess } = useFeedback();
 
   const showCopyToast = useCallback((key: string) => {
-    setSnackMsg(t(key));
-    setSnackVisible(true);
-  }, []);
+    showSuccess(t(key));
+  }, [showSuccess]);
 
   const handleCopyInvoice = useCallback(async () => {
     if (!invoice) return;
@@ -701,8 +700,7 @@ export default function ReceiveScreen() {
         if (granted === PermissionsAndroid.RESULTS.GRANTED) {
           const downloadPath = `${RNFS.DownloadDirectoryPath}/${fileName}`;
           await RNFS.copyFile(filePath, downloadPath);
-          setSnackMsg('QR code saved to Downloads');
-          setSnackVisible(true);
+          showSuccess('QR code saved to Downloads');
         } else {
           Alert.alert(t('common.error'), 'Storage permission denied');
         }
@@ -801,9 +799,8 @@ export default function ReceiveScreen() {
 
   const handleCopyValue = useCallback(async (label: string, value: string) => {
     await Clipboard.setStringAsync(value);
-    setSnackMsg(`${label} copied`);
-    setSnackVisible(true);
-  }, []);
+    showSuccess(`${label} copied`);
+  }, [showSuccess]);
 
   const renderPendingDepositModal = () => {
     if (!selectedPendingDeposit) return null;
@@ -1265,14 +1262,6 @@ export default function ReceiveScreen() {
         </ScrollView>
       </SafeAreaView>
       <KeyboardDoneAccessory />
-      <Snackbar
-        visible={snackVisible}
-        onDismiss={() => setSnackVisible(false)}
-        duration={2000}
-        style={styles.snackbar}
-      >
-        {snackMsg}
-      </Snackbar>
       {renderPendingDepositModal()}
 
       {/* Bottom-sheet currency picker — replaces the previous "cycle"
