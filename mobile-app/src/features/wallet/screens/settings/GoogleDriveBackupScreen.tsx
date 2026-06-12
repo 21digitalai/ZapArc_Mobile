@@ -18,6 +18,7 @@ import {
   Button,
   IconButton,
   ProgressBar,
+  Switch,
 } from 'react-native-paper';
 import { TextInput } from 'react-native-paper'; // Only for TextInput.Icon
 import { StyledTextInput } from '../../../../components/StyledTextInput';
@@ -44,10 +45,13 @@ import {
   type GoogleUser,
   type BackupMetadata,
 } from '../../../../services/googleDriveBackupService';
+import { contactService, refreshContactsStore } from '../../../addressBook';
+import type { Contact } from '../../../addressBook/types';
 import {
   validatePasswordStrength,
   validateBackupStructure,
   decryptMnemonic,
+  decryptStringBlob,
   type PasswordStrength,
 } from '../../../../services/backupEncryption';
 import * as DocumentPicker from 'expo-document-picker';
@@ -85,6 +89,10 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
   const [showPassword, setShowPassword] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState<PasswordStrength | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  // Whether to include the address book in this backup, and the contacts
+  // pulled out of a restored backup awaiting a merge decision.
+  const [includeContacts, setIncludeContacts] = useState(true);
+  const [restoredContacts, setRestoredContacts] = useState<Contact[] | null>(null);
 
   // Restore flow: PIN setup after decryption
   const [restoredMnemonic, setRestoredMnemonic] = useState<string | null>(null);
@@ -383,11 +391,22 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
           return;
         }
 
+        // Optionally bundle the address book (encrypted with the same password).
+        let contactsToBackup: Contact[] | undefined;
+        if (includeContacts) {
+          try {
+            contactsToBackup = await contactService.getAllContacts();
+          } catch (contactsErr) {
+            console.warn('⚠️ [GoogleDriveBackupScreen] Could not load contacts for backup:', contactsErr);
+          }
+        }
+
         const result = await googleDriveBackupService.createBackup(
           mnemonic,
           backupPassword,
           targetKey.id,
-          targetKey.nickname
+          targetKey.nickname,
+          { contacts: contactsToBackup }
         );
 
         if (result.success) {
@@ -410,7 +429,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
         setIsProcessing(false);
       }
     },
-    [masterKeys, getMnemonic, t]
+    [masterKeys, getMnemonic, includeContacts, t]
   );
 
   const handleConfirmCreateBackup = async (): Promise<void> => {
@@ -494,6 +513,9 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
         setPassword('');
         setRestoredMnemonic(result.mnemonic);
         setRestoredWalletName(result.walletName || null);
+        // Hold any contacts found in the backup until after the wallet import,
+        // then offer to merge them (see handleConfirmImport).
+        setRestoredContacts(result.contacts && result.contacts.length > 0 ? result.contacts : null);
         setRestorePin('');
         setConfirmRestorePin('');
         setShowPinModal(true);
@@ -565,11 +587,25 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     try {
       const mnemonic = await decryptMnemonic(fileBackupData as any, password);
 
+      // Decrypt the optional contacts section (non-fatal on failure).
+      let fileContacts: Contact[] | null = null;
+      const contactsBlob = (fileBackupData as any).contacts;
+      if (contactsBlob) {
+        try {
+          const json = await decryptStringBlob(contactsBlob, password);
+          const parsed = JSON.parse(json);
+          if (Array.isArray(parsed) && parsed.length > 0) fileContacts = parsed as Contact[];
+        } catch (contactsErr) {
+          console.warn('⚠️ [Restore] Could not decrypt contacts from file:', contactsErr);
+        }
+      }
+
       setShowPasswordModal(false);
       setPassword('');
       setFileBackupData(null);
       setRestoredMnemonic(mnemonic);
       setRestoredWalletName((fileBackupData as any).walletName || null);
+      setRestoredContacts(fileContacts);
       setRestorePin('');
       setConfirmRestorePin('');
       setShowPinModal(true);
@@ -584,6 +620,41 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
       setIsProcessing(false);
     }
   };
+
+  // Ask whether to merge contacts found in a restored backup. Dedup is by
+  // lightning address (existing wins), so it's safe and idempotent. `done`
+  // runs after the user's choice (used to continue navigation either way).
+  const promptMergeContacts = useCallback(
+    (contacts: Contact[], done: () => void): void => {
+      Alert.alert(
+        t('cloudBackup.mergeContactsTitle'),
+        t('cloudBackup.mergeContactsBody').replace('{{count}}', String(contacts.length)),
+        [
+          { text: t('cloudBackup.mergeContactsSkip'), style: 'cancel', onPress: done },
+          {
+            text: t('cloudBackup.mergeContactsConfirm'),
+            onPress: async () => {
+              try {
+                const { added, skipped } = await contactService.mergeImportedContacts(contacts);
+                await refreshContactsStore();
+                Alert.alert(
+                  t('common.success'),
+                  t('cloudBackup.mergeContactsResult')
+                    .replace('{{added}}', String(added))
+                    .replace('{{skipped}}', String(skipped))
+                );
+              } catch (mergeErr) {
+                console.warn('⚠️ [Restore] Contact merge failed:', mergeErr);
+              } finally {
+                done();
+              }
+            },
+          },
+        ]
+      );
+    },
+    [t]
+  );
 
   const handleConfirmImport = async (pinFromKeypad: string): Promise<void> => {
     if (!restoredMnemonic) return;
@@ -615,6 +686,14 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
       setRestoredMnemonic(null);
       setRestorePin('');
       setConfirmRestorePin('');
+
+      // If the backup carried contacts, offer to merge them before leaving.
+      const contactsToMerge = restoredContacts;
+      setRestoredContacts(null);
+      if (contactsToMerge && contactsToMerge.length > 0) {
+        promptMergeContacts(contactsToMerge, () => router.replace('/wallet/home'));
+        return;
+      }
 
       // Skip unlock screen — user literally just set this PIN.
       router.replace('/wallet/home');
@@ -767,6 +846,27 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                 secureTextEntry={!showPassword}
                 style={styles.input}
               />
+
+              {/* Optional: include the address book in this backup. */}
+              <TouchableOpacity
+                style={styles.includeContactsRow}
+                activeOpacity={0.7}
+                onPress={() => setIncludeContacts((v) => !v)}
+              >
+                <View style={styles.includeContactsText}>
+                  <Text style={[styles.includeContactsTitle, { color: primaryText }]}>
+                    {t('cloudBackup.includeContacts')}
+                  </Text>
+                  <Text style={[styles.includeContactsHint, { color: secondaryText }]}>
+                    {t('cloudBackup.includeContactsHint')}
+                  </Text>
+                </View>
+                <Switch
+                  value={includeContacts}
+                  onValueChange={setIncludeContacts}
+                  color={BRAND_COLOR}
+                />
+              </TouchableOpacity>
             </>
           )}
 
@@ -1391,6 +1491,25 @@ const styles = StyleSheet.create({
   input: {
     marginBottom: 12,
     backgroundColor: 'transparent',
+  },
+  includeContactsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  includeContactsText: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  includeContactsTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  includeContactsHint: {
+    fontSize: 12,
+    marginTop: 2,
   },
   strengthContainer: {
     marginBottom: 12,

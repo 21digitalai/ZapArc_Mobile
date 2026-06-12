@@ -21,6 +21,23 @@ export interface EncryptedBackup {
   timestamp: number;
   walletName?: string;
   seedFingerprint?: string;
+  /**
+   * Optional, independently-encrypted extra data (currently the contacts /
+   * address book JSON). Self-contained salt+IV so it decrypts on its own using
+   * the same backup password. Kept as an OPTIONAL field WITHOUT bumping
+   * `version` so older app builds (which require version === 3) still restore
+   * the seed; they simply ignore this field.
+   */
+  contacts?: EncryptedBlob;
+}
+
+/** A standalone AES-256-GCM encrypted blob (salt+IV carried inline). */
+export interface EncryptedBlob {
+  format: 'aes-256-gcm';
+  salt: string; // base64
+  iv: string; // base64
+  ciphertext: string; // base64
+  authTag: string; // base64 - GCM auth tag
 }
 
 interface LegacyEncryptedBackupV2 {
@@ -216,6 +233,58 @@ export async function encryptMnemonic(
     console.error('❌ [BackupEncryption] Encryption failed:', error);
     throw new Error('Failed to encrypt seed phrase');
   }
+}
+
+// =============================================================================
+// Generic string-blob encryption (used for the optional contacts section).
+// Same scheme as the seed backup (PBKDF2-SHA256 + AES-256-GCM), but it carries
+// its own salt/IV and performs no BIP39 validation, so it works for any data.
+// =============================================================================
+
+export async function encryptStringBlob(
+  plaintext: string,
+  password: string
+): Promise<EncryptedBlob> {
+  const salt = new Uint8Array(QuickCrypto.randomBytes(SALT_LENGTH));
+  const iv = new Uint8Array(QuickCrypto.randomBytes(IV_LENGTH_GCM));
+  const key = QuickCrypto.pbkdf2Sync(
+    password,
+    Buffer.from(salt),
+    PBKDF2_ITERATIONS_V3,
+    KEY_LENGTH,
+    'sha256'
+  );
+  const cipher = QuickCrypto.createCipheriv('aes-256-gcm', Buffer.from(key), Buffer.from(iv));
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return {
+    format: 'aes-256-gcm',
+    salt: Buffer.from(salt).toString('base64'),
+    iv: Buffer.from(iv).toString('base64'),
+    ciphertext: Buffer.from(encrypted).toString('base64'),
+    authTag: Buffer.from(authTag).toString('base64'),
+  };
+}
+
+export async function decryptStringBlob(
+  blob: EncryptedBlob,
+  password: string
+): Promise<string> {
+  const salt = new Uint8Array(Buffer.from(blob.salt, 'base64'));
+  const iv = new Uint8Array(Buffer.from(blob.iv, 'base64'));
+  const ciphertext = Buffer.from(blob.ciphertext, 'base64');
+  const authTag = Buffer.from(blob.authTag, 'base64');
+  const key = QuickCrypto.pbkdf2Sync(
+    password,
+    Buffer.from(salt),
+    PBKDF2_ITERATIONS_V3,
+    KEY_LENGTH,
+    'sha256'
+  );
+  const decipher = QuickCrypto.createDecipheriv('aes-256-gcm', Buffer.from(key), Buffer.from(iv));
+  decipher.setAuthTag(authTag);
+  const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  return decrypted.toString('utf8');
 }
 
 export async function decryptMnemonic(

@@ -226,6 +226,62 @@ export async function deleteContact(id: string): Promise<void> {
 }
 
 /**
+ * Merge a set of imported contacts (e.g. from a restored backup) into the
+ * existing address book. The unique key is the NORMALISED lightning address —
+ * an incoming contact whose address already exists is skipped (existing wins),
+ * so re-importing is idempotent and never clobbers local edits. New contacts
+ * get a fresh id + timestamps to avoid any collision with local ids.
+ *
+ * Returns how many were added vs. skipped.
+ */
+export async function mergeImportedContacts(
+  incoming: Contact[]
+): Promise<{ added: number; skipped: number }> {
+  if (!Array.isArray(incoming) || incoming.length === 0) {
+    return { added: 0, skipped: 0 };
+  }
+
+  const existing = await loadContacts();
+  const seen = new Set(
+    existing.map((c) => normalizeLightningAddress(c.lightningAddress))
+  );
+
+  let added = 0;
+  let skipped = 0;
+  const now = Date.now();
+
+  for (const c of incoming) {
+    const address = typeof c?.lightningAddress === 'string' ? c.lightningAddress.trim() : '';
+    if (!address) {
+      skipped++;
+      continue;
+    }
+    const key = normalizeLightningAddress(address);
+    if (seen.has(key)) {
+      skipped++;
+      continue;
+    }
+    seen.add(key);
+    existing.push({
+      id: generateUUID(),
+      name: typeof c.name === 'string' ? c.name.trim() : '',
+      lightningAddress: address,
+      sparkAddress: c.sparkAddress?.trim() || undefined,
+      preferredAsset: c.preferredAsset,
+      notes: c.notes?.trim() || undefined,
+      createdAt: typeof c.createdAt === 'number' ? c.createdAt : now,
+      updatedAt: now,
+    });
+    added++;
+  }
+
+  if (added > 0) {
+    await saveContacts(existing);
+  }
+  return { added, skipped };
+}
+
+/**
  * Custom error for validation failures
  */
 export class ContactValidationError extends Error {
@@ -260,4 +316,5 @@ export const contactService = {
   createContact,
   updateContact,
   deleteContact,
+  mergeImportedContacts,
 };

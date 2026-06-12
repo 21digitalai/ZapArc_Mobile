@@ -13,10 +13,13 @@ import { Platform } from 'react-native';
 import {
   encryptMnemonic,
   decryptMnemonic,
+  encryptStringBlob,
+  decryptStringBlob,
   validateBackupStructure,
   isEncryptionAvailable,
   type EncryptedBackup,
 } from './backupEncryption';
+import type { Contact } from '../features/addressBook/types';
 
 // =============================================================================
 // Types
@@ -354,7 +357,8 @@ class GoogleDriveBackupService {
     mnemonic: string,
     password: string,
     walletId: string,
-    walletName?: string
+    walletName?: string,
+    options?: { contacts?: Contact[] }
   ): Promise<{ success: boolean; error?: string }> {
     try {
       console.log('📤 [GoogleDrive] Creating backup...');
@@ -364,6 +368,17 @@ class GoogleDriveBackupService {
       // Encrypt the mnemonic
       const encryptedBackup = await encryptMnemonic(mnemonic, password, walletName);
       encryptedBackup.seedFingerprint = seedFingerprint;
+
+      // Optionally attach the (separately-encrypted) contacts section. Encrypted
+      // with the same password but its own salt/IV, so it stays private and is
+      // ignored by older app builds that don't know the field.
+      if (options?.contacts && options.contacts.length > 0) {
+        encryptedBackup.contacts = await encryptStringBlob(
+          JSON.stringify(options.contacts),
+          password
+        );
+        console.log(`🔐 [GoogleDrive] Attached ${options.contacts.length} contacts to backup`);
+      }
 
       // Get valid access token and backup folder
       const accessToken = await this.getValidAccessToken();
@@ -516,7 +531,7 @@ class GoogleDriveBackupService {
   async restoreBackup(
     backupId: string,
     password: string
-  ): Promise<{ success: boolean; mnemonic?: string; walletName?: string; error?: string }> {
+  ): Promise<{ success: boolean; mnemonic?: string; walletName?: string; contacts?: Contact[]; error?: string }> {
     try {
       console.log('📥 [GoogleDrive] Restoring backup...');
 
@@ -562,8 +577,24 @@ class GoogleDriveBackupService {
         };
       }
 
+      // Optionally decrypt the contacts section if this backup carried one.
+      // Non-fatal: a contacts-decrypt failure must never block the seed restore.
+      let contacts: Contact[] | undefined;
+      if (backupData.contacts) {
+        try {
+          const json = await decryptStringBlob(backupData.contacts, password);
+          const parsed = JSON.parse(json);
+          if (Array.isArray(parsed)) {
+            contacts = parsed as Contact[];
+            console.log(`🔓 [GoogleDrive] Restored ${contacts.length} contacts from backup`);
+          }
+        } catch (contactsError) {
+          console.warn('⚠️ [GoogleDrive] Could not decrypt contacts section:', contactsError);
+        }
+      }
+
       console.log('✅ [GoogleDrive] Backup restored successfully');
-      return { success: true, mnemonic, walletName: backupData.walletName };
+      return { success: true, mnemonic, walletName: backupData.walletName, contacts };
     } catch (error) {
       console.error('❌ [GoogleDrive] Restore backup failed:', error);
       return {
