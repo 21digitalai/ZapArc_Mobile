@@ -3,6 +3,7 @@ import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Modal, Linking, 
 import { Text, Button, Snackbar, IconButton, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import * as Sharing from 'expo-sharing';
@@ -98,6 +99,11 @@ export default function ReceiveScreen() {
   const { addressInfo, isRegistered, isLoading: isLoadingAddress, refresh: refreshAddress } = useLightningAddress();
   const { refreshBalance, refreshTransactions } = useWallet();
   const { showSuccess } = useFeedback();
+  // True only while the Receive screen is the active/focused screen. We use it
+  // to gate the "payment received → go home" redirect so it fires ONLY when the
+  // user is actually looking at the invoice page — not when this screen is still
+  // mounted in the back stack after they've navigated elsewhere.
+  const isScreenFocused = useIsFocused();
 
   useFocusEffect(
     useCallback(() => {
@@ -746,7 +752,11 @@ export default function ReceiveScreen() {
   }, [invoice, expiryTime, handleNewInvoice]);
 
   useEffect(() => {
-    if (!invoice) return;
+    // Only listen while the user is on the invoice page. When unfocused (e.g.
+    // they navigated to another screen while this one is still in the stack),
+    // we skip — the global home-screen listener handles those receives instead,
+    // so we don't yank the user back to home from wherever they are.
+    if (!invoice || !isScreenFocused) return;
 
     const unsubscribe = onPaymentReceived((payment) => {
       if (payment.description === '__SYNC_EVENT__') return;
@@ -764,7 +774,7 @@ export default function ReceiveScreen() {
     });
 
     return () => unsubscribe();
-  }, [invoice, showSuccess]);
+  }, [invoice, isScreenFocused, showSuccess]);
 
   const isLightningTab = activeTab === 'lightning';
 
