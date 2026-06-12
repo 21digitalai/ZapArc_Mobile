@@ -69,3 +69,12 @@ export const SWAP_FEATURE_ENABLED = false as boolean;
  * on the device; they just don't see any way to interact with it in the UI.
  */
 export const MULTI_ASSET_UI_ENABLED = false as boolean;
+
+/**
+ * CONTACTS_BACKUP_ENABLED gates including the address book in cloud backups and
+ * the merge-on-restore prompt. The full implementation (encryption, opt-in
+ * toggle, dedup-by-lightning-address merge) stays in the codebase — this flag
+ * just hides the option and ensures no contacts are written to backups for now.
+ * Flip to `true` to ship the feature.
+ */
+export const CONTACTS_BACKUP_ENABLED = false as boolean;

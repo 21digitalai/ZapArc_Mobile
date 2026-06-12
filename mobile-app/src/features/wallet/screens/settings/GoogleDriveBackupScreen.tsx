@@ -23,6 +23,7 @@ import {
 import { TextInput } from 'react-native-paper'; // Only for TextInput.Icon
 import { StyledTextInput } from '../../../../components/StyledTextInput';
 import { PinSetupKeypad } from '../../../../components/PinSetupKeypad';
+import { KeyboardDoneAccessory, keyboardDoneAccessoryId } from '../../../../components/KeyboardDoneAccessory';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -47,6 +48,7 @@ import {
 } from '../../../../services/googleDriveBackupService';
 import { contactService, refreshContactsStore } from '../../../addressBook';
 import type { Contact } from '../../../addressBook/types';
+import { CONTACTS_BACKUP_ENABLED } from '../../../../config/features';
 import {
   validatePasswordStrength,
   validateBackupStructure,
@@ -136,7 +138,9 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     setIsLoading(true);
     try {
       await googleDriveBackupService.initialize();
-      const connected = await googleDriveBackupService.isConnected();
+      // Silently restore a previously-connected Google session so the user
+      // doesn't have to reconnect every time they open the backup menu.
+      const connected = await googleDriveBackupService.restoreSession();
       setIsConnected(connected);
 
       if (connected) {
@@ -392,8 +396,9 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
         }
 
         // Optionally bundle the address book (encrypted with the same password).
+        // Gated off for now — the feature stays in code but ships disabled.
         let contactsToBackup: Contact[] | undefined;
-        if (includeContacts) {
+        if (CONTACTS_BACKUP_ENABLED && includeContacts) {
           try {
             contactsToBackup = await contactService.getAllContacts();
           } catch (contactsErr) {
@@ -688,9 +693,10 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
       setConfirmRestorePin('');
 
       // If the backup carried contacts, offer to merge them before leaving.
+      // Gated off for now along with the rest of the contacts-backup feature.
       const contactsToMerge = restoredContacts;
       setRestoredContacts(null);
-      if (contactsToMerge && contactsToMerge.length > 0) {
+      if (CONTACTS_BACKUP_ENABLED && contactsToMerge && contactsToMerge.length > 0) {
         promptMergeContacts(contactsToMerge, () => router.replace('/wallet/home'));
         return;
       }
@@ -775,8 +781,16 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
         setFileBackupData(null);
       }}
     >
-      <View style={styles.modalOverlay}>
+      <KeyboardAvoidingView
+        style={styles.modalOverlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <View style={[styles.modalContent, { backgroundColor: gradientColors[0] }]}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.modalScrollContent}
+          >
           <Text style={[styles.modalTitle, { color: primaryText }]}>
             {modalMode === 'create'
               ? t('cloudBackup.enterBackupPassword')
@@ -797,6 +811,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
             value={password}
             onChangeText={setPassword}
             secureTextEntry={!showPassword}
+            inputAccessoryViewID={keyboardDoneAccessoryId}
             style={styles.input}
             right={
               <TextInput.Icon
@@ -844,10 +859,13 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showPassword}
+                inputAccessoryViewID={keyboardDoneAccessoryId}
                 style={styles.input}
               />
 
-              {/* Optional: include the address book in this backup. */}
+              {/* Optional: include the address book in this backup.
+                  Hidden behind CONTACTS_BACKUP_ENABLED until we ship it. */}
+              {CONTACTS_BACKUP_ENABLED && (
               <TouchableOpacity
                 style={styles.includeContactsRow}
                 activeOpacity={0.7}
@@ -867,8 +885,10 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                   color={BRAND_COLOR}
                 />
               </TouchableOpacity>
+              )}
             </>
           )}
+          </ScrollView>
 
           <View style={styles.modalButtons}>
             <Button
@@ -906,7 +926,8 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
             </Button>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
+      <KeyboardDoneAccessory />
     </Modal>
   );
 
@@ -1464,6 +1485,13 @@ const styles = StyleSheet.create({
   modalContent: {
     borderRadius: 16,
     padding: 20,
+    // Bound the height so the inner ScrollView can scroll when the keyboard is
+    // up, and so a growing password-strength hint scrolls instead of resizing
+    // (and re-centering) the whole modal — which read as flashing.
+    maxHeight: '85%',
+  },
+  modalScrollContent: {
+    paddingBottom: 4,
   },
   modalTitle: {
     fontSize: 18,

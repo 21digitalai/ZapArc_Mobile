@@ -148,6 +148,32 @@ class GoogleDriveBackupService {
   }
 
   /**
+   * Restore a previously-authorised Google session WITHOUT prompting the user.
+   *
+   * The native library persists the account across app launches, but its
+   * in-memory `currentUser` is empty on a fresh launch — so `getCurrentUser()`
+   * (and therefore `isConnected()`) returns null until we silently
+   * re-authenticate. Calling this on screen init means the user only has to
+   * connect Google once, not every time they open the backup menu.
+   *
+   * Returns true if a session was restored.
+   */
+  async restoreSession(): Promise<boolean> {
+    try {
+      if (!this.isConfigured) {
+        await this.initialize();
+      }
+      await GoogleSignin.signInSilently();
+      console.log('✅ [GoogleDrive] Restored Google session silently');
+    } catch (error) {
+      // "No saved credentials" (SIGN_IN_REQUIRED / noSavedCredentialFound) is
+      // expected when the user has never connected — not an error.
+      console.log('ℹ️ [GoogleDrive] No Google session to restore silently');
+    }
+    return this.isConnected();
+  }
+
+  /**
    * Get connected user info
    */
   async getUserInfo(): Promise<GoogleUser | null> {
