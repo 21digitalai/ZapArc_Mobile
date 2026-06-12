@@ -1,9 +1,13 @@
 /**
  * useContacts Hook
- * Manages contact state and operations
+ *
+ * Backed by a single module-level store so every screen shares ONE contacts
+ * list. A create/update/delete from any screen notifies all `useContacts()`
+ * consumers immediately — no per-instance copies that can go stale (e.g. the
+ * Send screen still thinking a just-deleted contact exists).
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import {
   Contact,
   CreateContactInput,
@@ -17,6 +21,7 @@ import {
   ContactValidationError,
   ContactNotFoundError,
 } from '../services/contactService';
+import { createStore } from '../../../utils/createStore';
 
 export interface UseContactsReturn {
   contacts: Contact[];
@@ -28,34 +33,59 @@ export interface UseContactsReturn {
   refreshContacts: () => Promise<void>;
 }
 
-export function useContacts(): UseContactsReturn {
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+// =============================================================================
+// Module-level shared store
+// =============================================================================
 
-  const refreshContacts = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const loadedContacts = await getAllContacts();
-      setContacts(loadedContacts);
-    } catch (err) {
-      console.error('❌ useContacts: Failed to load contacts', err);
-      setError(err instanceof Error ? err : new Error('Failed to load contacts'));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+interface ContactsStoreState {
+  contacts: Contact[];
+  loading: boolean;
+  error: Error | null;
+}
+
+const store = createStore<ContactsStoreState>({ contacts: [], loading: true, error: null });
+
+/** Reload all contacts from storage into the shared store. */
+export async function refreshContactsStore(): Promise<void> {
+  try {
+    store.setState({ loading: true, error: null });
+    const loaded = await getAllContacts();
+    store.setState({ contacts: loaded, loading: false });
+  } catch (err) {
+    console.error('❌ useContacts: Failed to load contacts', err);
+    store.setState({
+      error: err instanceof Error ? err : new Error('Failed to load contacts'),
+      loading: false,
+    });
+  }
+}
+
+// Kick off the first load exactly once, when the first consumer mounts.
+let initialLoadStarted = false;
+function ensureInitialLoad(): void {
+  if (initialLoadStarted) return;
+  initialLoadStarted = true;
+  void refreshContactsStore();
+}
+
+// =============================================================================
+// Hook
+// =============================================================================
+
+export function useContacts(): UseContactsReturn {
+  const state = store.useStore();
 
   useEffect(() => {
-    refreshContacts();
-  }, [refreshContacts]);
+    ensureInitialLoad();
+  }, []);
+
+  const refreshContacts = useCallback(() => refreshContactsStore(), []);
 
   const createContact = useCallback(
     async (input: CreateContactInput): Promise<Contact> => {
       try {
         const newContact = await createContactService(input);
-        await refreshContacts();
+        await refreshContactsStore();
         return newContact;
       } catch (err) {
         if (err instanceof ContactValidationError) {
@@ -65,14 +95,14 @@ export function useContacts(): UseContactsReturn {
         throw new Error('Failed to save contact. Please try again.');
       }
     },
-    [refreshContacts]
+    []
   );
 
   const updateContact = useCallback(
     async (input: UpdateContactInput): Promise<Contact> => {
       try {
         const updatedContact = await updateContactService(input);
-        await refreshContacts();
+        await refreshContactsStore();
         return updatedContact;
       } catch (err) {
         if (
@@ -85,14 +115,14 @@ export function useContacts(): UseContactsReturn {
         throw new Error('Failed to update contact. Please try again.');
       }
     },
-    [refreshContacts]
+    []
   );
 
   const deleteContact = useCallback(
     async (id: string): Promise<void> => {
       try {
         await deleteContactService(id);
-        await refreshContacts();
+        await refreshContactsStore();
       } catch (err) {
         if (err instanceof ContactNotFoundError) {
           throw err;
@@ -101,13 +131,13 @@ export function useContacts(): UseContactsReturn {
         throw new Error('Failed to delete contact. Please try again.');
       }
     },
-    [refreshContacts]
+    []
   );
 
   return {
-    contacts,
-    loading,
-    error,
+    contacts: state.contacts,
+    loading: state.loading,
+    error: state.error,
     createContact,
     updateContact,
     deleteContact,

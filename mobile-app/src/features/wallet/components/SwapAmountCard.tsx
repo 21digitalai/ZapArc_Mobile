@@ -3,6 +3,7 @@ import { Animated, StyleSheet, TextInput, TouchableOpacity, View } from 'react-n
 import { Text } from 'react-native-paper';
 
 import { useLanguage } from '../../../hooks/useLanguage';
+import { keyboardDoneAccessoryId } from '../../../components';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
 import { AssetSelectorPill } from './AssetSelectorPill';
 import type { AssetTicker } from '../registry/assetRegistry';
@@ -110,6 +111,7 @@ export function SwapAmountCard({
           value={amount}
           onChangeText={onAmountChange}
           keyboardType="decimal-pad"
+          inputAccessoryViewID={keyboardDoneAccessoryId}
           editable={!isReadOnly}
           placeholder={t('swap.amountPlaceholder')}
           placeholderTextColor="rgba(255,255,255,0.4)"

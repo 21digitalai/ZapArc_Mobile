@@ -1,9 +1,16 @@
 // useCurrency Hook
-// Provides currency formatting with automatic exchange rate updates
+// Provides currency formatting with automatic exchange rate updates.
+//
+// Exchange rates and the selected display currency live in module-level shared
+// stores (see utils/createStore): rates are fetched by a SINGLE poller instead
+// of one 5-minute interval per mounted consumer, and changing the display
+// currency on one screen updates every other consumer immediately. Settings
+// come from useSettings, which is itself a shared store.
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useEffect, useCallback, useMemo } from 'react';
 import { useSettings } from './useSettings';
 import { getDisplayCurrency as getStoredDisplayCurrency, setDisplayCurrency as setStoredDisplayCurrency, type DisplayCurrency } from '../services/displayCurrencyService';
+import { createStore } from '../utils/createStore';
 import {
   getExchangeRates,
   getCachedRates,
@@ -56,16 +63,54 @@ interface UseCurrencyReturn {
 }
 
 // =============================================================================
+// Shared stores: exchange rates (single poller) + display currency
+// =============================================================================
+
+const ratesStore = createStore<{ rates: ExchangeRates | null; isLoadingRates: boolean }>({
+  rates: getCachedRates(),
+  isLoadingRates: false,
+});
+
+async function fetchRatesStore(): Promise<void> {
+  ratesStore.setState({ isLoadingRates: true });
+  try {
+    const newRates = await getExchangeRates();
+    ratesStore.setState({ rates: newRates, isLoadingRates: false });
+  } catch {
+    ratesStore.setState({ isLoadingRates: false });
+  }
+}
+
+// One poller for the whole app, started when the first consumer mounts.
+const RATES_POLL_MS = 5 * 60 * 1000;
+let ratesPollStarted = false;
+function ensureRatesPolling(): void {
+  if (ratesPollStarted) return;
+  ratesPollStarted = true;
+  void fetchRatesStore();
+  global.setInterval(() => void fetchRatesStore(), RATES_POLL_MS);
+}
+
+const displayCurrencyStore = createStore<{ displayCurrency: DisplayCurrency }>({
+  displayCurrency: 'sats',
+});
+
+async function loadDisplayCurrencyStore(secondaryFiatCurrency: FiatCurrency): Promise<void> {
+  const value = await getStoredDisplayCurrency(secondaryFiatCurrency);
+  displayCurrencyStore.setState({ displayCurrency: value });
+}
+
+// =============================================================================
 // Hook
 // =============================================================================
 
 export function useCurrency(): UseCurrencyReturn {
   const { settings, loadSettings } = useSettings();
-  
+
   // Get the new split settings, with fallbacks for backwards compatibility
-  const primaryDenomination: PrimaryDenomination = settings?.primaryDenomination || 
+  const primaryDenomination: PrimaryDenomination = settings?.primaryDenomination ||
     (settings?.currency === 'btc' ? 'btc' : 'sats');
-  const secondaryFiatCurrency: FiatCurrency = settings?.secondaryFiatCurrency || 
+  const secondaryFiatCurrency: FiatCurrency = settings?.secondaryFiatCurrency ||
     (settings?.currency === 'eur' ? 'eur' : 'usd');
 
   // Memoize the currency settings object
@@ -74,65 +119,22 @@ export function useCurrency(): UseCurrencyReturn {
     secondaryFiatCurrency,
   }), [primaryDenomination, secondaryFiatCurrency]);
 
-  const [rates, setRates] = useState<ExchangeRates | null>(getCachedRates());
-  const [isLoadingRates, setIsLoadingRates] = useState(false);
-  const [displayCurrency, setDisplayCurrencyState] = useState<DisplayCurrency>('sats');
+  const { rates, isLoadingRates } = ratesStore.useStore();
+  const { displayCurrency } = displayCurrencyStore.useStore();
 
+  // Load the display currency whenever the secondary fiat changes (its default
+  // depends on it). Writes to the shared store, so all consumers stay in sync.
   useEffect(() => {
-    let mounted = true;
-
-    const loadDisplayCurrency = async (): Promise<void> => {
-      const value = await getStoredDisplayCurrency(secondaryFiatCurrency);
-      if (mounted) {
-        setDisplayCurrencyState(value);
-      }
-    };
-
-    void loadDisplayCurrency();
-
-    return (): void => {
-      mounted = false;
-    };
+    void loadDisplayCurrencyStore(secondaryFiatCurrency);
   }, [secondaryFiatCurrency]);
 
-  // Fetch rates on mount and periodically
+  // Start the single app-wide rates poller.
   useEffect(() => {
-    let mounted = true;
-
-    const fetchRates = async (): Promise<void> => {
-      setIsLoadingRates(true);
-      try {
-        const newRates = await getExchangeRates();
-        if (mounted) {
-          setRates(newRates);
-        }
-      } finally {
-        if (mounted) {
-          setIsLoadingRates(false);
-        }
-      }
-    };
-
-    fetchRates();
-
-    const interval = global.setInterval(fetchRates, 5 * 60 * 1000);
-
-    return (): void => {
-      mounted = false;
-      global.clearInterval(interval);
-    };
+    ensureRatesPolling();
   }, []);
 
   // Manual refresh rates
-  const refreshRates = useCallback(async (): Promise<void> => {
-    setIsLoadingRates(true);
-    try {
-      const newRates = await getExchangeRates();
-      setRates(newRates);
-    } finally {
-      setIsLoadingRates(false);
-    }
-  }, []);
+  const refreshRates = useCallback((): Promise<void> => fetchRatesStore(), []);
 
   // Refresh settings from storage (call when returning to screen)
   const refreshSettings = useCallback(async (): Promise<void> => {
@@ -203,7 +205,7 @@ export function useCurrency(): UseCurrencyReturn {
   const convertToSats = useCallback(
     (amount: number, inputCurrency: InputCurrency): number => {
       if (!amount || isNaN(amount)) return 0;
-      
+
       switch (inputCurrency) {
         case 'sats':
           return Math.round(amount);
@@ -241,7 +243,7 @@ export function useCurrency(): UseCurrencyReturn {
   );
 
   const setDisplayCurrency = useCallback(async (currency: DisplayCurrency): Promise<void> => {
-    setDisplayCurrencyState(currency);
+    displayCurrencyStore.setState({ displayCurrency: currency });
     await setStoredDisplayCurrency(currency);
   }, []);
 

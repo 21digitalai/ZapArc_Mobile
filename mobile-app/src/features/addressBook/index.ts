@@ -20,6 +20,7 @@ export { ContactListItem } from './components/ContactListItem';
 export { ContactSearchBar } from './components/ContactSearchBar';
 export { EmptyAddressBook } from './components/EmptyAddressBook';
 export { ContactSelectionModal } from './components/ContactSelectionModal';
+export { SaveContactPrompt } from './components/SaveContactPrompt';
 
 // Screens
 export { AddressBookScreen } from './screens/AddressBookScreen';

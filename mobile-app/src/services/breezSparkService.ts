@@ -2530,6 +2530,17 @@ export async function parsePaymentRequest(input: string): Promise<{
       };
     }
 
+    // Lightning Address (user@domain) and LNURL-pay (lnurl1…). The amount is
+    // not embedded — the user specifies it — so we just mark them valid and
+    // route them through the native LNURL-pay flow in prepareSendPayment.
+    if (parsed.tag === 'LightningAddress') {
+      return { type: 'lightningAddress', isValid: true };
+    }
+
+    if (parsed.tag === 'LnurlPay') {
+      return { type: 'lnurl', isValid: true };
+    }
+
     return { type: 'unknown', isValid: false };
   } catch (error) {
     console.error('Failed to parse payment request:', error);
@@ -2541,6 +2552,48 @@ export async function parsePaymentRequest(input: string): Promise<{
  * Prepare a payment (get fee estimate)
  * Handles both BOLT11 invoices and Lightning Addresses (via LNURL resolution)
  */
+/**
+ * Manual LNURL-pay resolution fallback for Lightning Addresses: fetch the
+ * `.well-known/lnurlp` endpoint, validate the amount, request a BOLT11 invoice
+ * from the callback, and return it. Only used when the SDK's own `parse()`
+ * couldn't classify the address (e.g. a transient resolution hiccup).
+ */
+async function lightningAddressToBolt11(addr: string, amountSat: number): Promise<string> {
+  const [username, domain] = addr.split('@');
+  if (!username || !domain || !domain.includes('.')) {
+    throw new Error('That doesn’t look like a valid Lightning Address.');
+  }
+  const metaResp = await fetch(`https://${domain}/.well-known/lnurlp/${username}`);
+  if (!metaResp.ok) {
+    throw new Error(`Couldn’t reach ${domain} to resolve the Lightning Address.`);
+  }
+  const meta = await metaResp.json();
+  if (meta.tag !== 'payRequest') {
+    throw new Error('This Lightning Address doesn’t accept payments.');
+  }
+  const amountMsat = (amountSat || 0) * 1000;
+  if (amountMsat < meta.minSendable) {
+    throw new Error(`Amount too small. Minimum: ${Math.ceil(meta.minSendable / 1000)} sats`);
+  }
+  if (amountMsat > meta.maxSendable) {
+    throw new Error(`Amount too large. Maximum: ${Math.floor(meta.maxSendable / 1000)} sats`);
+  }
+  const callbackUrl = new URL(meta.callback);
+  callbackUrl.searchParams.set('amount', amountMsat.toString());
+  const invResp = await fetch(callbackUrl.toString());
+  if (!invResp.ok) {
+    throw new Error(`Couldn’t get an invoice from ${domain} (HTTP ${invResp.status}).`);
+  }
+  const inv = await invResp.json();
+  if (inv.status === 'ERROR') {
+    throw new Error(inv.reason || 'The Lightning Address provider rejected the request.');
+  }
+  if (!inv.pr) {
+    throw new Error('No invoice received from the Lightning Address provider.');
+  }
+  return inv.pr as string;
+}
+
 export async function prepareSendPayment(
   paymentRequest: string,
   amountSat?: number,
@@ -2552,88 +2605,61 @@ export async function prepareSendPayment(
   }
 
   const trimmed = paymentRequest.trim();
-  
-  // Check if this is a Lightning Address (user@domain.com format)
-  if (trimmed.includes('@') && !trimmed.toLowerCase().startsWith('lnurl') && !trimmed.toLowerCase().startsWith('lnbc')) {
-    // Lightning Address needs to be resolved to LNURL pay endpoint first
-    const parts = trimmed.split('@');
-    if (parts.length === 2 && parts[0] && parts[1] && parts[1].includes('.')) {
-      const [username, domain] = parts;
-      const lnurlEndpoint = `https://${domain}/.well-known/lnurlp/${username}`;
-      
-      if (__DEV__) {
-        console.log('🔗 [BreezSparkService] Resolving Lightning Address');
-      }
-      
-      try {
-        // Step 1: Fetch LNURL pay data
-        const lnurlResponse = await fetch(lnurlEndpoint);
-        if (!lnurlResponse.ok) {
-          throw new Error(`Failed to resolve Lightning Address: HTTP ${lnurlResponse.status}`);
-        }
-        
-        const lnurlData = await lnurlResponse.json();
-        if (__DEV__) {
-          console.log('🔗 [BreezSparkService] LNURL pay metadata received');
-        }
-        
-        if (lnurlData.tag !== 'payRequest') {
-          throw new Error('Lightning Address does not support payments');
-        }
-        
-        // Validate amount against min/max
-        const amountMsat = (amountSat || 0) * 1000;
-        if (amountMsat < lnurlData.minSendable) {
-          throw new Error(`Amount too small. Minimum: ${Math.ceil(lnurlData.minSendable / 1000)} sats`);
-        }
-        if (amountMsat > lnurlData.maxSendable) {
-          throw new Error(`Amount too large. Maximum: ${Math.floor(lnurlData.maxSendable / 1000)} sats`);
-        }
-        
-        // Step 2: Request BOLT11 invoice from callback
-        const callbackUrl = new URL(lnurlData.callback);
-        callbackUrl.searchParams.set('amount', amountMsat.toString());
-        
-        if (__DEV__) {
-          console.log('🔗 [BreezSparkService] Requesting Lightning invoice');
-        }
-        
-        const invoiceResponse = await fetch(callbackUrl.toString());
-        if (!invoiceResponse.ok) {
-          throw new Error(`Failed to get invoice: HTTP ${invoiceResponse.status}`);
-        }
-        
-        const invoiceData = await invoiceResponse.json();
-        if (__DEV__) {
-          console.log('🔗 [BreezSparkService] Invoice response received');
-        }
-        
-        if (invoiceData.status === 'ERROR') {
-          throw new Error(invoiceData.reason || 'Failed to generate invoice');
-        }
-        
-        if (!invoiceData.pr) {
-          throw new Error('No invoice received from Lightning Address provider');
-        }
-        
-        // Step 3: Now prepare payment with the BOLT11 invoice
-        if (__DEV__) {
-          console.log('🔗 [BreezSparkService] Preparing payment with resolved invoice');
-        }
-        
-        return await sdkInstance.prepareSendPayment({
-          paymentRequest: invoiceData.pr,
-          // Don't pass amount for BOLT11 with embedded amount
-        });
-        
-      } catch (error) {
-        console.error('❌ [BreezSparkService] Lightning Address resolution failed:', error);
-        throw error;
-      }
+  const lower = trimmed.toLowerCase();
+  const isAtAddress = trimmed.includes('@') && !lower.startsWith('lnbc');
+
+  // Let the SDK classify the input — it's the source of truth (Bolt11 invoice,
+  // LNURL-pay, Lightning Address, Spark/Bitcoin address, …). Routing off the
+  // parsed TYPE rather than guessing from a prefix is what avoids feeding an
+  // LNURL/address into prepareSendPayment (which only accepts invoices and
+  // addresses, and rejects everything else as InvalidInput).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let parsedTag: string | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let parsedInner: any;
+  try {
+    const parsed = await sdkInstance.parse(trimmed);
+    parsedTag = parsed?.tag;
+    parsedInner = Array.isArray(parsed?.inner) ? parsed.inner[0] : parsed?.inner;
+  } catch {
+    // parse() couldn't classify it (e.g. a Lightning Address whose LNURL
+    // endpoint didn't resolve just now). We fall back to the manual path below.
+    parsedTag = undefined;
+  }
+
+  // 1) LNURL-pay / Lightning Address → native LNURL flow (the SDK does the
+  //    HTTP round-trips). Tag the result so sendPayment() executes it via
+  //    lnurlPay().
+  if (parsedTag === 'LightningAddress' || parsedTag === 'LnurlPay') {
+    const payRequest = parsedTag === 'LightningAddress' ? parsedInner?.payRequest : parsedInner;
+    if (payRequest) {
+      if (__DEV__) console.log('🔗 [BreezSparkService] Preparing native LNURL-pay');
+      const lnurlPrepare = await sdkInstance.prepareLnurlPay({
+        amount: BigInt(amountSat || 0),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        payRequest: payRequest as any,
+        comment: undefined,
+      });
+      return {
+        __lnurlPay: true,
+        prepareResponse: lnurlPrepare,
+        feeSats: Number(lnurlPrepare.feeSats || 0),
+        amountSats: Number(lnurlPrepare.amountSats || 0),
+      };
     }
   }
 
-  // For BOLT11, LNURL, or other formats, pass directly to SDK
+  // 2) Fallback: parse() didn't classify it but it's shaped like a Lightning
+  //    Address (user@domain). Resolve it manually to a BOLT11 and prepare that.
+  if (!parsedTag && isAtAddress) {
+    if (__DEV__) console.log('🔗 [BreezSparkService] Manual LNURL-pay fallback');
+    const bolt11 = await lightningAddressToBolt11(trimmed, amountSat || 0);
+    return await sdkInstance.prepareSendPayment({ paymentRequest: bolt11 });
+  }
+
+  // 3) Everything else (Bolt11 / Spark / Bitcoin / amountless invoices) →
+  //    prepare directly. If it's genuinely unrecognisable the SDK throws a
+  //    clear error, which the caller maps to a friendly message.
   return await sdkInstance.prepareSendPayment({
     paymentRequest: trimmed,
     amount: amountSat ? BigInt(amountSat) : undefined,
@@ -2761,10 +2787,19 @@ export async function sendPayment(
   }
 
   try {
-    const response = await sdkInstance.sendPayment({
-      prepareResponse,
-      idempotencyKey,
-    });
+    // LNURL-pay / Lightning Address destinations are prepared via
+    // prepareLnurlPay (see prepareSendPayment) and must be executed with
+    // lnurlPay. Both responses expose the same `payment` field, so the
+    // post-processing below is identical.
+    const response = prepareResponse?.__lnurlPay
+      ? await sdkInstance.lnurlPay({
+          prepareResponse: prepareResponse.prepareResponse,
+          idempotencyKey,
+        })
+      : await sdkInstance.sendPayment({
+          prepareResponse,
+          idempotencyKey,
+        });
 
     // Track this payment ID so we don't show "Payment Received" notification for it
     const paymentId = response.payment?.id;

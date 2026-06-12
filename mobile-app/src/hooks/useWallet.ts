@@ -159,6 +159,15 @@ export function useWalletStateInternal(): WalletState & WalletActions {
   // view as authoritative until the SDK catches up.
   const optimisticAuthoritativeUntilRef = useRef<number>(0);
 
+  // After an incoming payment we optimistically bump the sat balance. Unlike a
+  // swap (where the balance legitimately drops and a higher SDK read would be
+  // a stale pre-swap value), a higher SDK balance after a receive is never
+  // stale — it just means sync caught up to (or past) our bump. This window
+  // lets the refresh path accept such higher values immediately instead of
+  // holding the bumped value for the full window, while still suppressing
+  // lower (lagging) reads. Set by the onPaymentReceived handler.
+  const receiveOptimisticUntilRef = useRef<number>(0);
+
   // Refs for debouncing refresh calls to prevent redundant API calls
   // Store the promise so callers can wait for the in-progress call
   const refreshBalancePromiseRef = useRef<{ walletKey: string; promise: Promise<void> } | null>(null);
@@ -760,33 +769,48 @@ export function useWalletStateInternal(): WalletState & WalletActions {
           return;
         }
 
-        // Honour the optimistic-authoritative window: if we recently applied
-        // a swap delta, the SDK may not have caught up and would clobber
-        // our fresh state with stale values. Skip SDK writes in that case.
-        const optimisticWindowActive = Date.now() < optimisticAuthoritativeUntilRef.current;
+        // Two kinds of optimistic windows can be active after we predicted a
+        // balance the SDK hasn't reported yet:
+        //   • swap window    — a swap moved funds BETWEEN assets; the SDK may
+        //     briefly still report PRE-swap totals, so we hold our predicted
+        //     values (a higher SDK BTC reading here is the stale pre-swap
+        //     value, not good news).
+        //   • receive window — an incoming payment bumped the sat balance up.
+        //     A HIGHER SDK balance here is never stale: it means sync caught
+        //     up to (or past) our bump (e.g. the first post-connect sync
+        //     finally returning the full balance after a receive bumped us up
+        //     from a cold 0). Accept it immediately rather than hiding the
+        //     real balance until the 60s window elapses.
+        const swapWindowActive = Date.now() < optimisticAuthoritativeUntilRef.current;
+        const receiveWindowActive = Date.now() < receiveOptimisticUntilRef.current;
+        const anyOptimisticWindow = swapWindowActive || receiveWindowActive;
+
+        // Snapshot the displayed balance for the cache decision below — the
+        // setBalance updater runs asynchronously so we can't rely on it having
+        // committed yet.
+        const displayedBefore = balanceRef.current;
 
         // Don't overwrite a known balance with 0 from the SDK — that's almost
-        // always a transitional/unsynced read (e.g. getInfo returning 0 right
-        // after the app reopens following a payment that arrived while it was
-        // closed, or before an on-chain deposit is claimed).
-        //
-        // CRITICAL: decide using the React state-updater's `prev` value, NOT
-        // `balanceRef.current`. `balanceRef` is updated in a useEffect and so
-        // lags the real state by a render — under back-to-back refreshes a
-        // transient 0 could slip past the guard (balanceRef still 0 while the
-        // displayed balance was just set to a positive value) and reset the
-        // balance to 0. Reading `prev` inside the updater is always current
-        // and closes that race. We also sync `balanceRef` immediately inside
-        // the updater so it never lags for any other reader.
-        if (!optimisticWindowActive) {
-          setBalance((prev) => {
-            const next = (walletBalance.balanceSat > 0 || prev === 0)
+        // always a transitional/unsynced read. Decide using the updater's
+        // `prev` (always current) and sync `balanceRef` inside it so no other
+        // reader lags.
+        setBalance((prev) => {
+          let next: number;
+          if (swapWindowActive) {
+            // Hold the predicted post-swap value against lagging SDK reads.
+            next = prev;
+          } else if (receiveWindowActive) {
+            // Accept the SDK value only once it has caught up to (or past) our
+            // optimistic bump; otherwise keep the bumped value.
+            next = walletBalance.balanceSat > prev ? walletBalance.balanceSat : prev;
+          } else {
+            next = (walletBalance.balanceSat > 0 || prev === 0)
               ? walletBalance.balanceSat
               : prev;
-            balanceRef.current = next;
-            return next;
-          });
-        }
+          }
+          balanceRef.current = next;
+          return next;
+        });
         setIsLoading(false);
         setIsRefreshing(false);
 
@@ -794,7 +818,15 @@ export function useWalletStateInternal(): WalletState & WalletActions {
         // value is always correct; skipping the 0 case means we never
         // overwrite a known-good cached balance with a transitional 0 (which
         // would make the wrong value flash on the next reopen).
-        if (!optimisticWindowActive && walletBalance.balanceSat > 0) {
+        // Cache only the value we actually displayed: never during the swap
+        // hold, and during a receive window only when the SDK had caught up
+        // (was higher than what we were showing). Always cache a positive
+        // value outside any window.
+        const cachedAuthoritative =
+          walletBalance.balanceSat > 0 &&
+          !swapWindowActive &&
+          (!receiveWindowActive || walletBalance.balanceSat > displayedBefore);
+        if (cachedAuthoritative) {
           await WalletCache.cacheBalance(
             walletInfo.masterKeyId,
             walletInfo.subWalletIndex,
@@ -812,10 +844,10 @@ export function useWalletStateInternal(): WalletState & WalletActions {
           // wallet) or we previously had no tokens to begin with.
           let effectiveTokens: TokenBalanceEntry[] = tokenBalancesRaw as TokenBalanceEntry[];
           setTokenBalances((prev) => {
-            // During the optimistic window keep state as-is — Breez sync is
-            // likely still behind and its data would set us back to a
-            // pre-swap snapshot.
-            if (optimisticWindowActive) {
+            // During any optimistic window keep token state as-is — Breez sync
+            // is likely still behind and its data would set us back to a
+            // pre-swap / pre-receive snapshot.
+            if (anyOptimisticWindow) {
               effectiveTokens = prev;
               return prev;
             }
@@ -1303,7 +1335,11 @@ export function useWalletStateInternal(): WalletState & WalletActions {
         setBalance((prev) => prev + payment.amountSat);
       }
 
-      optimisticAuthoritativeUntilRef.current = Date.now() + 60_000;
+      // Use the RECEIVE window (not the swap one): it suppresses lower/lagging
+      // SDK reads but lets a higher authoritative balance through immediately,
+      // so the full balance isn't hidden for 60s when the first post-connect
+      // sync finally lands after a receive bumped us up from a cold base.
+      receiveOptimisticUntilRef.current = Date.now() + 60_000;
 
       // Reconcile against the SDK shortly after the optimistic bump so the
       // transaction list picks up the new payment and the canonical balance

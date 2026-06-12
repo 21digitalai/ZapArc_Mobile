@@ -13,6 +13,7 @@ import { useWallet } from '../../../hooks/useWallet';
 import { useCurrency } from '../../../hooks/useCurrency';
 import { useLanguage } from '../../../hooks/useLanguage';
 import type { SwapDirection } from '../../../services/breezSparkService';
+import { KeyboardDoneAccessory } from '../../../components';
 import { SwapAmountCard } from '../components/SwapAmountCard';
 import { SwapRateLine } from '../components/SwapRateLine';
 import { SwapReviewModal } from '../components/SwapReviewModal';
@@ -671,6 +672,7 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
           }}
           onClose={() => setPickerSide(null)}
         />
+        <KeyboardDoneAccessory />
       </SafeAreaView>
     </LinearGradient>
   );

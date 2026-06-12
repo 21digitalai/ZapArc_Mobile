@@ -17,7 +17,7 @@ import {
   Button,
   Divider,
 } from 'react-native-paper';
-import { StyledTextInput } from '../../../components';
+import { StyledTextInput, KeyboardDoneAccessory, keyboardDoneAccessoryId } from '../../../components';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -343,6 +343,7 @@ export function TipCreatorScreen(): React.JSX.Element {
                   value={customAmountValue}
                   onChangeText={setCustomAmountValue}
                   keyboardType="numeric"
+                  inputAccessoryViewID={keyboardDoneAccessoryId}
                   placeholder="Amount in sats"
                   style={styles.customAmountInput}
                   autoFocus
@@ -448,6 +449,7 @@ export function TipCreatorScreen(): React.JSX.Element {
           </View>
         </View>
       </SafeAreaView>
+      <KeyboardDoneAccessory />
     </LinearGradient>
   );
 }

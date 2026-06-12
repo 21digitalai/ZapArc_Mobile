@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Modal, FlatList } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, FlatList, InputAccessoryView, Keyboard, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text, Button, IconButton } from 'react-native-paper';
 import { StyledTextInput } from '../../src/components';
@@ -223,9 +223,6 @@ export default function SendScreen() {
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [activeAsset, setActiveAsset] = useState<'BTC' | 'USDB'>('BTC');
   const [contactModalVisible, setContactModalVisible] = useState(false);
-  // After paying a Lightning Address / LNURL that isn't already saved, we hold
-  // it here to offer a "save as contact" prompt before leaving the screen.
-  const [saveContactAddress, setSaveContactAddress] = useState<string | null>(null);
   const [isFetchingFees, setIsFetchingFees] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
   const [usdbLightningError, setUsdbLightningError] = useState<string | null>(null);
@@ -233,6 +230,12 @@ export default function SendScreen() {
   const [usdbInternalDecimals, setUsdbInternalDecimals] = useState<number>(2);
 
   const isUsdbAsset = activeAsset === 'USDB';
+
+  // iOS: an accessory bar with a "Done" button above the keyboard. The address
+  // and amount fields are multiline/numeric, so the keyboard has no return key
+  // to dismiss it — this gives a one-tap way to drop the keyboard and reach the
+  // Preview/Send button. Android has a system back-to-dismiss, so it's unset.
+  const kbAccessoryId = Platform.OS === 'ios' ? 'sendKbAccessory' : undefined;
 
   // Render-time safety net for the input currency. If state is somehow out
   // of sync with the active asset (e.g. Fast Refresh preserved a stale
@@ -962,7 +965,11 @@ export default function SendScreen() {
 
       let feeAmount = 0;
       let extractedFeeQuotes: { fast: OnchainFeeQuote; medium: OnchainFeeQuote; slow: OnchainFeeQuote } | null = null;
-      if (prepared.paymentMethod) {
+      // LNURL-pay / Lightning Address prepares carry the fee directly (no
+      // paymentMethod). See prepareSendPayment's __lnurlPay wrapper.
+      if (prepared?.__lnurlPay) {
+        feeAmount = Number(prepared.feeSats || 0);
+      } else if (prepared.paymentMethod) {
         const method = prepared.paymentMethod;
         const methodInner = method.inner || method;
         if (method.tag === 'Bolt11Invoice' || method.tag === 'SparkInvoice') {
@@ -1047,6 +1054,11 @@ export default function SendScreen() {
 
       if (errorMessage.includes('Network request failed') || errorMessage.includes('Failed to resolve')) {
         errorMessage = 'Could not reach the Lightning Address provider. Please check the address is correct (e.g., user@wallet.com).';
+      } else if (/invalid\s*input/i.test(errorMessage)) {
+        // The SDK's raw "InvalidInput" is meaningless to users. Map it to a
+        // clear, actionable message — this fires when the destination isn't a
+        // recognisable invoice / Lightning Address / LNURL / Bitcoin address.
+        errorMessage = 'We couldn’t read that destination. Make sure it’s a valid Lightning invoice, Lightning Address (name@domain), LNURL, or Bitcoin address.';
       }
 
       Alert.alert(t('send.paymentError'), errorMessage);
@@ -1119,16 +1131,16 @@ export default function SendScreen() {
               normalizeLightningAddress(c.lightningAddress) ===
               normalizeLightningAddress(recipientRaw)
           );
-        if (isSavableRecipient && !alreadyAContact) {
-          // We stay on the screen to show the prompt — clear the prepared
-          // payment so the (covered) Send button can't re-submit it.
-          setPrepareResponse(null);
-          setSaveContactAddress(recipientRaw);
-          return;
-        }
-
         await new Promise(resolve => setTimeout(resolve, 1000));
-        router.navigate('/wallet/home');
+        // Clear the prepared payment so nothing can re-submit it, then redirect
+        // home. For an unsaved Lightning Address / LNURL we pass it along so the
+        // Home screen shows the "save as contact?" prompt over the main page.
+        setPrepareResponse(null);
+        if (isSavableRecipient && !alreadyAContact) {
+          router.navigate({ pathname: '/wallet/home', params: { saveContact: recipientRaw } });
+        } else {
+          router.navigate('/wallet/home');
+        }
       } else {
         const errorMsg = result.error || 'Unknown error occurred';
         const details = result.errorDetails ? `\n\nDetails:\n${result.errorDetails}` : '';
@@ -1151,69 +1163,6 @@ export default function SendScreen() {
       sendInFlightRef.current = false;
     }
   }, [preview, prepareResponse, refreshBalance, step, selectedSpeed, paymentInput, comment, contacts, t]);
-
-  // "Save as contact" prompt actions. Save → Add Contact screen with the
-  // address prefilled (name is left blank — it's optional, and the address is
-  // shown when no name is set). We replace the send screen so Back from Add
-  // Contact (and its post-save) lands on home, not here.
-  const handleSaveRecipientAsContact = useCallback(() => {
-    const address = saveContactAddress;
-    if (!address) return;
-    setSaveContactAddress(null);
-    router.replace({
-      pathname: '/wallet/settings/address-book/add',
-      params: { address },
-    });
-  }, [saveContactAddress]);
-
-  const handleDismissSaveContact = useCallback(() => {
-    setSaveContactAddress(null);
-    router.navigate('/wallet/home');
-  }, []);
-
-  // Rendered in BOTH the preview and input screens so it shows no matter which
-  // step we're on when a send succeeds (the Send button lives on the preview
-  // screen — the modal must be mounted there, not only on the input screen).
-  const saveContactModal = (
-    <Modal
-      visible={!!saveContactAddress}
-      transparent
-      animationType="fade"
-      onRequestClose={handleDismissSaveContact}
-    >
-      <View style={styles.saveContactOverlay}>
-        <View style={styles.saveContactCard}>
-          <View style={styles.saveContactIcon}>
-            <IconButton icon="account-plus" iconColor={BRAND_COLOR} size={32} />
-          </View>
-          <Text style={styles.saveContactTitle}>{t('send.saveContactTitle')}</Text>
-          <Text style={styles.saveContactBody}>{t('send.saveContactBody')}</Text>
-          <View style={styles.saveContactAddressPill}>
-            <Text style={styles.saveContactAddressText} numberOfLines={1}>
-              {saveContactAddress}
-            </Text>
-          </View>
-          <Button
-            mode="contained"
-            onPress={handleSaveRecipientAsContact}
-            buttonColor={BRAND_COLOR}
-            textColor="#1a1a2e"
-            style={styles.saveContactPrimaryBtn}
-            contentStyle={styles.saveContactPrimaryBtnContent}
-          >
-            {t('send.saveContactConfirm')}
-          </Button>
-          <Button
-            mode="text"
-            onPress={handleDismissSaveContact}
-            textColor="rgba(255, 255, 255, 0.7)"
-          >
-            {t('send.saveContactDismiss')}
-          </Button>
-        </View>
-      </View>
-    </Modal>
-  );
 
   const handleBackToInput = useCallback(() => {
     setStep('input');
@@ -1437,7 +1386,6 @@ export default function SendScreen() {
               </Button>
             </View>
           </ScrollView>
-          {saveContactModal}
         </SafeAreaView>
       </LinearGradient>
     );
@@ -1542,6 +1490,8 @@ export default function SendScreen() {
                 placeholder={t('send.lightningInputPlaceholder')}
                 value={paymentInput}
                 onChangeText={handlePaymentInputChange}
+                onFocus={scrollFieldIntoView}
+                inputAccessoryViewID={kbAccessoryId}
                 style={[styles.input, styles.inputWithButton]}
                 multiline
                 numberOfLines={2}
@@ -1565,6 +1515,8 @@ export default function SendScreen() {
               placeholder={t('send.onchainInputPlaceholder')}
               value={paymentInput}
               onChangeText={handlePaymentInputChange}
+              onFocus={scrollFieldIntoView}
+              inputAccessoryViewID={kbAccessoryId}
               style={styles.input}
               // Bitcoin addresses are long enough that they overflow the
               // visible field width; enable multiline + wrap so the entire
@@ -1607,8 +1559,6 @@ export default function SendScreen() {
             activeAsset={activeAsset}
           />
 
-          {saveContactModal}
-
           {isLightningTab ? (
             <>
               <Text style={[styles.label, { color: primaryTextColor }]}>{t('send.amountLabel')}</Text>
@@ -1619,6 +1569,7 @@ export default function SendScreen() {
                   value={amount}
                   onChangeText={setAmount}
                   onFocus={scrollFieldIntoView}
+                  inputAccessoryViewID={kbAccessoryId}
                   keyboardType="decimal-pad"
                   editable={!amountLocked}
                   style={[styles.input, styles.amountInput, amountLocked && { opacity: 0.7 }]}
@@ -1656,6 +1607,9 @@ export default function SendScreen() {
                 value={comment}
                 onChangeText={setComment}
                 onFocus={scrollFieldIntoView}
+                inputAccessoryViewID={kbAccessoryId}
+                returnKeyType="done"
+                onSubmitEditing={() => Keyboard.dismiss()}
                 style={styles.input}
               />
             </>
@@ -1669,6 +1623,7 @@ export default function SendScreen() {
                   value={amount}
                   onChangeText={setAmount}
                   onFocus={scrollFieldIntoView}
+                  inputAccessoryViewID={kbAccessoryId}
                   keyboardType="decimal-pad"
                   editable={!amountLocked}
                   style={[styles.input, styles.amountInput, amountLocked && { opacity: 0.7 }]}
@@ -1802,6 +1757,24 @@ export default function SendScreen() {
           }}
           onClose={() => setShowCurrencyPicker(false)}
         />
+
+        {/* iOS keyboard "Done" bar — lets the user dismiss the keyboard in one
+            tap (the address/amount fields are multiline/numeric and have no
+            return key to do it). Shows whenever a field with the matching
+            inputAccessoryViewID is focused. */}
+        {Platform.OS === 'ios' && (
+          <InputAccessoryView nativeID="sendKbAccessory">
+            <View style={styles.kbAccessoryBar}>
+              <TouchableOpacity
+                onPress={() => Keyboard.dismiss()}
+                style={styles.kbAccessoryDone}
+                hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+              >
+                <Text style={styles.kbAccessoryDoneText}>{t('common.done')}</Text>
+              </TouchableOpacity>
+            </View>
+          </InputAccessoryView>
+        )}
       </SafeAreaView>
     </LinearGradient>
   );
@@ -2346,66 +2319,23 @@ const styles = StyleSheet.create({
   addressBookIcon: {
     margin: 0,
   },
-  saveContactOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
+  kbAccessoryBar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingHorizontal: 24,
+    backgroundColor: '#2a2a40',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255, 255, 255, 0.12)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  saveContactCard: {
-    width: '100%',
-    maxWidth: 360,
-    backgroundColor: '#1a1a2e',
-    borderRadius: 24,
-    paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 16,
-    alignItems: 'center',
-  },
-  saveContactIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(247, 147, 26, 0.16)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  saveContactTitle: {
-    fontSize: 19,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  saveContactBody: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: 'rgba(255, 255, 255, 0.7)',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  saveContactAddressPill: {
-    alignSelf: 'stretch',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 12,
+  kbAccessoryDone: {
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 20,
-  },
-  saveContactAddressText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    textAlign: 'center',
-  },
-  saveContactPrimaryBtn: {
-    alignSelf: 'stretch',
-    borderRadius: 14,
-    marginBottom: 4,
-  },
-  saveContactPrimaryBtnContent: {
     paddingVertical: 6,
+  },
+  kbAccessoryDoneText: {
+    color: BRAND_COLOR,
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

@@ -34,7 +34,7 @@ import { fiatToUsdb } from '../../src/utils/currency';
 type InvoiceCurrency = DisplayCurrency | 'usdb';
 import { CurrencyPickerSheet } from '../../src/features/wallet/components/CurrencyPickerSheet';
 import { useLightningAddress } from '../../src/hooks/useLightningAddress';
-import { StyledTextInput } from '../../src/components';
+import { StyledTextInput, KeyboardDoneAccessory, keyboardDoneAccessoryId } from '../../src/components';
 import { useFeedback } from '../../src/features/wallet/components/FeedbackComponents';
 import { t } from '../../src/services/i18nService';
 
@@ -987,6 +987,7 @@ export default function ReceiveScreen() {
                     setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 150);
                   }}
                   keyboardType="decimal-pad"
+                  inputAccessoryViewID={keyboardDoneAccessoryId}
                   style={[styles.input, styles.amountInput]}
                 />
 
@@ -1253,6 +1254,7 @@ export default function ReceiveScreen() {
           )}
         </ScrollView>
       </SafeAreaView>
+      <KeyboardDoneAccessory />
       <Snackbar
         visible={snackVisible}
         onDismiss={() => setSnackVisible(false)}

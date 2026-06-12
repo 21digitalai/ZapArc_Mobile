@@ -31,6 +31,7 @@ import { onPaymentReceived } from '../../../services/breezSparkService';
 import { settingsService } from '../../../services/settingsService';
 import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../../config/features';
 import { formatFiat, usdbToFiat } from '../../../utils/currency';
+import { SaveContactPrompt } from '../../addressBook';
 import { AssetSelectorPill } from '../components/AssetSelectorPill';
 import { AssetPickerSheet } from '../components/AssetPickerSheet';
 import { getAssetMeta } from '../registry/assetRegistry';
@@ -97,6 +98,9 @@ export function HomeScreen(): React.JSX.Element {
     /** Set by wallet switch flow when user changes active wallet. */
     walletSwitched?: string;
     walletSwitchedName?: string;
+    /** Set by the Send flow after paying a Lightning Address / LNURL that
+     *  isn't saved yet — triggers the "save as contact?" prompt here. */
+    saveContact?: string;
   }>();
 
   const { themeMode } = useAppTheme();
@@ -456,6 +460,33 @@ export function HomeScreen(): React.JSX.Element {
     });
     router.setParams({ walletSwitched: undefined, walletSwitchedName: undefined });
   }, [params.walletSwitched, params.walletSwitchedName]);
+
+  // "Save as contact?" prompt — shown here (over the main page) after the
+  // Send flow pays an unsaved Lightning Address / LNURL and redirects home.
+  const [saveContactAddress, setSaveContactAddress] = useState<string | null>(null);
+  useEffect(() => {
+    if (!params.saveContact) return;
+    // Set synchronously, then clear the param. (The entrance delay lives inside
+    // SaveContactPrompt — doing it here would be cancelled by the re-render
+    // that clearing the param triggers.)
+    setSaveContactAddress(params.saveContact);
+    router.setParams({ saveContact: undefined });
+  }, [params.saveContact]);
+
+  const handleSaveContact = useCallback(() => {
+    const addr = saveContactAddress;
+    setSaveContactAddress(null);
+    if (addr) {
+      router.push({
+        pathname: '/wallet/settings/address-book/add',
+        params: { address: addr },
+      });
+    }
+  }, [saveContactAddress]);
+
+  const handleDismissSaveContact = useCallback(() => {
+    setSaveContactAddress(null);
+  }, []);
 
   // Navigation handlers
   const handleAssetChange = (asset: WalletAsset): void => {
@@ -933,6 +964,14 @@ export function HomeScreen(): React.JSX.Element {
         trailing={toast?.trailing}
         tone={toast?.tone}
         position={toast?.position}
+      />
+
+      {/* "Save as contact?" prompt after paying an unsaved Lightning Address. */}
+      <SaveContactPrompt
+        visible={!!saveContactAddress}
+        address={saveContactAddress}
+        onSave={handleSaveContact}
+        onDismiss={handleDismissSaveContact}
       />
     </LinearGradient>
   );

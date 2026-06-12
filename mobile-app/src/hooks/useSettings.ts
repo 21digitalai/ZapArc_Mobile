@@ -1,8 +1,15 @@
 // useSettings Hook
-// Manages app settings, domain settings, and blacklist
+// Manages app settings, domain settings, and blacklist.
+//
+// Backed by a single module-level store (see utils/createStore) so every screen
+// shares ONE settings object. Updating a setting on one screen immediately
+// updates all other consumers — no per-instance copies that drift out of sync
+// (e.g. the home balance keeping the old fiat symbol after the Currency screen
+// switched it).
 
-import { useState, useCallback, useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { settingsService } from '../services';
+import { createStore } from '../utils/createStore';
 import type {
   UserSettings,
   DomainStatus,
@@ -64,273 +71,181 @@ export interface SettingsActions {
 }
 
 // =============================================================================
+// Shared store + module-level loaders/mutators
+// =============================================================================
+
+const store = createStore<SettingsState>({
+  settings: null,
+  isLoading: true,
+  error: null,
+  isOnboardingComplete: false,
+  lastSyncTime: null,
+});
+
+async function loadSettingsStore(): Promise<void> {
+  try {
+    store.setState({ isLoading: true, error: null });
+    const userSettings = await settingsService.getUserSettings();
+    store.setState({ settings: userSettings, isLoading: false });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to load settings';
+    store.setState({ error: message, isLoading: false });
+    console.error('❌ [useSettings] Load failed:', err);
+  }
+}
+
+async function updateSettingsStore(updates: Partial<UserSettings>): Promise<void> {
+  try {
+    store.setState({ isLoading: true, error: null });
+    await settingsService.updateUserSettings(updates);
+    const updatedSettings = await settingsService.getUserSettings();
+    store.setState({ settings: updatedSettings, isLoading: false });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to update settings';
+    store.setState({ error: message, isLoading: false });
+    console.error('❌ [useSettings] Update failed:', err);
+    throw err;
+  }
+}
+
+async function resetSettingsStore(): Promise<void> {
+  try {
+    store.setState({ isLoading: true, error: null });
+    await settingsService.resetUserSettings();
+    const defaultSettings = await settingsService.getUserSettings();
+    store.setState({ settings: defaultSettings, isLoading: false });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to reset settings';
+    store.setState({ error: message, isLoading: false });
+    console.error('❌ [useSettings] Reset failed:', err);
+    throw err;
+  }
+}
+
+async function loadAppStateStore(): Promise<void> {
+  try {
+    const [complete, time] = await Promise.all([
+      settingsService.isOnboardingComplete(),
+      settingsService.getLastSyncTime(),
+    ]);
+    store.setState({ isOnboardingComplete: complete, lastSyncTime: time });
+  } catch (err) {
+    console.error('❌ [useSettings] App-state load failed:', err);
+  }
+}
+
+// First load happens once, when the first consumer mounts.
+let initialLoadStarted = false;
+function ensureInitialLoad(): void {
+  if (initialLoadStarted) return;
+  initialLoadStarted = true;
+  void loadSettingsStore();
+  void loadAppStateStore();
+}
+
+// =============================================================================
 // Hook Implementation
 // =============================================================================
 
 export function useSettings(): SettingsState & SettingsActions {
-  // State
-  const [settings, setSettings] = useState<UserSettings | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isOnboardingComplete, setIsOnboardingComplete] = useState(false);
-  const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
-
-  // ========================================
-  // Initialize
-  // ========================================
+  const state = store.useStore();
 
   useEffect(() => {
-    loadSettings();
-    checkOnboarding();
-    loadSyncTime();
+    ensureInitialLoad();
   }, []);
 
-  // ========================================
-  // Settings Management
-  // ========================================
-
-  const loadSettings = useCallback(async (): Promise<void> => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      const userSettings = await settingsService.getUserSettings();
-      setSettings(userSettings);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load settings';
-      setError(message);
-      console.error('❌ [useSettings] Load failed:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
+  const loadSettings = useCallback((): Promise<void> => loadSettingsStore(), []);
   const updateSettings = useCallback(
-    async (updates: Partial<UserSettings>): Promise<void> => {
-      try {
-        setIsLoading(true);
-        setError(null);
-
-        await settingsService.updateUserSettings(updates);
-        const updatedSettings = await settingsService.getUserSettings();
-        setSettings(updatedSettings);
-
-        console.log('✅ [useSettings] Settings updated');
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to update settings';
-        setError(message);
-        console.error('❌ [useSettings] Update failed:', err);
-        throw err;
-      } finally {
-        setIsLoading(false);
-      }
-    },
+    (updates: Partial<UserSettings>): Promise<void> => updateSettingsStore(updates),
     []
   );
+  const resetSettings = useCallback((): Promise<void> => resetSettingsStore(), []);
 
-  const resetSettings = useCallback(async (): Promise<void> => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      await settingsService.resetUserSettings();
-      const defaultSettings = await settingsService.getUserSettings();
-      setSettings(defaultSettings);
-
-      console.log('✅ [useSettings] Settings reset to defaults');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to reset settings';
-      setError(message);
-      console.error('❌ [useSettings] Reset failed:', err);
-      throw err;
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  // ========================================
-  // Individual Setting Updates
-  // ========================================
-
+  // ---- Individual setting updates (all funnel through updateSettingsStore) ----
   const setCurrency = useCallback(
-    async (currency: CurrencyCode): Promise<void> => {
-      await updateSettings({ currency });
-    },
-    [updateSettings]
+    (currency: CurrencyCode): Promise<void> => updateSettingsStore({ currency }),
+    []
   );
-
   const setAutoLockTimeout = useCallback(
-    async (timeout: AutoLockTimeout): Promise<void> => {
-      await updateSettings({ autoLockTimeout: timeout });
-    },
-    [updateSettings]
+    (timeout: AutoLockTimeout): Promise<void> => updateSettingsStore({ autoLockTimeout: timeout }),
+    []
   );
-
   const setTheme = useCallback(
-    async (theme: ThemeMode): Promise<void> => {
-      await updateSettings({ theme });
-    },
-    [updateSettings]
+    (theme: ThemeMode): Promise<void> => updateSettingsStore({ theme }),
+    []
   );
-
   const setBiometricEnabled = useCallback(
-    async (enabled: boolean): Promise<void> => {
-      await updateSettings({ biometricEnabled: enabled });
-    },
-    [updateSettings]
+    (enabled: boolean): Promise<void> => updateSettingsStore({ biometricEnabled: enabled }),
+    []
   );
-
   const setNotificationsEnabled = useCallback(
-    async (enabled: boolean): Promise<void> => {
-      await updateSettings({ notificationsEnabled: enabled });
-    },
-    [updateSettings]
+    (enabled: boolean): Promise<void> => updateSettingsStore({ notificationsEnabled: enabled }),
+    []
   );
-
   const setCustomLNURL = useCallback(
-    async (lnurl: string | undefined): Promise<void> => {
-      await updateSettings({
-        customLNURL: lnurl,
-        useBuiltInWallet: !lnurl,
-      });
-    },
-    [updateSettings]
+    (lnurl: string | undefined): Promise<void> =>
+      updateSettingsStore({ customLNURL: lnurl, useBuiltInWallet: !lnurl }),
+    []
   );
-
   const setSharingPlatforms = useCallback(
-    async (platforms: SocialPlatform[]): Promise<void> => {
-      await updateSettings({ preferredSharingPlatforms: platforms });
-    },
-    [updateSettings]
-  );
-
-  // ========================================
-  // Domain Settings
-  // ========================================
-
-  const getDomainStatus = useCallback(
-    async (domain: string): Promise<DomainStatus | null> => {
-      return settingsService.getDomainStatus(domain);
-    },
+    (platforms: SocialPlatform[]): Promise<void> =>
+      updateSettingsStore({ preferredSharingPlatforms: platforms }),
     []
   );
 
+  // ---- Domain settings (stateless pass-through to the service) ----
+  const getDomainStatus = useCallback(
+    (domain: string): Promise<DomainStatus | null> => settingsService.getDomainStatus(domain),
+    []
+  );
   const setDomainStatus = useCallback(
     async (domain: string, status: DomainStatus): Promise<void> => {
-      try {
-        await settingsService.setDomainStatus(domain, status);
-        console.log('✅ [useSettings] Domain status set:', { domain, status });
-      } catch (err) {
-        console.error('❌ [useSettings] Set domain status failed:', err);
-        throw err;
-      }
+      await settingsService.setDomainStatus(domain, status);
     },
     []
   );
-
   const removeDomainStatus = useCallback(
     async (domain: string): Promise<void> => {
-      try {
-        await settingsService.removeDomainStatus(domain);
-        console.log('✅ [useSettings] Domain status removed:', domain);
-      } catch (err) {
-        console.error('❌ [useSettings] Remove domain status failed:', err);
-        throw err;
-      }
+      await settingsService.removeDomainStatus(domain);
     },
     []
   );
 
-  // ========================================
-  // Blacklist
-  // ========================================
-
-  const isBlacklisted = useCallback(async (lnurl: string): Promise<boolean> => {
-    return settingsService.isBlacklisted(lnurl);
-  }, []);
-
+  // ---- Blacklist (stateless pass-through) ----
+  const isBlacklisted = useCallback(
+    (lnurl: string): Promise<boolean> => settingsService.isBlacklisted(lnurl),
+    []
+  );
   const addToBlacklist = useCallback(async (lnurl: string): Promise<void> => {
-    try {
-      await settingsService.addToBlacklist(lnurl);
-      console.log('✅ [useSettings] Added to blacklist:', lnurl);
-    } catch (err) {
-      console.error('❌ [useSettings] Add to blacklist failed:', err);
-      throw err;
-    }
+    await settingsService.addToBlacklist(lnurl);
   }, []);
-
-  const removeFromBlacklist = useCallback(
-    async (lnurl: string): Promise<void> => {
-      try {
-        await settingsService.removeFromBlacklist(lnurl);
-        console.log('✅ [useSettings] Removed from blacklist:', lnurl);
-      } catch (err) {
-        console.error('❌ [useSettings] Remove from blacklist failed:', err);
-        throw err;
-      }
-    },
-    []
-  );
-
+  const removeFromBlacklist = useCallback(async (lnurl: string): Promise<void> => {
+    await settingsService.removeFromBlacklist(lnurl);
+  }, []);
   const clearBlacklist = useCallback(async (): Promise<void> => {
-    try {
-      await settingsService.clearBlacklist();
-      console.log('✅ [useSettings] Blacklist cleared');
-    } catch (err) {
-      console.error('❌ [useSettings] Clear blacklist failed:', err);
-      throw err;
-    }
+    await settingsService.clearBlacklist();
   }, []);
 
-  // ========================================
-  // App State
-  // ========================================
-
-  const checkOnboarding = async () => {
-    const complete = await settingsService.isOnboardingComplete();
-    setIsOnboardingComplete(complete);
-  };
-
-  const loadSyncTime = async () => {
-    const time = await settingsService.getLastSyncTime();
-    setLastSyncTime(time);
-  };
-
+  // ---- App state ----
   const completeOnboarding = useCallback(async (): Promise<void> => {
-    try {
-      await settingsService.setOnboardingComplete(true);
-      setIsOnboardingComplete(true);
-      console.log('✅ [useSettings] Onboarding completed');
-    } catch (err) {
-      console.error('❌ [useSettings] Complete onboarding failed:', err);
-      throw err;
-    }
+    await settingsService.setOnboardingComplete(true);
+    store.setState({ isOnboardingComplete: true });
   }, []);
 
   const updateSyncTime = useCallback(async (): Promise<void> => {
     try {
       await settingsService.setLastSyncTime(Date.now());
       const time = await settingsService.getLastSyncTime();
-      setLastSyncTime(time);
-      console.log('✅ [useSettings] Sync time updated');
+      store.setState({ lastSyncTime: time });
     } catch (err) {
       console.error('❌ [useSettings] Update sync time failed:', err);
     }
   }, []);
 
-  // ========================================
-  // Import/Export
-  // ========================================
-
+  // ---- Import/Export ----
   const exportSettings = useCallback(async (): Promise<string> => {
-    try {
-      const exported = await settingsService.exportSettings();
-      console.log('✅ [useSettings] Settings exported');
-      return JSON.stringify(exported, null, 2);
-    } catch (err) {
-      console.error('❌ [useSettings] Export failed:', err);
-      throw err;
-    }
+    const exported = await settingsService.exportSettings();
+    return JSON.stringify(exported, null, 2);
   }, []);
 
   const importSettings = useCallback(async (json: string): Promise<boolean> => {
@@ -340,28 +255,22 @@ export function useSettings(): SettingsState & SettingsActions {
         domainSettings?: Record<string, DomainStatus>;
         blacklist?: BlacklistData;
       };
-
       await settingsService.importSettings(parsed);
-      await loadSettings();
-      console.log('✅ [useSettings] Settings imported');
+      await loadSettingsStore();
       return true;
     } catch (err) {
       console.error('❌ [useSettings] Import failed:', err);
       return false;
     }
-  }, [loadSettings]);
-
-  // ========================================
-  // Return Hook Value
-  // ========================================
+  }, []);
 
   return {
     // State
-    settings,
-    isLoading,
-    error,
-    isOnboardingComplete,
-    lastSyncTime,
+    settings: state.settings,
+    isLoading: state.isLoading,
+    error: state.error,
+    isOnboardingComplete: state.isOnboardingComplete,
+    lastSyncTime: state.lastSyncTime,
 
     // Settings Management
     loadSettings,
