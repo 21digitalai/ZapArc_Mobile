@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
 } from 'react-native';
 import {
@@ -23,8 +24,8 @@ import {
 import { TextInput } from 'react-native-paper'; // Only for TextInput.Icon
 import { StyledTextInput } from '../../../../components/StyledTextInput';
 import { PinSetupKeypad } from '../../../../components/PinSetupKeypad';
-import { KeyboardDoneAccessory, keyboardDoneAccessoryId } from '../../../../components/KeyboardDoneAccessory';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { KeyboardDoneAccessory, iosAccessoryId } from '../../../../components/KeyboardDoneAccessory';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -68,6 +69,25 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
   const { selectWallet, getSessionPin } = useWalletAuth();
   const { themeMode } = useAppTheme();
   const { t } = useLanguage();
+  const insets = useSafeAreaInsets();
+
+  // Track keyboard height ourselves and lift the bottom-sheet by exactly that
+  // amount — applied instantly on re-render (no KeyboardAvoidingView easing),
+  // so the whole sheet jumps to its final position in one step instead of the
+  // background lagging behind the text.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillChangeFrame' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvt, (e) =>
+      setKeyboardHeight(e?.endCoordinates?.height ?? 0)
+    );
+    const hideSub = Keyboard.addListener(hideEvt, () => setKeyboardHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Get theme colors
   const gradientColors = getGradientColors(themeMode);
@@ -781,11 +801,8 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
         setFileBackupData(null);
       }}
     >
-      <KeyboardAvoidingView
-        style={styles.modalOverlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <View style={[styles.modalContent, { backgroundColor: gradientColors[0] }]}>
+      <View style={[styles.modalOverlay, { paddingBottom: keyboardHeight }]}>
+        <View style={[styles.modalContent, { backgroundColor: gradientColors[0], paddingBottom: insets.bottom + 16 }]}>
           <ScrollView
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -811,7 +828,13 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
             value={password}
             onChangeText={setPassword}
             secureTextEntry={!showPassword}
-            inputAccessoryViewID={keyboardDoneAccessoryId}
+            // Dedicated accessory id (see the two <KeyboardDoneAccessory/> below)
+            // so the Done bar binds reliably to this field.
+            inputAccessoryViewID={iosAccessoryId('backupPasswordDone')}
+            autoComplete="off"
+            autoCorrect={false}
+            autoCapitalize="none"
+            textContentType="none"
             style={styles.input}
             right={
               <TextInput.Icon
@@ -859,7 +882,11 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showPassword}
-                inputAccessoryViewID={keyboardDoneAccessoryId}
+                inputAccessoryViewID={iosAccessoryId('backupConfirmPasswordDone')}
+                autoComplete="off"
+                autoCorrect={false}
+                autoCapitalize="none"
+                textContentType="none"
                 style={styles.input}
               />
 
@@ -926,8 +953,11 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
             </Button>
           </View>
         </View>
-      </KeyboardAvoidingView>
-      <KeyboardDoneAccessory />
+      </View>
+      {/* One dedicated Done accessory per field — a single shared accessory
+          doesn't reliably bind to every input on iOS. */}
+      <KeyboardDoneAccessory nativeID="backupPasswordDone" />
+      <KeyboardDoneAccessory nativeID="backupConfirmPasswordDone" />
     </Modal>
   );
 
@@ -1479,16 +1509,19 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
-    padding: 20,
+    // Bottom sheet: anchored to the bottom so the keyboard simply pushes it up
+    // (no centering to fight, no squashing) and a growing password-strength
+    // hint extends upward without re-centering the modal (the old "flashing").
+    justifyContent: 'flex-end',
   },
   modalContent: {
-    borderRadius: 16,
-    padding: 20,
-    // Bound the height so the inner ScrollView can scroll when the keyboard is
-    // up, and so a growing password-strength hint scrolls instead of resizing
-    // (and re-centering) the whole modal — which read as flashing.
-    maxHeight: '85%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    // Cap height so the inner ScrollView scrolls if content + keyboard exceeds
+    // the screen, instead of squashing.
+    maxHeight: '88%',
   },
   modalScrollContent: {
     paddingBottom: 4,

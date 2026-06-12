@@ -24,10 +24,26 @@ export const KB_DONE_ACCESSORY_ID = 'kbDoneAccessory';
 export const keyboardDoneAccessoryId =
   Platform.OS === 'ios' ? KB_DONE_ACCESSORY_ID : undefined;
 
-export function KeyboardDoneAccessory(): React.JSX.Element | null {
+/**
+ * iOS-only accessory id. Pass a UNIQUE id per input when a screen has multiple
+ * fields — a single shared InputAccessoryView doesn't always bind to every
+ * field, so give each its own id + its own <KeyboardDoneAccessory nativeID=…/>.
+ * Returns undefined on Android (no accessory there).
+ */
+export const iosAccessoryId = (id: string): string | undefined =>
+  Platform.OS === 'ios' ? id : undefined;
+
+interface KeyboardDoneAccessoryProps {
+  /** nativeID this accessory serves. Defaults to the shared single-field id. */
+  nativeID?: string;
+}
+
+export function KeyboardDoneAccessory({
+  nativeID = KB_DONE_ACCESSORY_ID,
+}: KeyboardDoneAccessoryProps = {}): React.JSX.Element | null {
   if (Platform.OS !== 'ios') return null;
   return (
-    <InputAccessoryView nativeID={KB_DONE_ACCESSORY_ID}>
+    <InputAccessoryView nativeID={nativeID}>
       <View style={styles.bar}>
         <TouchableOpacity
           onPress={() => Keyboard.dismiss()}

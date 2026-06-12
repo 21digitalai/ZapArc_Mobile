@@ -84,7 +84,15 @@ const store = createStore<SettingsState>({
 
 async function loadSettingsStore(): Promise<void> {
   try {
-    store.setState({ isLoading: true, error: null });
+    // Only show the loading state on the FIRST load. A background refresh (e.g.
+    // useFocusEffect re-reading settings when a screen regains focus) keeps the
+    // existing settings on screen — otherwise consumers that gate on `isLoading`
+    // would unmount their content and flash / scroll back to top each focus.
+    if (store.getState().settings === null) {
+      store.setState({ isLoading: true, error: null });
+    } else {
+      store.setState({ error: null });
+    }
     const userSettings = await settingsService.getUserSettings();
     store.setState({ settings: userSettings, isLoading: false });
   } catch (err) {
