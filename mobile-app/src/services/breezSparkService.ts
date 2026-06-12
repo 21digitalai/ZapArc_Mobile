@@ -2405,6 +2405,28 @@ export async function unregisterLightningAddress(): Promise<void> {
 }
 
 /**
+ * Decode the amount (in sats) embedded in a BOLT11 invoice's human-readable
+ * part, WITHOUT the SDK. The HRP is `ln<currency><amount><multiplier>` e.g.
+ * `lnbc100u1…` → 100 micro-BTC = 10 000 sats. Used as a fallback so a scanned
+ * invoice still fills the amount field even if the SDK isn't ready at that
+ * instant (the SDK's parse() is preferred when available). Returns undefined
+ * for amountless invoices or anything we can't read.
+ */
+function decodeBolt11AmountSats(invoice: string): number | undefined {
+  const match = /^ln(?:bcrt|bc|tb)(\d+)([munp]?)1/i.exec(invoice.trim());
+  if (!match) return undefined;
+  const num = Number(match[1]);
+  if (!Number.isFinite(num) || num <= 0) return undefined;
+  // Multiplier → BTC factor (per BOLT11 spec).
+  const factors: Record<string, number> = {
+    '': 1, m: 1e-3, u: 1e-6, n: 1e-9, p: 1e-12,
+  };
+  const btc = num * (factors[match[2].toLowerCase()] ?? 1);
+  const sats = Math.round(btc * 1e8);
+  return sats > 0 ? sats : undefined;
+}
+
+/**
  * Parse and validate a payment request
  */
 export async function parsePaymentRequest(input: string): Promise<{
@@ -2442,7 +2464,9 @@ export async function parsePaymentRequest(input: string): Promise<{
     }
 
     if (trimmedLower.startsWith('lnbc') || trimmedLower.startsWith('lntb') || trimmedLower.startsWith('lnbcrt')) {
-      return { type: 'bolt11', isValid: true };
+      // Decode the amount from the invoice itself so the amount field still
+      // fills when the SDK isn't ready at scan time.
+      return { type: 'bolt11', isValid: true, amountSat: decodeBolt11AmountSats(trimmed) };
     }
 
     if (trimmedLower.startsWith('bc1') || trimmedLower.startsWith('1') || trimmedLower.startsWith('3') || trimmedLower.startsWith('tb1')) {
@@ -2466,7 +2490,12 @@ export async function parsePaymentRequest(input: string): Promise<{
       const innerData = Array.isArray(parsed.inner) ? parsed.inner[0] : parsed.inner;
       const invoiceDetails = innerData?.invoiceDetails || innerData;
 
-      const amountSat = invoiceDetails?.amountMsat ? Number(invoiceDetails.amountMsat) / 1000 : undefined;
+      // Prefer the SDK's amount; fall back to decoding the invoice HRP if it's
+      // absent for any reason, so the amount field is never left empty for an
+      // invoice that actually carries one.
+      const amountSat = invoiceDetails?.amountMsat
+        ? Number(invoiceDetails.amountMsat) / 1000
+        : decodeBolt11AmountSats(trimmed);
 
       return {
         type: 'bolt11',
