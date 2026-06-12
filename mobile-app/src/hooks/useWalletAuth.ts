@@ -1,13 +1,14 @@
 // useWalletAuth Hook
 // Manages wallet PIN authentication, session, and auto-lock
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { storageService, settingsService } from '../services';
 import * as BreezSparkService from '../services/breezSparkService';
 import * as WalletCache from '../services/walletCacheService';
 import { deriveSubWalletMnemonic } from '../utils/mnemonic';
+import { createStore } from '../utils/createStore';
 import type { ActiveWalletInfo } from '../features/wallet/types';
 import type { PinAuthStatus } from '../services/storageService';
 
@@ -103,23 +104,69 @@ export interface WalletAuthActions {
 }
 
 // =============================================================================
+// Shared reactive view state (Phase 1)
+// =============================================================================
+// The auth VIEW state (unlock status, biometric flags, active wallet, …) lives
+// in ONE module-level store so every screen sees the same values — fixes
+// cross-screen drift (e.g. enabling biometric in Settings not reflecting on the
+// PIN screen, or a wallet switch not updating another mounted consumer).
+//
+// IMPORTANT: this is ONLY the reactive view. All action flows (unlock / lock /
+// selectWallet / biometric / auto-lock) and SDK/session-PIN sequencing are
+// unchanged — they route through the singleton services + WalletCache event bus
+// exactly as before. The setters below are drop-in replacements for the old
+// useState setters (same names, same value signatures), so the hook body did
+// not change.
+
+const authStore = createStore<WalletAuthState>({
+  isUnlocked: false,
+  isLoading: true,
+  error: null,
+  biometricAvailable: false,
+  biometricEnabled: false,
+  biometricType: 'none',
+  activeWalletInfo: null,
+  currentMasterKeyId: null,
+  lastActivity: Date.now(),
+  autoLockTimeout: 900, // 15 minutes default
+});
+
+const setIsUnlocked = (v: boolean): void => authStore.setState({ isUnlocked: v });
+const setIsLoading = (v: boolean): void => authStore.setState({ isLoading: v });
+const setError = (v: string | null): void => authStore.setState({ error: v });
+const setBiometricAvailable = (v: boolean): void => authStore.setState({ biometricAvailable: v });
+const setBiometricEnabled = (v: boolean): void => authStore.setState({ biometricEnabled: v });
+const setBiometricType = (v: WalletAuthState['biometricType']): void =>
+  authStore.setState({ biometricType: v });
+const setActiveWalletInfo = (v: ActiveWalletInfo | null): void =>
+  authStore.setState({ activeWalletInfo: v });
+const setCurrentMasterKeyId = (v: string | null): void =>
+  authStore.setState({ currentMasterKeyId: v });
+const setLastActivity = (v: number): void => authStore.setState({ lastActivity: v });
+const setAutoLockTimeout = (v: number): void => authStore.setState({ autoLockTimeout: v });
+
+// The one-time initialize runs for the first mounted consumer only; the shared
+// store keeps subsequent consumers in sync without re-reading storage.
+let authInitialized = false;
+
+// =============================================================================
 // Hook Implementation
 // =============================================================================
 
 export function useWalletAuth(): WalletAuthState & WalletAuthActions {
-  // State
-  const [isUnlocked, setIsUnlocked] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [biometricAvailable, setBiometricAvailable] = useState(false);
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
-  const [biometricType, setBiometricType] = useState<
-    'fingerprint' | 'facial' | 'iris' | 'none'
-  >('none');
-  const [activeWalletInfo, setActiveWalletInfo] = useState<ActiveWalletInfo | null>(null);
-  const [currentMasterKeyId, setCurrentMasterKeyId] = useState<string | null>(null);
-  const [lastActivity, setLastActivity] = useState(Date.now());
-  const [autoLockTimeout, setAutoLockTimeout] = useState(900); // 15 minutes default
+  // Reactive view state from the shared store.
+  const {
+    isUnlocked,
+    isLoading,
+    error,
+    biometricAvailable,
+    biometricEnabled,
+    biometricType,
+    activeWalletInfo,
+    currentMasterKeyId,
+    lastActivity,
+    autoLockTimeout,
+  } = authStore.useStore();
 
   // Refs
   const autoLockTimerRef = useRef<ReturnType<typeof global.setTimeout> | null>(null);
@@ -130,6 +177,13 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
   // ========================================
 
   useEffect(() => {
+    // Shared store: only the first mounted consumer performs the initial load.
+    // Later consumers read the already-populated store. Actions keep it fresh
+    // afterwards, so there's no per-screen re-init (and no isLoading flicker
+    // across screens).
+    if (authInitialized) return;
+    authInitialized = true;
+
     const initialize = async (): Promise<void> => {
       try {
         setIsLoading(true);
