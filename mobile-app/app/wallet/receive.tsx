@@ -36,7 +36,6 @@ type InvoiceCurrency = DisplayCurrency | 'usdb';
 import { CurrencyPickerSheet } from '../../src/features/wallet/components/CurrencyPickerSheet';
 import { useLightningAddress } from '../../src/hooks/useLightningAddress';
 import { StyledTextInput, KeyboardDoneAccessory, keyboardDoneAccessoryId } from '../../src/components';
-import { useFeedback } from '../../src/features/wallet/components/FeedbackComponents';
 import { t } from '../../src/services/i18nService';
 
 type ReceiveTab = 'lightning' | 'onchain';
@@ -98,7 +97,6 @@ export default function ReceiveScreen() {
   const { displayCurrency, setDisplayCurrency, convertToSats, formatSatsWithFiat, isLoadingRates, rates } = useCurrency();
   const { addressInfo, isRegistered, isLoading: isLoadingAddress, refresh: refreshAddress } = useLightningAddress();
   const { refreshBalance, refreshTransactions } = useWallet();
-  const { showSuccess } = useFeedback();
   // True only while the Receive screen is the active/focused screen. We use it
   // to gate the "payment received → go home" redirect so it fires ONLY when the
   // user is actually looking at the invoice page — not when this screen is still
@@ -761,20 +759,22 @@ export default function ReceiveScreen() {
     const unsubscribe = onPaymentReceived((payment) => {
       if (payment.description === '__SYNC_EVENT__') return;
       if (payment.type === 'receive' && payment.amountSat > 0) {
-        // Asset-aware success message. For USDB, `amountSat` actually
-        // carries the token amount in base units; scale it to display
-        // units before showing.
-        const isUsdb = payment.asset === 'USDB';
-        const formattedAmount = isUsdb
-          ? `${(payment.amountSat / 10 ** 6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDB`
-          : `${payment.amountSat.toLocaleString()} sats`;
-        showSuccess(`Payment received: ${formattedAmount}`);
-        router.replace('/wallet/home');
+        // Hand off to Home and let it show the standard top "Payment received"
+        // toast (same one used for receives while already on Home) — instead of
+        // a separately-styled, poorly-positioned snackbar on this screen.
+        router.replace({
+          pathname: '/wallet/home',
+          params: {
+            paymentReceived: 'true',
+            paymentReceivedSat: String(payment.amountSat),
+            paymentReceivedAsset: payment.asset === 'USDB' ? 'USDB' : 'BTC',
+          },
+        });
       }
     });
 
     return () => unsubscribe();
-  }, [invoice, isScreenFocused, showSuccess]);
+  }, [invoice, isScreenFocused]);
 
   const isLightningTab = activeTab === 'lightning';
 

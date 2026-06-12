@@ -12,21 +12,35 @@ import React, {
 import {
   View,
   StyleSheet,
-  Animated,
-  TouchableOpacity,
   Modal,
   ActivityIndicator,
 } from 'react-native';
-import { Text, Button, Portal } from 'react-native-paper';
+import { Text, Button } from 'react-native-paper';
 import { setGlobalErrorSink } from '../../../utils/globalErrorSink';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
+import { ToastBanner, type ToastTone } from './ToastBanner';
 
 // =============================================================================
 // Types
 // =============================================================================
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
+
+// Map the simple feedback types onto the heads-up ToastBanner tone + glyph so
+// every showSuccess/showError/showWarning/showInfo across the app renders with
+// the same top "new" toast (no more bottom-positioned Snackbar-style toasts).
+const TYPE_TO_TONE: Record<ToastType, ToastTone> = {
+  success: 'success',
+  error: 'danger',
+  warning: 'warn',
+  info: 'info',
+};
+const TYPE_TO_ICON: Record<ToastType, string> = {
+  success: '✓',
+  error: '✕',
+  warning: '!',
+  info: 'ℹ',
+};
 
 interface Toast {
   id: string;
@@ -83,7 +97,7 @@ interface FeedbackProviderProps {
 }
 
 export function FeedbackProvider({ children }: FeedbackProviderProps): React.JSX.Element {
-  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [toast, setToast] = useState<Toast | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState<string | undefined>();
   const [confirmState, setConfirmState] = useState<{
@@ -92,7 +106,6 @@ export function FeedbackProvider({ children }: FeedbackProviderProps): React.JSX
     resolve: ((value: boolean) => void) | null;
   }>({ visible: false, options: null, resolve: null });
 
-  const insets = useSafeAreaInsets();
   const loadingTimeoutRef = useRef<ReturnType<typeof global.setTimeout> | null>(null);
 
   // ========================================
@@ -102,14 +115,9 @@ export function FeedbackProvider({ children }: FeedbackProviderProps): React.JSX
   const showToast = useCallback(
     (type: ToastType, message: string, duration: number = 3000) => {
       const id = `toast_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const toast: Toast = { id, type, message, duration };
-
-      setToasts((prev) => [...prev, toast]);
-
-      // Auto-dismiss
-      global.setTimeout(() => {
-        setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, duration);
+      // Single current toast — ToastBanner owns the on-screen duration + the
+      // enter/exit animation and calls onDismiss when it's done.
+      setToast({ id, type, message, duration });
     },
     []
   );
@@ -220,12 +228,17 @@ export function FeedbackProvider({ children }: FeedbackProviderProps): React.JSX
     <FeedbackContext.Provider value={value}>
       {children}
 
-      {/* Toast Container */}
-      <View style={[styles.toastContainer, { bottom: insets.bottom + 80 }]}>
-        {toasts.map((toast) => (
-          <ToastItem key={toast.id} toast={toast} />
-        ))}
-      </View>
+      {/* Global toast — the heads-up ToastBanner, docked at the top. Every
+          showSuccess/showError/showWarning/showInfo call routes through here. */}
+      <ToastBanner
+        visible={!!toast}
+        onDismiss={() => setToast(null)}
+        title={toast?.message ?? ''}
+        tone={toast ? TYPE_TO_TONE[toast.type] : 'info'}
+        icon={toast ? TYPE_TO_ICON[toast.type] : undefined}
+        duration={toast?.duration ?? 3000}
+        position="top"
+      />
 
       {/* Loading Modal */}
       <Modal visible={isLoading} transparent animationType="fade">
@@ -287,95 +300,6 @@ export function FeedbackProvider({ children }: FeedbackProviderProps): React.JSX
 }
 
 // =============================================================================
-// Toast Item Component
-// =============================================================================
-
-interface ToastItemProps {
-  toast: Toast;
-}
-
-function ToastItem({ toast }: ToastItemProps): React.JSX.Element {
-  const translateY = useRef(new Animated.Value(100)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    // Animate in (slide up from bottom)
-    Animated.parallel([
-      Animated.spring(translateY, {
-        toValue: 0,
-        useNativeDriver: true,
-        tension: 100,
-        friction: 8,
-      }),
-      Animated.timing(opacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    // Animate out before removal (slide down)
-    const hideTimeout = global.setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(translateY, {
-          toValue: 100,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }, toast.duration - 300);
-
-    return () => {
-      global.clearTimeout(hideTimeout);
-    };
-  }, [toast.duration, translateY, opacity]);
-
-  const getToastStyle = (): object => {
-    switch (toast.type) {
-      case 'success':
-        return styles.toastSuccess;
-      case 'error':
-        return styles.toastError;
-      case 'warning':
-        return styles.toastWarning;
-      case 'info':
-        return styles.toastInfo;
-    }
-  };
-
-  const getToastIcon = (): string => {
-    switch (toast.type) {
-      case 'success':
-        return '✅';
-      case 'error':
-        return '❌';
-      case 'warning':
-        return '⚠️';
-      case 'info':
-        return 'ℹ️';
-    }
-  };
-
-  return (
-    <Animated.View
-      style={[
-        styles.toastItem,
-        getToastStyle(),
-        { transform: [{ translateY }], opacity },
-      ]}
-    >
-      <Text style={styles.toastIcon}>{getToastIcon()}</Text>
-      <Text style={styles.toastMessage}>{toast.message}</Text>
-    </Animated.View>
-  );
-}
-
-// =============================================================================
 // Standalone Components (for use outside Provider)
 // =============================================================================
 
@@ -422,56 +346,6 @@ export function InlineLoading({
 // =============================================================================
 
 const styles = StyleSheet.create({
-  toastContainer: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    zIndex: 9999,
-    alignItems: 'center',
-  },
-  toastItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 6,
-    maxWidth: '100%',
-  },
-  toastSuccess: {
-    backgroundColor: '#1E3A1E',
-    borderLeftWidth: 4,
-    borderLeftColor: '#4CAF50',
-  },
-  toastError: {
-    backgroundColor: '#3A1E1E',
-    borderLeftWidth: 4,
-    borderLeftColor: '#F44336',
-  },
-  toastWarning: {
-    backgroundColor: '#3A331E',
-    borderLeftWidth: 4,
-    borderLeftColor: '#FF9800',
-  },
-  toastInfo: {
-    backgroundColor: '#1E2A3A',
-    borderLeftWidth: 4,
-    borderLeftColor: '#2196F3',
-  },
-  toastIcon: {
-    fontSize: 16,
-    marginRight: 10,
-  },
-  toastMessage: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    flex: 1,
-  },
   loadingOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',

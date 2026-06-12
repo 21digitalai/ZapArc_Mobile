@@ -101,6 +101,11 @@ export function HomeScreen(): React.JSX.Element {
     /** Set by the Send flow after paying a Lightning Address / LNURL that
      *  isn't saved yet — triggers the "save as contact?" prompt here. */
     saveContact?: string;
+    /** Set by the Receive flow when a payment lands while the invoice page is
+     *  open — shows the standard top "Payment received" toast here. */
+    paymentReceived?: string;
+    paymentReceivedSat?: string;
+    paymentReceivedAsset?: string;
   }>();
 
   const { themeMode } = useAppTheme();
@@ -386,6 +391,31 @@ export function HomeScreen(): React.JSX.Element {
       router.setParams({ paymentSuccess: undefined, paymentAmount: undefined });
     }
   }, [params.paymentSuccess, params.paymentAmount]);
+
+  // Show the standard "Payment received" toast when the Receive screen handed
+  // off after a payment landed on the invoice page (matches the toast shown for
+  // receives while already on Home — same component, position, and tone).
+  useEffect(() => {
+    if (params.paymentReceived === 'true' && params.paymentReceivedSat) {
+      const amount = parseInt(params.paymentReceivedSat, 10) || 0;
+      const asset = params.paymentReceivedAsset === 'USDB' ? 'USDB' : 'BTC';
+      const formatted = asset === 'USDB'
+        ? `${(amount / 1e6).toFixed(2)} USDB`
+        : `${amount.toLocaleString()} sat`;
+      showToast({
+        icon: '↓',
+        title: 'Payment received',
+        subtitle: asset === 'USDB' ? 'USDB' : 'Lightning',
+        trailing: `+${formatted}`,
+        tone: 'success',
+      });
+      router.setParams({
+        paymentReceived: undefined,
+        paymentReceivedSat: undefined,
+        paymentReceivedAsset: undefined,
+      });
+    }
+  }, [params.paymentReceived, params.paymentReceivedSat, params.paymentReceivedAsset]);
 
   useEffect(() => {
     const targetAsset = params.asset === 'USDB' ? 'USDB' : null;
