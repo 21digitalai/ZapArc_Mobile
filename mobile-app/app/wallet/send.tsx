@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, FlatList, InputAccessoryView, Keyboard, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Alert, TouchableOpacity, FlatList, InputAccessoryView, Keyboard, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text, Button, IconButton } from 'react-native-paper';
 import { StyledTextInput } from '../../src/components';
@@ -1442,6 +1442,14 @@ export default function SendScreen() {
           </View>
         )}
 
+        <KeyboardAvoidingView
+          style={styles.kav}
+          // iOS: 'padding' shrinks the scroll area by the keyboard height so the
+          // focused field (payment input / amount / comment) scrolls above the
+          // keyboard. Deterministic, unlike automaticallyAdjustKeyboardInsets.
+          // Android resizes the window via windowSoftInputMode.
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
         <ScrollView
           ref={formScrollRef}
           style={styles.scrollView}
@@ -1737,6 +1745,7 @@ export default function SendScreen() {
             {isLightningTab ? t('send.previewPayment') : t('send.previewOnchainCta')}
           </Button>
         </ScrollView>
+        </KeyboardAvoidingView>
 
         {/* Shared bottom-sheet currency picker. Same UX as the Receive
             screen — the asset (BTC vs USDB) decides which native unit
@@ -1861,6 +1870,9 @@ const styles = StyleSheet.create({
   tabText: {
     fontSize: 14,
     fontWeight: '700',
+  },
+  kav: {
+    flex: 1,
   },
   scrollView: {
     flex: 1,

@@ -705,7 +705,6 @@ export function HomeScreen(): React.JSX.Element {
                       icon: '⚡',
                       title: 'Address copied',
                       subtitle: lightningAddressInfo.lightningAddress,
-                      position: 'bottom',
                     });
                   }
                 } catch {}

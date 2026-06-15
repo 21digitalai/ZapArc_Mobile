@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Modal, Linking, Platform, PermissionsAndroid, type LayoutChangeEvent } from 'react-native';
+import { View, StyleSheet, ScrollView, Keyboard, Alert, TouchableOpacity, Modal, Linking, Platform, PermissionsAndroid, type LayoutChangeEvent } from 'react-native';
 import { Text, Button, IconButton, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -135,6 +135,64 @@ export default function ReceiveScreen() {
   // misleads when the asset is a token.
   const [invoiceUsdbAmount, setInvoiceUsdbAmount] = useState(0);
   const scrollViewRef = useRef<ScrollView | null>(null);
+  // Keyboard handling is FULLY MANUAL and identical on both platforms — we do
+  // NOT rely on the OS resizing the window. On iOS the keyboard always overlays;
+  // on Android 15+ with edge-to-edge (this app), windowSoftInputMode=adjustResize
+  // no longer shrinks the window either, so the keyboard overlays there too.
+  //
+  // So: track the keyboard height from JS, reserve that much extra paddingBottom
+  // on the scroll content (room to scroll), and scroll the description so its
+  // bottom sits just above the keyboard's top (endCoordinates.screenY), comparing
+  // against the field's window position (measureInWindow — Fabric rejects
+  // measureLayout's relative-node arg).
+  const descWrapRef = useRef<View | null>(null);
+  const descFocusedRef = useRef(false);
+  const scrollOffsetRef = useRef(0);
+  const keyboardTopRef = useRef<number | null>(null);
+  const keyboardHeightRef = useRef(0);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const scrollDescIntoView = useCallback(() => {
+    const sv = scrollViewRef.current;
+    const wrap = descWrapRef.current;
+    const kbTop = keyboardTopRef.current;
+    if (!sv || !wrap || kbTop == null) return;
+    wrap.measureInWindow((_x, y, _w, h) => {
+      // How far the field's bottom (plus a margin) sits below the keyboard top.
+      const overlap = y + h + 16 - kbTop;
+      if (overlap > 0) {
+        sv.scrollTo({ y: scrollOffsetRef.current + overlap, animated: true });
+      }
+    });
+  }, []);
+  useEffect(() => {
+    // iOS: keyboardWillShow fires at the START of the keyboard animation, so the
+    // scroll runs concurrently with the keyboard sliding up (feels instant).
+    // keyboardDidShow fired only AFTER the animation, making the scroll lag then
+    // crawl. Android has no "will" events, so it uses Did.
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvt, (e) => {
+      keyboardTopRef.current = e.endCoordinates.screenY;
+      // Only scroll on the FIRST show, not on later frame changes (e.g. the
+      // predictive bar toggling), which would re-scroll and jitter.
+      const firstShow = keyboardHeightRef.current === 0;
+      keyboardHeightRef.current = e.endCoordinates.height;
+      setKeyboardHeight(e.endCoordinates.height);
+      // Two rAFs let the new paddingBottom commit before scrollTo clamps.
+      if (descFocusedRef.current && firstShow) {
+        requestAnimationFrame(() => requestAnimationFrame(scrollDescIntoView));
+      }
+    });
+    const hideSub = Keyboard.addListener(hideEvt, () => {
+      keyboardTopRef.current = null;
+      keyboardHeightRef.current = 0;
+      setKeyboardHeight(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [scrollDescIntoView]);
   // Refs for the two on-screen <QRCode/> instances. We use the
   // react-native-qrcode-svg `toDataURL` callback to grab a base64 PNG, write
   // it to RNFS cache, then hand it to expo-sharing — same flow that the Tip
@@ -945,9 +1003,20 @@ export default function ReceiveScreen() {
         <ScrollView
           ref={scrollViewRef}
           style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
+          // Reserve the keyboard height as extra bottom padding so the lower
+          // fields have room to scroll above the (overlaying) keyboard. Fully
+          // manual — no KeyboardAvoidingView / adjustResize, which don't shrink
+          // the window under Android edge-to-edge.
+          contentContainerStyle={[
+            styles.scrollContent,
+            keyboardHeight > 0 && { paddingBottom: keyboardHeight + 24 },
+          ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
+          scrollEventThrottle={16}
+          onScroll={(e) => {
+            scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+          }}
         >
           {isLightningTab ? (
             <View style={styles.card}>
@@ -990,9 +1059,8 @@ export default function ReceiveScreen() {
                   label={`${t('payments.amount')} (${currencyLabels[effectiveInputCurrency]})`}
                   value={amount}
                   onChangeText={setAmount}
-                  onFocus={() => {
-                    setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 150);
-                  }}
+                  // No manual scroll: KeyboardAvoidingView keeps the amount field
+                  // (high in the form) visible above the keyboard on its own.
                   keyboardType="decimal-pad"
                   inputAccessoryViewID={keyboardDoneAccessoryId}
                   style={[styles.input, styles.amountInput]}
@@ -1032,37 +1100,42 @@ export default function ReceiveScreen() {
                 ))}
               </View>
 
-              <StyledTextInput
-                label={t('payments.description')}
-                value={description}
-                onChangeText={setDescription}
-                style={[styles.input, styles.descriptionInput, { backgroundColor: inputBackgroundColor }]}
-                outlineColor={secondaryTextColor}
-                activeOutlineColor={BRAND_COLOR}
-                textColor={primaryTextColor}
-                placeholderTextColor={secondaryTextColor}
-                outlineStyle={styles.inputOutline}
-                contentStyle={styles.inputContent}
-                multiline
-                numberOfLines={2}
-                // The description sits near the bottom of the form; without
-                // this the on-screen keyboard covers it and the field can't
-                // be scrolled into view. Scroll to the end on focus so the
-                // field (and what the user types) stays visible above the
-                // keyboard. A short delay lets the keyboard finish animating
-                // in so the post-resize viewport is correct.
-                onFocus={() => {
-                  setTimeout(() => {
-                    scrollViewRef.current?.scrollToEnd({ animated: true });
-                  }, 150);
-                }}
-                theme={{
-                  colors: {
-                    background: inputBackgroundColor,
-                    onSurfaceVariant: secondaryTextColor,
-                  },
-                }}
-              />
+              <View ref={descWrapRef} collapsable={false}>
+                <StyledTextInput
+                  label={t('payments.description')}
+                  value={description}
+                  onChangeText={setDescription}
+                  style={[styles.input, styles.descriptionInput, { backgroundColor: inputBackgroundColor }]}
+                  outlineColor={secondaryTextColor}
+                  activeOutlineColor={BRAND_COLOR}
+                  textColor={primaryTextColor}
+                  placeholderTextColor={secondaryTextColor}
+                  outlineStyle={styles.inputOutline}
+                  contentStyle={[styles.inputContent, styles.descriptionContent]}
+                  multiline
+                  // No numberOfLines: it sets the height on Android but is
+                  // ignored on iOS, so the two diverged (big textarea vs normal
+                  // input). A fixed height on `descriptionInput` instead renders
+                  // identically on both platforms.
+                  // Precisely scroll this field into view (see scrollDescIntoView).
+                  // keyboardDidShow drives it when the keyboard is opening; this
+                  // onFocus covers the keyboard-already-up case (e.g. moving here
+                  // straight from the amount field, where DidShow won't re-fire).
+                  onFocus={() => {
+                    descFocusedRef.current = true;
+                    requestAnimationFrame(scrollDescIntoView);
+                  }}
+                  onBlur={() => {
+                    descFocusedRef.current = false;
+                  }}
+                  theme={{
+                    colors: {
+                      background: inputBackgroundColor,
+                      onSurfaceVariant: secondaryTextColor,
+                    },
+                  }}
+                />
+              </View>
 
               <Button
                 mode="contained"
@@ -1411,7 +1484,10 @@ const styles = StyleSheet.create({
   input: { marginBottom: 16 },
   inputOutline: { borderRadius: 8 },
   inputContent: { paddingTop: 8 },
-  descriptionInput: { marginTop: 8 },
+  // Fixed height renders the same on iOS and Android (numberOfLines would not).
+  // A comfortable ~3-line textarea, with text anchored to the top.
+  descriptionInput: { marginTop: 8, height: 96 },
+  descriptionContent: { textAlignVertical: 'top' },
   amountInputRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 16 },
   amountInput: { flex: 1, marginBottom: 0, backgroundColor: undefined },
   currencySelector: {

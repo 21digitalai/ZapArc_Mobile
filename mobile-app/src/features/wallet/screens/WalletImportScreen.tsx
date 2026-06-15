@@ -6,9 +6,11 @@ import {
   View,
   StyleSheet,
   ScrollView,
+  KeyboardAvoidingView,
   TouchableOpacity,
   TouchableWithoutFeedback,
   Keyboard,
+  Platform,
 } from 'react-native';
 import { Button, Text, ProgressBar } from 'react-native-paper';
 import { StyledTextInput, PinSetupKeypad } from '../../../components';
@@ -149,7 +151,18 @@ export function WalletImportScreen(): React.JSX.Element {
   // ========================================
 
   const renderInputStep = () => (
-    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+    <KeyboardAvoidingView
+      style={styles.kav}
+      // iOS: 'padding' shrinks the scroll area by the keyboard height so the
+      // recovery-phrase field and Import button stay above the keyboard while
+      // typing/pasting. Deterministic, unlike automaticallyAdjustKeyboardInsets.
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+    <ScrollView
+      style={styles.scrollView}
+      contentContainerStyle={styles.scrollContent}
+      keyboardShouldPersistTaps="handled"
+    >
       <Text style={[styles.stepTitle, { color: primaryText }]}>Import Wallet</Text>
       <Text style={[styles.stepDescription, { color: secondaryText }]}>
         Enter your 12 or 24-word recovery phrase. Words should be separated by spaces.
@@ -224,6 +237,7 @@ export function WalletImportScreen(): React.JSX.Element {
         <Text style={styles.cancelButtonText}>Cancel</Text>
       </TouchableOpacity>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 
   const renderPinStep = () => (
@@ -328,6 +342,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 8,
     textAlign: 'center',
+  },
+  kav: {
+    flex: 1,
   },
   scrollView: {
     flex: 1,

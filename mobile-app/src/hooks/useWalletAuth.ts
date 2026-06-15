@@ -729,13 +729,17 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
    * Explicit opt-in: enable biometric unlock and store the current session PIN
    * in the auth-gated keystore.
    *
-   * IMPORTANT: we do NOT call LocalAuthentication.authenticateAsync before the
-   * store. On Android, SecureStore.setItemAsync with requireAuthentication:true
-   * already triggers the OS biometric prompt to bind the keystore entry — that
-   * single prompt IS the user's opt-in. Adding a separate authenticateAsync on
-   * top caused a double prompt, and if the second prompt was cancelled we ended
-   * up with biometricEnabled=true but no stored PIN — biometric unlock was then
-   * permanently broken for that wallet.
+   * Prompt behaviour is PLATFORM-SPECIFIC and asymmetric:
+   *   - Android: SecureStore.setItemAsync with requireAuthentication:true
+   *     triggers the OS biometric prompt at WRITE time to bind the keystore
+   *     entry — that single prompt IS the user's opt-in. We must NOT add a
+   *     separate authenticateAsync there or it double-prompts (and a cancelled
+   *     second prompt left biometricEnabled=true with no stored PIN — broken).
+   *   - iOS: the keychain write is SILENT (Face ID only prompts on READ, i.e.
+   *     the next unlock). With nothing prompting at enable time the toggle just
+   *     flipped on with no feedback ("nothing happened, but it was enabled").
+   *     So on iOS we DO run one explicit authenticateAsync to confirm the
+   *     opt-in. Net result: exactly one prompt per platform.
    *
    * Returns true only if the PIN was actually stored AND the setting flipped.
    * Returns false (without changing the setting) on any failure.
@@ -769,8 +773,28 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         return { ok: false, reason };
       }
 
-      // The setItemAsync call below triggers the single OS biometric prompt.
-      // If the user cancels, this throws and we bail WITHOUT flipping the
+      // iOS: the keychain write below is silent, so prompt explicitly here to
+      // confirm the opt-in. (Android prompts at write — skip to avoid a double
+      // prompt.) A cancel/failure here bails WITHOUT flipping the setting.
+      if (Platform.OS === 'ios') {
+        const auth = await LocalAuthentication.authenticateAsync({
+          promptMessage: 'Confirm to enable biometric unlock',
+          cancelLabel: 'Cancel',
+          disableDeviceFallback: false,
+        });
+        if (!auth.success) {
+          const isCancel = auth.error === 'user_cancel' || auth.error === 'system_cancel' || auth.error === 'app_cancel';
+          const reason = isCancel
+            ? 'Biometric prompt was cancelled. Try again to enable.'
+            : 'Could not verify biometrics. Please try again.';
+          setError(reason);
+          return { ok: false, reason };
+        }
+      }
+
+      // The setItemAsync call below triggers the OS biometric prompt on Android
+      // (silent on iOS, where we already prompted just above). If it throws
+      // (e.g. user cancels on Android), we bail WITHOUT flipping the
       // biometricEnabled setting — no broken state.
       try {
         await storageService.storeBiometricPin(masterKeyId, pin);

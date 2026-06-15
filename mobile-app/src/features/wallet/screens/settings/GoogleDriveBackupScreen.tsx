@@ -1,7 +1,7 @@
 // Google Drive Backup Settings Screen
 // Manage encrypted seed phrase backups to Google Drive
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -9,10 +9,14 @@ import {
   Alert,
   Modal,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   ActivityIndicator,
   KeyboardAvoidingView,
   Keyboard,
   Platform,
+  Animated,
+  Easing,
+  Dimensions,
 } from 'react-native';
 import {
   Text,
@@ -24,7 +28,6 @@ import {
 import { TextInput } from 'react-native-paper'; // Only for TextInput.Icon
 import { StyledTextInput } from '../../../../components/StyledTextInput';
 import { PinSetupKeypad } from '../../../../components/PinSetupKeypad';
-import { KeyboardDoneAccessory, iosAccessoryId } from '../../../../components/KeyboardDoneAccessory';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -77,13 +80,35 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
   // background lagging behind the text.
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   useEffect(() => {
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillChangeFrame' : 'keyboardDidShow';
+    // iOS oscillates the reported keyboard height on every keystroke: a
+    // secureTextEntry field with an InputAccessoryView (our Done bar) makes the
+    // predictive/QuickType bar toggle per key, which fires show/hide events with
+    // changing heights. Naively tracking that bounced the sheet up and down.
+    //
+    // Two defenses keep the sheet still:
+    //  1. LATCH to the tallest height seen while open — never shrink mid-typing.
+    //     Once at the real keyboard height, repeat events are no-ops (same value
+    //     → React bails → no re-render → no jump).
+    //  2. DEBOUNCE the reset-to-zero, so a transient hide immediately followed by
+    //     a show (the per-keystroke flicker) is cancelled before it drops the
+    //     sheet. A genuine dismiss has no following show, so it still resets.
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSub = Keyboard.addListener(showEvt, (e) =>
-      setKeyboardHeight(e?.endCoordinates?.height ?? 0)
-    );
-    const hideSub = Keyboard.addListener(hideEvt, () => setKeyboardHeight(0));
+    let hideTimer: ReturnType<typeof setTimeout> | null = null;
+    const showSub = Keyboard.addListener(showEvt, (e) => {
+      const h = e?.endCoordinates?.height ?? 0;
+      if (hideTimer) {
+        clearTimeout(hideTimer);
+        hideTimer = null;
+      }
+      if (h > 0) setKeyboardHeight((prev) => (h > prev ? h : prev));
+    });
+    const hideSub = Keyboard.addListener(hideEvt, () => {
+      if (hideTimer) clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => setKeyboardHeight(0), 150);
+    });
     return () => {
+      if (hideTimer) clearTimeout(hideTimer);
       showSub.remove();
       hideSub.remove();
     };
@@ -105,6 +130,46 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
   // Modal state
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'restore'>('create');
+
+  // Password sheet slide-in animation. We drive the backdrop opacity and the
+  // sheet's translateY off one Animated.Value (like AssetPickerSheet) and use
+  // animationType="none" — RN's built-in "slide" slides the whole modal,
+  // backdrop included, which produced the ugly "growing shadow" artifact.
+  //
+  // The modal mounts/unmounts directly off `showPasswordModal` (no animated
+  // exit / keep-alive): the success path hands straight off to the PIN modal,
+  // and iOS only reliably presents ONE Modal at a time — keeping this one
+  // mounted during a fade-out blocked the PIN modal from appearing (restore
+  // looked like it did nothing and the screen got stuck behind an invisible
+  // backdrop). Immediate unmount keeps the hand-off clean.
+  const PWSHEET_SCREEN_H = Dimensions.get('window').height;
+  const pwSheetProgress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (showPasswordModal) {
+      // Mounts with progress at 0 (reset on the previous close), so the first
+      // frame is off-screen-low and this slides it up into place.
+      Animated.timing(pwSheetProgress, {
+        toValue: 1,
+        duration: 240,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    } else {
+      // Closed (immediate unmount): reset the slide + latched keyboard height so
+      // the next open starts fresh and never reopens pre-lifted.
+      pwSheetProgress.setValue(0);
+      setKeyboardHeight(0);
+    }
+  }, [showPasswordModal, pwSheetProgress]);
+  const pwSheetTranslate = pwSheetProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [PWSHEET_SCREEN_H * 0.5, 0],
+  });
+  const pwBackdropOpacity = pwSheetProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+
   const [selectedBackup, setSelectedBackup] = useState<BackupMetadata | null>(null);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -793,7 +858,8 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     <Modal
       visible={showPasswordModal}
       transparent
-      animationType="slide"
+      animationType="none"
+      statusBarTranslucent
       onRequestClose={() => {
         setShowPasswordModal(false);
         setPassword('');
@@ -801,8 +867,29 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
         setFileBackupData(null);
       }}
     >
-      <View style={[styles.modalOverlay, { paddingBottom: keyboardHeight }]}>
-        <View style={[styles.modalContent, { backgroundColor: gradientColors[0], paddingBottom: insets.bottom + 16 }]}>
+      <TouchableWithoutFeedback
+        onPress={() => {
+          Keyboard.dismiss();
+          setShowPasswordModal(false);
+          setPassword('');
+          setConfirmPassword('');
+          setFileBackupData(null);
+        }}
+      >
+        <Animated.View style={[styles.modalBackdrop, { opacity: pwBackdropOpacity }]} />
+      </TouchableWithoutFeedback>
+
+      <Animated.View
+        style={[
+          styles.modalContent,
+          {
+            backgroundColor: gradientColors[0],
+            paddingBottom: insets.bottom + 16,
+            bottom: keyboardHeight,
+            transform: [{ translateY: pwSheetTranslate }],
+          },
+        ]}
+      >
           <ScrollView
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
@@ -828,9 +915,11 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
             value={password}
             onChangeText={setPassword}
             secureTextEntry={!showPassword}
-            // Dedicated accessory id (see the two <KeyboardDoneAccessory/> below)
-            // so the Done bar binds reliably to this field.
-            inputAccessoryViewID={iosAccessoryId('backupPasswordDone')}
+            // No inputAccessoryViewID here: a Done-bar InputAccessoryView on an
+            // iOS secureTextEntry field makes the keyboard flicker (hide→show)
+            // on every keystroke, which bounced the sheet up/down. The keyboard's
+            // return key and tapping the dimmed backdrop both dismiss it.
+            returnKeyType="done"
             autoComplete="off"
             autoCorrect={false}
             autoCapitalize="none"
@@ -882,7 +971,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showPassword}
-                inputAccessoryViewID={iosAccessoryId('backupConfirmPasswordDone')}
+                returnKeyType="done"
                 autoComplete="off"
                 autoCorrect={false}
                 autoCapitalize="none"
@@ -952,12 +1041,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
               {modalMode === 'create' ? t('cloudBackup.createBackup') : t('cloudBackup.restore')}
             </Button>
           </View>
-        </View>
-      </View>
-      {/* One dedicated Done accessory per field — a single shared accessory
-          doesn't reliably bind to every input on iOS. */}
-      <KeyboardDoneAccessory nativeID="backupPasswordDone" />
-      <KeyboardDoneAccessory nativeID="backupConfirmPasswordDone" />
+      </Animated.View>
     </Modal>
   );
 
@@ -1506,15 +1590,26 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   // Modal styles
+  // Full-screen dim layer behind the sheet. Faded in/out via Animated opacity
+  // (animationType="none") so it doesn't slide with the sheet.
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  },
+  // Static dim overlay used by the PIN modals (which keep RN's slide animation).
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    // Bottom sheet: anchored to the bottom so the keyboard simply pushes it up
-    // (no centering to fight, no squashing) and a growing password-strength
-    // hint extends upward without re-centering the modal (the old "flashing").
     justifyContent: 'flex-end',
   },
   modalContent: {
+    // Bottom sheet: absolutely anchored to the bottom edge so the keyboard
+    // simply lifts it (via `bottom: keyboardHeight`) — no centering to fight,
+    // no squashing — and a growing password-strength hint extends upward.
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 20,

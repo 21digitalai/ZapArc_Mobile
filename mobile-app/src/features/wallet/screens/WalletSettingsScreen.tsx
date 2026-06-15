@@ -73,8 +73,11 @@ export function WalletSettingsScreen(): React.JSX.Element {
     }
   };
 
-  // Show loading state if settings not loaded yet
-  if (settingsLoading || !settings) {
+  // Show the loading state ONLY when there are genuinely no settings yet (first
+  // load). A transient `settingsLoading` while settings already exist (e.g. a
+  // focus refresh, or a child screen updating a setting) must NOT blank the
+  // screen — doing so unmounts the ScrollView and remounts it scrolled to top.
+  if (!settings) {
     return (
       <LinearGradient colors={gradientColors} style={styles.gradient}>
         <SafeAreaView style={styles.container}>
