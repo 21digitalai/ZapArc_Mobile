@@ -173,9 +173,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a2e',
     margin: 20,
     borderRadius: 16,
-    // Height now follows content (no forced min) so the modal feels snug
-    // whether the user has 0 or 20 contacts.
-    maxHeight: '80%',
+    // DEFINITE height (not maxHeight): paper's Modal is content-sized and won't
+    // hand a height to the inner FlatList, so a content-driven modal collapsed
+    // to a sliver with almost no room for the list. A fixed 80% height gives the
+    // list a real region to flex into and scroll.
+    height: '80%',
     overflow: 'hidden',
   },
   header: {
@@ -193,7 +195,9 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   list: {
-    maxHeight: 400,
+    // Fill the remaining space inside the fixed-height modal (after the header,
+    // search bar, and add-contact row) and scroll when contacts overflow.
+    flex: 1,
     // Padding bottom so the last item doesn't butt against the modal edge.
     paddingBottom: 8,
   },
