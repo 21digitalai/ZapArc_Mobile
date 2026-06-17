@@ -80,3 +80,11 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.tempkeystores/release.keystore
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output
+fastlane/metadata/android/*/changelogs
+vendor/bundle
+.bundle

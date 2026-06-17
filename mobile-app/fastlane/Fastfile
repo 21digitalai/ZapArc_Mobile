@@ -1,0 +1,244 @@
+default_platform(:android)
+
+require "json"
+require "pathname"
+require "shellwords"
+
+# ---------------------------------------------------------------------------
+# ZapArc Fastfile — adapted from mobile-skeleton-app.
+#
+# KEY DIFFERENCE vs the skeleton: ZapArc maintains its native ios/ & android/
+# folders BY HAND (custom signing, .dev build, entitlements, hardcoded version
+# literals). We therefore do NOT run `expo prebuild` on release — that would
+# wipe those. Builds run against the existing native projects, and `bump`
+# updates ALL the version files in lockstep (app.json, build.gradle, Info.plist,
+# pbxproj) since there is no prebuild to propagate app.json -> native.
+#
+# Credentials come from env vars pointing at files OUTSIDE git (see fastlane/.env).
+# ---------------------------------------------------------------------------
+
+PROJECT_ROOT     = File.expand_path("..", __dir__)
+APP_JSON_PATH    = File.join(PROJECT_ROOT, "app.json")
+PKG_JSON_PATH    = File.join(PROJECT_ROOT, "package.json")
+BUILD_GRADLE     = File.join(PROJECT_ROOT, "android/app/build.gradle")
+IOS_DIR          = File.join(PROJECT_ROOT, "ios")
+INFO_PLIST       = File.join(IOS_DIR, "ZapArc/Info.plist")
+PBXPROJ          = File.join(IOS_DIR, "ZapArc.xcodeproj/project.pbxproj")
+
+def env_value(name, default = nil)
+  v = ENV[name]
+  return default if v.nil?
+  v = v.strip
+  v.empty? ? default : v
+end
+
+def require_env!(name, hint = nil)
+  v = env_value(name)
+  return v if v
+  UI.user_error!("Missing required env var: #{name}#{hint ? ". #{hint}" : ''}")
+end
+
+def require_file_env!(name, hint = nil)
+  path = require_env!(name, hint)
+  abs = File.expand_path(path, PROJECT_ROOT)
+  UI.user_error!("#{name} points at a missing file: #{abs}") unless File.exist?(abs)
+  abs
+end
+
+def read_json(p) = JSON.parse(File.read(p))
+def expo = read_json(APP_JSON_PATH).fetch("expo")
+
+def ios_identifier     = env_value("FASTLANE_IOS_APP_IDENTIFIER", expo.dig("ios", "bundleIdentifier") || "com.zaparc.app")
+def android_package    = env_value("FASTLANE_ANDROID_PACKAGE_NAME", expo.dig("android", "package") || ios_identifier)
+def ios_scheme         = env_value("FASTLANE_IOS_SCHEME", "ZapArc")
+def ios_workspace      = env_value("FASTLANE_IOS_WORKSPACE", "ios/#{ios_scheme}.xcworkspace")
+def ios_archive_path   = env_value("FASTLANE_IOS_ARCHIVE_PATH", "ios/build/#{ios_scheme}.xcarchive")
+def ios_export_dir     = env_value("FASTLANE_IOS_EXPORT_DIR", "ios/build/export")
+def ios_ipa_path       = File.join(ios_export_dir, "#{ios_scheme}.ipa")
+def ios_export_options = env_value("FASTLANE_IOS_EXPORT_OPTIONS", "ios/ExportOptions-AppStore.plist")
+def android_aab_path   = env_value("FASTLANE_ANDROID_AAB_PATH", "android/app/build/outputs/bundle/release/app-release.aab")
+
+def in_root(cmd) = sh("cd #{Shellwords.escape(PROJECT_ROOT)} && #{cmd}")
+def abs(rel) = File.expand_path(rel, PROJECT_ROOT)
+
+def asc_key
+  app_store_connect_api_key(
+    key_id:       require_env!("FASTLANE_APP_STORE_CONNECT_KEY_ID"),
+    issuer_id:    require_env!("FASTLANE_APP_STORE_CONNECT_ISSUER_ID"),
+    key_filepath: require_file_env!("FASTLANE_APP_STORE_CONNECT_API_KEY_PATH"),
+  )
+end
+
+# xcodebuild auth flags for provisioning via the ASC API key (manual signing).
+def xcode_auth_flags
+  kid = require_env!("FASTLANE_APP_STORE_CONNECT_KEY_ID")
+  iss = require_env!("FASTLANE_APP_STORE_CONNECT_ISSUER_ID")
+  p8  = require_file_env!("FASTLANE_APP_STORE_CONNECT_API_KEY_PATH")
+  "-authenticationKeyPath #{Shellwords.escape(p8)} " \
+  "-authenticationKeyID #{Shellwords.escape(kid)} " \
+  "-authenticationKeyIssuerID #{Shellwords.escape(iss)} -allowProvisioningUpdates"
+end
+
+def plist_get(key, file)
+  `/usr/libexec/PlistBuddy -c #{Shellwords.escape("Print :#{key}")} #{Shellwords.escape(file)}`.strip
+end
+
+def plist_set(key, value, file)
+  sh("/usr/libexec/PlistBuddy -c #{Shellwords.escape("Set :#{key} #{value}")} #{Shellwords.escape(file)}")
+end
+
+# ===========================================================================
+# Versioning — updates ALL four version sources in lockstep.
+# Usage: fastlane bump version:1.1.5
+#        (build numbers auto-increment from their current native values)
+# ===========================================================================
+desc "Bump version across app.json, build.gradle, Info.plist and pbxproj"
+lane :bump do |opts|
+  version = opts[:version] or UI.user_error!("Pass version: e.g. `fastlane bump version:1.1.5`")
+  UI.user_error!("version must be X.Y.Z") unless version =~ /\A\d+\.\d+\.\d+\z/
+
+  # current build numbers (independent counters per platform)
+  cur_code = File.read(BUILD_GRADLE)[/versionCode\s+(\d+)/, 1].to_i
+  new_code = cur_code + 1
+  cur_ios  = plist_get("CFBundleVersion", INFO_PLIST).to_i
+  new_ios  = cur_ios + 1
+
+  UI.header("Bumping ZapArc to #{version}")
+  UI.message("Android versionCode: #{cur_code} -> #{new_code}")
+  UI.message("iOS build number:    #{cur_ios} -> #{new_ios}")
+
+  # app.json
+  app = read_json(APP_JSON_PATH); app["expo"]["version"] = version
+  File.write(APP_JSON_PATH, JSON.pretty_generate(app) + "\n")
+
+  # package.json (keep in sync)
+  if File.exist?(PKG_JSON_PATH)
+    pkg = read_json(PKG_JSON_PATH); pkg["version"] = version
+    File.write(PKG_JSON_PATH, JSON.pretty_generate(pkg) + "\n")
+  end
+
+  # android/app/build.gradle
+  g = File.read(BUILD_GRADLE)
+  g = g.sub(/versionCode\s+\d+/, "versionCode #{new_code}")
+       .sub(/versionName\s+"[^"]*"/, %(versionName "#{version}"))
+  File.write(BUILD_GRADLE, g)
+
+  # ios Info.plist (hardcoded literals in this project)
+  plist_set("CFBundleShortVersionString", version, INFO_PLIST)
+  plist_set("CFBundleVersion", new_ios, INFO_PLIST)
+
+  # ios pbxproj
+  pb = File.read(PBXPROJ)
+  pb = pb.gsub(/MARKETING_VERSION = [^;]+;/, "MARKETING_VERSION = #{version};")
+         .gsub(/CURRENT_PROJECT_VERSION = [^;]+;/, "CURRENT_PROJECT_VERSION = #{new_ios};")
+  File.write(PBXPROJ, pb)
+
+  UI.success("Bumped to #{version} (iOS build #{new_ios}, Android versionCode #{new_code}).")
+end
+
+# ===========================================================================
+# Android
+# ===========================================================================
+platform :android do
+  desc "Build the release AAB (no prebuild — uses the existing native project)"
+  lane :build do
+    in_root("cd android && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ./gradlew bundleRelease")
+    UI.user_error!("AAB not found at #{android_aab_path}") unless File.exist?(abs(android_aab_path))
+    UI.success("AAB ready: #{abs(android_aab_path)}")
+  end
+
+  # Writes the optional release notes into supply's changelog path for this versionCode.
+  def stage_changelog
+    notes_path = env_value("FASTLANE_RELEASE_NOTES_PATH")
+    return false unless notes_path && File.exist?(abs(notes_path))
+    code = File.read(BUILD_GRADLE)[/versionCode\s+(\d+)/, 1]
+    dir = abs("fastlane/metadata/android/en-US/changelogs")
+    FileUtils.mkdir_p(dir)
+    File.write(File.join(dir, "#{code}.txt"), File.read(abs(notes_path)).strip + "\n")
+    UI.message("Staged release notes for versionCode #{code}")
+    true
+  end
+
+  desc "Upload the existing AAB to internal testing (draft)"
+  lane :upload_internal do
+    upload_to_play_store(
+      package_name: android_package,
+      json_key: require_file_env!("FASTLANE_PLAY_JSON_KEY_PATH"),
+      aab: require_file_env!("FASTLANE_ANDROID_AAB_PATH"),
+      track: "internal", release_status: "draft",
+      skip_upload_metadata: true, skip_upload_images: true, skip_upload_screenshots: true,
+    )
+  end
+
+  desc "Upload the existing AAB to production and send for review"
+  lane :upload_production do
+    have_notes = stage_changelog
+    upload_to_play_store(
+      package_name: android_package,
+      json_key: require_file_env!("FASTLANE_PLAY_JSON_KEY_PATH"),
+      aab: require_file_env!("FASTLANE_ANDROID_AAB_PATH"),
+      track: "production",
+      release_status: env_value("FASTLANE_PLAY_RELEASE_STATUS", "completed"), # full rollout, sent for review
+      skip_upload_metadata: true, skip_upload_images: true, skip_upload_screenshots: true,
+      skip_upload_changelogs: !have_notes,
+    )
+  end
+
+  desc "Build the AAB and ship it to production"
+  lane :release do
+    build
+    upload_production
+  end
+end
+
+# ===========================================================================
+# iOS
+# ===========================================================================
+platform :ios do
+  desc "Archive + export an App Store IPA (manual signing via ExportOptions + ASC key)"
+  lane :build do
+    archive = abs(ios_archive_path)
+    export  = abs(ios_export_dir)
+    in_root("rm -rf #{Shellwords.escape(archive)} #{Shellwords.escape(export)}")
+    in_root(
+      "cd ios && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 xcodebuild " \
+      "-workspace #{Shellwords.escape(File.basename(ios_workspace))} " \
+      "-scheme #{Shellwords.escape(ios_scheme)} -configuration Release " \
+      "-archivePath #{Shellwords.escape(archive)} -destination 'generic/platform=iOS' " \
+      "#{xcode_auth_flags} clean archive"
+    )
+    in_root(
+      "cd ios && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 xcodebuild -exportArchive " \
+      "-archivePath #{Shellwords.escape(archive)} -exportPath #{Shellwords.escape(export)} " \
+      "-exportOptionsPlist #{Shellwords.escape(File.basename(ios_export_options))} " \
+      "#{xcode_auth_flags}"
+    )
+    UI.user_error!("IPA not found at #{ios_ipa_path}") unless File.exist?(abs(ios_ipa_path))
+    UI.success("IPA ready: #{abs(ios_ipa_path)}")
+  end
+
+  desc "Upload the existing IPA to TestFlight"
+  lane :upload_testflight do
+    upload_to_testflight(
+      api_key: asc_key, app_identifier: ios_identifier,
+      ipa: abs(ios_ipa_path), skip_waiting_for_build_processing: true,
+    )
+  end
+
+  desc "Submit the existing IPA to App Review (no metadata/screenshot changes)"
+  lane :submit_for_review do
+    deliver(
+      api_key: asc_key, app_identifier: ios_identifier, ipa: abs(ios_ipa_path),
+      app_version: expo["version"],
+      skip_metadata: true, skip_screenshots: true, skip_binary_upload: false,
+      force: true, submit_for_review: true, precheck_include_in_app_purchases: false,
+      submission_information: { add_id_info_uses_idfa: false },
+    )
+  end
+
+  desc "Build the IPA and submit it to App Review"
+  lane :release do
+    build
+    submit_for_review
+  end
+end

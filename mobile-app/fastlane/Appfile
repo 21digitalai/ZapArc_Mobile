@@ -1,0 +1,5 @@
+app_identifier(ENV.fetch("FASTLANE_IOS_APP_IDENTIFIER", "com.zaparc.app"))
+package_name(ENV.fetch("FASTLANE_ANDROID_PACKAGE_NAME", "com.zaparc.app"))
+
+apple_team = ENV["FASTLANE_APPLE_TEAM_ID"].to_s.strip
+team_id(apple_team) unless apple_team.empty?
