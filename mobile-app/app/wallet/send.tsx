@@ -18,7 +18,7 @@ import { useWallet } from '../../src/hooks/useWallet';
 import { BreezSparkService } from '../../src/services/breezSparkService';
 import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
 import { useCurrency } from '../../src/hooks/useCurrency';
-import { formatFiat, usdbToFiat, fiatToUsdb } from '../../src/utils/currency';
+import { formatFiat, satsToFiat, usdbToFiat, fiatToUsdb } from '../../src/utils/currency';
 import { cycleDisplayCurrency, type DisplayCurrency } from '../../src/services/displayCurrencyService';
 import { useLightningAddress } from '../../src/hooks/useLightningAddress';
 import { getAssetMeta, getAllAssets } from '../../src/features/wallet/registry/assetRegistry';
@@ -153,6 +153,7 @@ const currencyLabels: Record<SendInputCurrency, string> = {
   eur: 'EUR',
   usdb: 'USDB',
 };
+const PREVIEW_FIAT_RATE_STALE_MS = 15 * 60 * 1000;
 
 export default function SendScreen() {
   const params = useLocalSearchParams<{
@@ -404,6 +405,14 @@ export default function SendScreen() {
     }
     return formatSatsWithFiat(balance);
   }, [isUsdbAsset, rates, usdbBalance, secondaryFiatCurrency, balance, formatSatsWithFiat]);
+
+  const formatPreviewFiat = useCallback((sats: number): string | null => {
+    if (isUsdbAsset || !Number.isFinite(sats) || sats < 0) return null;
+    if (!rates || rates.timestamp <= 0 || rates[secondaryFiatCurrency] <= 0) return null;
+    if (Date.now() - rates.timestamp > PREVIEW_FIAT_RATE_STALE_MS) return null;
+
+    return `≈ ${formatFiat(satsToFiat(sats, rates, secondaryFiatCurrency), secondaryFiatCurrency)}`;
+  }, [isUsdbAsset, rates, secondaryFiatCurrency]);
 
   const getOnchainFeeQuote = useCallback(
     (
@@ -1276,6 +1285,13 @@ export default function SendScreen() {
 
   if ((step === 'preview' || step === 'onchain-preview') && preview) {
     const isOnchainPreview = step === 'onchain-preview';
+    const previewFiat = {
+      amount: formatPreviewFiat(preview.amount),
+      fee: formatPreviewFiat(preview.fee),
+      total: formatPreviewFiat(preview.total),
+    };
+    const shouldShowFiatUnavailable =
+      !isUsdbAsset && (!previewFiat.amount || !previewFiat.fee || !previewFiat.total);
 
     return (
       <LinearGradient colors={gradientColors} style={styles.gradient}>
@@ -1335,24 +1351,51 @@ export default function SendScreen() {
 
               <View style={styles.previewRow}>
                 <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>{t('payments.amount')}:</Text>
-                <Text style={[styles.previewAmount, { color: primaryTextColor }]}>
-                  {isUsdbAsset ? `${formatUsdbFromBaseUnits(preview.amount)} USDB` : `${preview.amount.toLocaleString()} sats`}
-                </Text>
+                <View style={styles.previewValueStack}>
+                  <Text style={[styles.previewAmount, { color: primaryTextColor }]}>
+                    {isUsdbAsset ? `${formatUsdbFromBaseUnits(preview.amount)} USDB` : `${preview.amount.toLocaleString()} sats`}
+                  </Text>
+                  {previewFiat.amount && (
+                    <Text style={[styles.previewFiatEstimate, { color: secondaryTextColor }]}>
+                      {previewFiat.amount}
+                    </Text>
+                  )}
+                </View>
               </View>
 
               <View style={styles.previewRow}>
                 <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>{t('wallet.fee')}:</Text>
-                <Text style={[styles.previewFee, { color: secondaryTextColor }]}>
-                  {isUsdbAsset ? `${formatUsdbFromBaseUnits(preview.fee)} USDB` : `${preview.fee.toLocaleString()} sats`}{isOnchainPreview && selectedOnchainQuote?.satPerVbyte ? ` (${selectedOnchainQuote.satPerVbyte} sat/vB)` : ''}
-                </Text>
+                <View style={styles.previewValueStack}>
+                  <Text style={[styles.previewFee, { color: secondaryTextColor }]}>
+                    {isUsdbAsset ? `${formatUsdbFromBaseUnits(preview.fee)} USDB` : `${preview.fee.toLocaleString()} sats`}{isOnchainPreview && selectedOnchainQuote?.satPerVbyte ? ` (${selectedOnchainQuote.satPerVbyte} sat/vB)` : ''}
+                  </Text>
+                  {previewFiat.fee && (
+                    <Text style={[styles.previewFiatEstimate, { color: secondaryTextColor }]}>
+                      {previewFiat.fee}
+                    </Text>
+                  )}
+                </View>
               </View>
 
               <View style={[styles.previewRow, styles.previewTotal]}>
                 <Text style={[styles.previewTotalLabel, { color: primaryTextColor }]}>{t('send.total')}</Text>
-                <Text style={styles.previewTotalAmount}>
-                  {isUsdbAsset ? `${formatUsdbFromBaseUnits(preview.total)} USDB` : `${preview.total.toLocaleString()} sats`}
-                </Text>
+                <View style={styles.previewTotalStack}>
+                  <Text style={styles.previewTotalAmount}>
+                    {isUsdbAsset ? `${formatUsdbFromBaseUnits(preview.total)} USDB` : `${preview.total.toLocaleString()} sats`}
+                  </Text>
+                  {previewFiat.total && (
+                    <Text style={[styles.previewTotalFiatEstimate, { color: secondaryTextColor }]}>
+                      {previewFiat.total}
+                    </Text>
+                  )}
+                </View>
               </View>
+
+              {shouldShowFiatUnavailable && (
+                <Text style={[styles.previewFiatUnavailable, { color: secondaryTextColor }]}>
+                  Fiat estimate unavailable
+                </Text>
+              )}
 
               {preview.description && (
                 <View style={styles.previewRow}>
@@ -2069,14 +2112,30 @@ const styles = StyleSheet.create({
     flex: 2,
     textAlign: 'right',
   },
+  previewValueStack: {
+    flex: 2,
+    alignItems: 'flex-end',
+  },
   previewAmount: {
     fontSize: 18,
     fontWeight: '600',
     color: '#FFFFFF',
+    textAlign: 'right',
   },
   previewFee: {
     fontSize: 16,
     color: 'rgba(255, 255, 255, 0.8)',
+    textAlign: 'right',
+  },
+  previewFiatEstimate: {
+    fontSize: 12,
+    marginTop: 3,
+    textAlign: 'right',
+  },
+  previewFiatUnavailable: {
+    fontSize: 12,
+    textAlign: 'right',
+    marginTop: 6,
   },
   previewTotal: {
     borderBottomWidth: 0,
@@ -2088,10 +2147,20 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
+  previewTotalStack: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
   previewTotalAmount: {
     fontSize: 20,
     fontWeight: 'bold',
     color: BRAND_COLOR,
+    textAlign: 'right',
+  },
+  previewTotalFiatEstimate: {
+    fontSize: 13,
+    marginTop: 4,
+    textAlign: 'right',
   },
   buttonRow: {
     flexDirection: 'row',
