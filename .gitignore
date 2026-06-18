@@ -184,6 +184,8 @@ dev.db
 build/
 dist/
 out/
+__pycache__/
+*.py[cod]
 
 # Expo
 .expo/
