@@ -5,12 +5,19 @@ import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import SendScreen from '../send';
 
+jest.mock('../../../src/config/features', () => ({
+  SWAP_FEATURE_ENABLED: true,
+  MULTI_ASSET_UI_ENABLED: true,
+  CONTACTS_BACKUP_ENABLED: false,
+}));
+
 jest.mock('react-native-safe-area-context', () => {
   const React = require('react');
   const { View } = require('react-native');
   return {
     SafeAreaProvider: ({ children }: any) => React.createElement(View, null, children),
     SafeAreaView: ({ children }: any) => React.createElement(View, null, children),
+    useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
   };
 });
 
