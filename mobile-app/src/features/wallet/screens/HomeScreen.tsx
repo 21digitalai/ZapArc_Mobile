@@ -491,28 +491,23 @@ export function HomeScreen(): React.JSX.Element {
     router.setParams({ walletSwitched: undefined, walletSwitchedName: undefined });
   }, [params.walletSwitched, params.walletSwitchedName]);
 
-  // "Save as contact?" prompt — shown here (over the main page) after the
-  // Send flow pays an unsaved Lightning Address / LNURL and redirects home.
+  // "Save as contact?" bottom sheet — shown here (over the main page) after
+  // the Send flow pays an unsaved Lightning Address and redirects home.
   const [saveContactAddress, setSaveContactAddress] = useState<string | null>(null);
   useEffect(() => {
     if (!params.saveContact) return;
-    // Set synchronously, then clear the param. (The entrance delay lives inside
-    // SaveContactPrompt — doing it here would be cancelled by the re-render
-    // that clearing the param triggers.)
     setSaveContactAddress(params.saveContact);
     router.setParams({ saveContact: undefined });
   }, [params.saveContact]);
 
-  const handleSaveContact = useCallback(() => {
-    const addr = saveContactAddress;
+  const handleSavedContact = useCallback(() => {
     setSaveContactAddress(null);
-    if (addr) {
-      router.push({
-        pathname: '/wallet/settings/address-book/add',
-        params: { address: addr },
-      });
-    }
-  }, [saveContactAddress]);
+    showToast({
+      icon: '✓',
+      title: 'Contact saved',
+      tone: 'success',
+    });
+  }, [showToast]);
 
   const handleDismissSaveContact = useCallback(() => {
     setSaveContactAddress(null);
@@ -999,7 +994,7 @@ export function HomeScreen(): React.JSX.Element {
       <SaveContactPrompt
         visible={!!saveContactAddress}
         address={saveContactAddress}
-        onSave={handleSaveContact}
+        onSaved={handleSavedContact}
         onDismiss={handleDismissSaveContact}
       />
     </LinearGradient>

@@ -1114,14 +1114,15 @@ export default function SendScreen() {
         const recipientRaw = paymentInput.trim();
         const looksLikeAddress = recipientRaw.includes('@') && !recipientRaw.toLowerCase().startsWith('ln');
         const looksLikeLnurl = recipientRaw.toLowerCase().startsWith('lnurl');
-        const isSavableRecipient = looksLikeAddress || looksLikeLnurl;
+        const isPersistableRecipient = looksLikeAddress || looksLikeLnurl;
+        const isContactSavableRecipient = looksLikeAddress;
 
         // Persist the recipient when we paid a Lightning Address / LNURL.
         // The SDK's payment history doesn't reliably surface the human-
         // readable destination, but we know exactly what the user entered
         // here — store it locally so the transaction details can show
         // "To: name@domain" later.
-        if (result.paymentId && isSavableRecipient) {
+        if (result.paymentId && isPersistableRecipient) {
           try {
             await AsyncStorage.setItem(`payment_recipient_${result.paymentId}`, recipientRaw);
           } catch {
@@ -1130,11 +1131,11 @@ export default function SendScreen() {
         }
         await refreshBalance();
 
-        // Offer to save the recipient as a contact — but only for a Lightning
-        // Address / LNURL that isn't already in the address book. When shown,
-        // we stay on the screen; the modal's buttons handle navigation.
+        // Offer to save the recipient as a contact — but only for a
+        // human-readable Lightning Address that isn't already in the address
+        // book. Raw BOLT11 invoices and LNURLs are not useful contact labels.
         const alreadyAContact =
-          isSavableRecipient &&
+          isContactSavableRecipient &&
           contacts.some(
             (c) =>
               normalizeLightningAddress(c.lightningAddress) ===
@@ -1142,10 +1143,10 @@ export default function SendScreen() {
           );
         await new Promise(resolve => setTimeout(resolve, 1000));
         // Clear the prepared payment so nothing can re-submit it, then redirect
-        // home. For an unsaved Lightning Address / LNURL we pass it along so the
-        // Home screen shows the "save as contact?" prompt over the main page.
+        // home. For an unsaved Lightning Address we pass it along so Home can
+        // open the in-place save-contact sheet over the balance page.
         setPrepareResponse(null);
-        if (isSavableRecipient && !alreadyAContact) {
+        if (isContactSavableRecipient && !alreadyAContact) {
           router.navigate({ pathname: '/wallet/home', params: { saveContact: recipientRaw } });
         } else {
           router.navigate('/wallet/home');

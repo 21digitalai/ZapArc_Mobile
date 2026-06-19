@@ -1,45 +1,81 @@
 /**
  * SaveContactPrompt
  *
- * A small, NON-blocking banner that slides up from the bottom after the send
- * flow redirects Home, offering to save a just-paid Lightning Address / LNURL
- * as a contact. Tapping it routes to Add Contact; the × (or auto-timeout)
- * dismisses it. It does not cover the screen — Home stays fully interactive
- * underneath (pointerEvents="box-none").
+ * Bottom-sheet contact save flow shown after a successful send. It keeps the
+ * user on the Home balance screen and writes through useContacts so every
+ * address-book consumer sees the new contact immediately.
  */
-import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { Text, IconButton } from 'react-native-paper';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Animated,
+  Alert,
+  Easing,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { Button, HelperText, IconButton, Text } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BRAND_COLOR } from '../../../utils/theme-helpers';
+import { StyledTextInput } from '../../../components';
 import { t } from '../../../services/i18nService';
+import { validateLightningAddressResolves } from '../../../utils';
+import { BRAND_COLOR } from '../../../utils/theme-helpers';
+import { ContactValidationError } from '../services/contactService';
+import {
+  validateLightningAddress,
+  validateName,
+  validateNotes,
+} from '../services/contactValidator';
+import { VALIDATION_LIMITS } from '../types';
+import { useContacts } from '../hooks/useContacts';
 
 interface SaveContactPromptProps {
   visible: boolean;
   address: string | null;
-  onSave: () => void;
+  onSaved?: () => void;
   onDismiss: () => void;
 }
 
-// Short beat before it slides in (lets the send→home transition settle), and
-// an auto-dismiss so it doesn't linger if the user ignores it.
 const ENTRANCE_DELAY_MS = 650;
-const AUTO_DISMISS_MS = 8000;
 
 export function SaveContactPrompt({
   visible,
   address,
-  onSave,
+  onSaved,
   onDismiss,
 }: SaveContactPromptProps): React.JSX.Element | null {
   const insets = useSafeAreaInsets();
-  const [rendered, setRendered] = useState(false);
-  const anim = useRef(new Animated.Value(0)).current; // 0 = hidden, 1 = shown
+  const { createContact } = useContacts();
 
-  // Slide in (after the delay) / slide out.
+  const [rendered, setRendered] = useState(false);
+  const [name, setName] = useState('');
+  const [lightningAddress, setLightningAddress] = useState(address || '');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [addressError, setAddressError] = useState<string | null>(null);
+  const [notesError, setNotesError] = useState<string | null>(null);
+
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!visible) return;
+
+    setName('');
+    setLightningAddress(address || '');
+    setNotes('');
+    setNameError(null);
+    setAddressError(null);
+    setNotesError(null);
+  }, [visible, address]);
+
   useEffect(() => {
     if (visible) {
-      const showTimer = setTimeout(() => {
+      const showTimer = globalThis.setTimeout(() => {
         setRendered(true);
         Animated.spring(anim, {
           toValue: 1,
@@ -48,8 +84,9 @@ export function SaveContactPrompt({
           tension: 60,
         }).start();
       }, ENTRANCE_DELAY_MS);
-      return () => clearTimeout(showTimer);
+      return () => globalThis.clearTimeout(showTimer);
     }
+
     Animated.timing(anim, {
       toValue: 0,
       duration: 180,
@@ -61,129 +98,278 @@ export function SaveContactPrompt({
     return undefined;
   }, [visible, anim]);
 
-  // Auto-dismiss once shown.
-  useEffect(() => {
-    if (!rendered) return undefined;
-    const timer = setTimeout(() => onDismiss(), AUTO_DISMISS_MS);
-    return () => clearTimeout(timer);
-  }, [rendered, onDismiss]);
+  const validateForm = useCallback((): boolean => {
+    let isValid = true;
+
+    const nameResult = validateName(name);
+    if (!nameResult.isValid) {
+      setNameError(nameResult.errors[0]?.message || 'Invalid name');
+      isValid = false;
+    } else {
+      setNameError(null);
+    }
+
+    const addressResult = validateLightningAddress(lightningAddress);
+    if (!addressResult.isValid) {
+      setAddressError(addressResult.errors[0]?.message || 'Invalid address');
+      isValid = false;
+    } else {
+      setAddressError(null);
+    }
+
+    const notesResult = validateNotes(notes);
+    if (!notesResult.isValid) {
+      setNotesError(notesResult.errors[0]?.message || 'Invalid notes');
+      isValid = false;
+    } else {
+      setNotesError(null);
+    }
+
+    return isValid;
+  }, [name, lightningAddress, notes]);
+
+  const handleSave = useCallback(async (): Promise<void> => {
+    if (!validateForm()) return;
+
+    setSaving(true);
+    setVerifying(true);
+
+    try {
+      const normalizedAddress = lightningAddress.trim();
+      const verifyResult = await validateLightningAddressResolves(normalizedAddress);
+      setVerifying(false);
+
+      if (!verifyResult.isValid) {
+        setAddressError(verifyResult.error || 'Lightning Address could not be verified');
+        return;
+      }
+
+      await createContact({
+        name: name.trim(),
+        lightningAddress: normalizedAddress,
+        preferredAsset: 'BTC',
+        notes: notes.trim() || undefined,
+      });
+
+      onSaved?.();
+      onDismiss();
+    } catch (err) {
+      setVerifying(false);
+      if (err instanceof ContactValidationError) {
+        const addressErrors = err.validation.errors.filter((e) => e.field === 'lightningAddress');
+        if (addressErrors.length > 0) {
+          setAddressError(addressErrors[0].message);
+        } else {
+          Alert.alert(t('common.error'), err.message);
+        }
+      } else {
+        Alert.alert(t('common.error'), 'Failed to save contact. Please try again.');
+      }
+    } finally {
+      setSaving(false);
+    }
+  }, [createContact, lightningAddress, name, notes, onDismiss, onSaved, validateForm]);
 
   if (!rendered) return null;
 
-  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [140, 0] });
+  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [360, 0] });
 
   return (
-    <Animated.View
-      pointerEvents="box-none"
-      style={[
-        styles.wrap,
-        { bottom: insets.bottom + 16, opacity: anim, transform: [{ translateY }] },
-      ]}
-    >
-      <View style={styles.card}>
-        <View style={styles.row}>
-          <View style={styles.iconWrap}>
-            <IconButton icon="account-plus" iconColor={BRAND_COLOR} size={20} style={styles.iconBtn} />
-          </View>
-          <View style={styles.textCol}>
-            <Text style={styles.title} numberOfLines={1}>
-              {t('send.saveContactTitle')}
-            </Text>
-            <Text style={styles.addr} numberOfLines={1}>
-              {address}
-            </Text>
-          </View>
-        </View>
+    <View style={styles.overlay} pointerEvents="box-none">
+      <Pressable style={styles.backdrop} onPress={onDismiss} />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        pointerEvents="box-none"
+        style={styles.keyboardAvoider}
+      >
+        <Animated.View
+          style={[
+            styles.sheet,
+            {
+              paddingBottom: insets.bottom + 18,
+              transform: [{ translateY }],
+              opacity: anim,
+            },
+          ]}
+        >
+          <View style={styles.handle} />
 
-        <View style={styles.actions}>
-          <TouchableOpacity onPress={onDismiss} activeOpacity={0.7} style={[styles.btn, styles.cancelBtn]}>
-            <Text style={styles.cancelText}>{t('common.cancel')}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onSave} activeOpacity={0.8} style={[styles.btn, styles.saveBtn]}>
-            <Text style={styles.saveText}>{t('common.save')}</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Animated.View>
+          <View style={styles.header}>
+            <View style={styles.headerText}>
+              <Text style={styles.title}>{t('send.saveContactTitle')}</Text>
+              <Text style={styles.subtitle} numberOfLines={1}>
+                {address}
+              </Text>
+            </View>
+            <IconButton icon="close" iconColor="rgba(255,255,255,0.72)" size={22} onPress={onDismiss} />
+          </View>
+
+          <View style={styles.form}>
+            <View style={styles.inputBlock}>
+              <StyledTextInput
+                label={t('addressBook.nameOptional')}
+                value={name}
+                onChangeText={setName}
+                error={!!nameError}
+                maxLength={VALIDATION_LIMITS.NAME_MAX_LENGTH}
+              />
+              <HelperText type="error" visible={!!nameError}>
+                {nameError}
+              </HelperText>
+            </View>
+
+            <View style={styles.inputBlock}>
+              <StyledTextInput
+                label={t('addressBook.lightningAddress')}
+                value={lightningAddress}
+                onChangeText={setLightningAddress}
+                error={!!addressError}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                placeholder="user@domain.com"
+              />
+              <HelperText type="error" visible={!!addressError}>
+                {addressError}
+              </HelperText>
+            </View>
+
+            <View style={styles.inputBlock}>
+              <StyledTextInput
+                label={t('addressBook.notesOptional')}
+                value={notes}
+                onChangeText={setNotes}
+                error={!!notesError}
+                multiline
+                numberOfLines={2}
+                maxLength={VALIDATION_LIMITS.NOTES_MAX_LENGTH}
+              />
+              <HelperText type="error" visible={!!notesError}>
+                {notesError}
+              </HelperText>
+            </View>
+          </View>
+
+          <View style={styles.actions}>
+            <TouchableOpacity
+              onPress={onDismiss}
+              activeOpacity={0.75}
+              style={[styles.actionBtn, styles.cancelBtn]}
+              disabled={saving}
+            >
+              <Text style={styles.cancelText}>{t('common.cancel')}</Text>
+            </TouchableOpacity>
+            <Button
+              mode="contained"
+              onPress={handleSave}
+              loading={saving}
+              disabled={saving}
+              buttonColor={BRAND_COLOR}
+              textColor="#1a1a2e"
+              style={styles.saveBtn}
+              labelStyle={styles.saveLabel}
+            >
+              {verifying ? t('addressBook.verifying') : t('common.save')}
+            </Button>
+          </View>
+        </Animated.View>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    position: 'absolute',
-    left: 12,
-    right: 12,
-    zIndex: 50,
-    elevation: 12,
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 80,
+    elevation: 24,
+    justifyContent: 'flex-end',
   },
-  card: {
-    backgroundColor: '#23233a',
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255, 255, 255, 0.10)',
-    paddingHorizontal: 10,
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.48)',
+  },
+  keyboardAvoider: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: '#1a1a2e',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     paddingTop: 10,
-    paddingBottom: 8,
-    // Soft lift so it reads as floating above the page.
+    paddingHorizontal: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
     shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.32,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: -6 },
   },
-  row: {
+  handle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.24)',
+    marginBottom: 10,
+  },
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
   },
-  iconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(247, 147, 26, 0.16)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
+  headerText: {
+    flex: 1,
+    paddingRight: 8,
   },
-  iconBtn: { margin: 0 },
-  textCol: { flex: 1, paddingRight: 4 },
   title: {
-    fontSize: 14,
-    fontWeight: '700',
     color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '800',
   },
-  addr: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.6)',
-    marginTop: 1,
+  subtitle: {
+    color: 'rgba(255, 255, 255, 0.58)',
+    fontSize: 13,
+    marginTop: 3,
+  },
+  form: {
+    gap: 2,
+  },
+  inputBlock: {
+    marginBottom: 2,
   },
   actions: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
     marginTop: 10,
   },
-  btn: {
-    minWidth: 84,
-    paddingVertical: 9,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+  actionBtn: {
+    minHeight: 46,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 18,
   },
   cancelBtn: {
+    flex: 1,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   cancelText: {
-    color: 'rgba(255, 255, 255, 0.85)',
-    fontSize: 14,
-    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.86)',
+    fontSize: 15,
+    fontWeight: '700',
   },
   saveBtn: {
-    backgroundColor: BRAND_COLOR,
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 14,
+    justifyContent: 'center',
   },
-  saveText: {
-    color: '#1a1a2e',
-    fontSize: 14,
-    fontWeight: '700',
+  saveLabel: {
+    fontSize: 15,
+    fontWeight: '800',
   },
 });
