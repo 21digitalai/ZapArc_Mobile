@@ -166,8 +166,8 @@ export function validateContactInput(
 ): ValidationResult {
   const errors: ValidationError[] = [];
 
-  // For CreateContactInput, name and lightningAddress are required
-  // For UpdateContactInput, they are optional but must be valid if provided
+  // For CreateContactInput, lightningAddress is required while name is optional.
+  // For UpdateContactInput, provided fields must be valid.
   const isUpdate = 'id' in input;
 
   if (!isUpdate || input.name !== undefined) {
