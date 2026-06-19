@@ -10,8 +10,6 @@ import {
   Animated,
   Alert,
   Easing,
-  KeyboardAvoidingView,
-  Platform,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -50,7 +48,6 @@ export function SaveContactPrompt({
 
   const [rendered, setRendered] = useState(false);
   const [name, setName] = useState('');
-  const [lightningAddress, setLightningAddress] = useState(address || '');
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
@@ -62,7 +59,6 @@ export function SaveContactPrompt({
     if (!visible) return;
 
     setName('');
-    setLightningAddress(address || '');
     setNameError(null);
     setAddressError(null);
   }, [visible, address]);
@@ -105,7 +101,7 @@ export function SaveContactPrompt({
       setNameError(null);
     }
 
-    const addressResult = validateLightningAddress(lightningAddress);
+    const addressResult = validateLightningAddress(address || '');
     if (!addressResult.isValid) {
       setAddressError(addressResult.errors[0]?.message || 'Invalid address');
       isValid = false;
@@ -114,7 +110,7 @@ export function SaveContactPrompt({
     }
 
     return isValid;
-  }, [name, lightningAddress]);
+  }, [address, name]);
 
   const handleSave = useCallback(async (): Promise<void> => {
     if (!validateForm()) return;
@@ -123,7 +119,7 @@ export function SaveContactPrompt({
     setVerifying(true);
 
     try {
-      const normalizedAddress = lightningAddress.trim();
+      const normalizedAddress = (address || '').trim();
       const verifyResult = await validateLightningAddressResolves(normalizedAddress);
       setVerifying(false);
 
@@ -155,7 +151,7 @@ export function SaveContactPrompt({
     } finally {
       setSaving(false);
     }
-  }, [createContact, lightningAddress, name, onDismiss, onSaved, validateForm]);
+  }, [address, createContact, name, onDismiss, onSaved, validateForm]);
 
   if (!rendered) return null;
 
@@ -163,106 +159,80 @@ export function SaveContactPrompt({
 
   return (
     <View style={styles.overlay} pointerEvents="box-none">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        pointerEvents="box-none"
-        style={styles.keyboardAvoider}
+      <Animated.View
+        pointerEvents="auto"
+        style={[
+          styles.cardWrap,
+          {
+            bottom: insets.bottom + 14,
+            opacity: anim,
+            transform: [{ translateY: cardTranslateY }],
+          },
+        ]}
       >
-        <Animated.View
-          pointerEvents="auto"
-          style={[
-            styles.cardWrap,
-            {
-              bottom: insets.bottom + 14,
-              opacity: anim,
-              transform: [{ translateY: cardTranslateY }],
-            },
-          ]}
-        >
-          <View style={styles.card}>
-            <View style={styles.headerRow}>
-              <View style={styles.iconWrap}>
-                <IconButton icon="account-plus" iconColor={BRAND_COLOR} size={20} style={styles.iconBtn} />
-              </View>
-              <View style={styles.headerTextCol}>
-                <Text style={styles.title} numberOfLines={1}>
-                  {t('send.saveContactTitle')}
-                </Text>
-                <Text style={styles.subtitle} numberOfLines={1}>
-                  {address}
-                </Text>
-              </View>
-              <IconButton
-                icon="close"
-                iconColor="rgba(255,255,255,0.72)"
-                size={20}
-                onPress={onDismiss}
-                style={styles.closeBtn}
-                disabled={saving}
-              />
+        <View style={styles.card}>
+          <View style={styles.headerRow}>
+            <View style={styles.iconWrap}>
+              <IconButton icon="account-plus" iconColor={BRAND_COLOR} size={20} style={styles.iconBtn} />
             </View>
-
-            <View style={styles.formRow}>
-              <View style={styles.nameField}>
-                <StyledTextInput
-                  label={t('addressBook.nameOptional')}
-                  value={name}
-                  onChangeText={setName}
-                  error={!!nameError}
-                  maxLength={VALIDATION_LIMITS.NAME_MAX_LENGTH}
-                  dense
-                  style={styles.input}
-                />
-                <HelperText type="error" visible={!!nameError} style={styles.helperText}>
-                  {nameError}
-                </HelperText>
-              </View>
-
-              <View style={styles.addressField}>
-                <StyledTextInput
-                  label={t('addressBook.lightningAddress')}
-                  value={lightningAddress}
-                  onChangeText={setLightningAddress}
-                  error={!!addressError}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="email-address"
-                  placeholder="user@domain.com"
-                  dense
-                  style={styles.input}
-                />
-                <HelperText type="error" visible={!!addressError} style={styles.helperText}>
-                  {addressError}
-                </HelperText>
-              </View>
+            <View style={styles.headerTextCol}>
+              <Text style={styles.title} numberOfLines={1}>
+                {t('send.saveContactTitle')}
+              </Text>
+              <Text style={styles.subtitle} numberOfLines={1}>
+                {address}
+              </Text>
             </View>
-
-            <View style={styles.actions}>
-              <TouchableOpacity
-                onPress={onDismiss}
-                activeOpacity={0.75}
-                style={[styles.actionBtn, styles.cancelBtn]}
-                disabled={saving}
-              >
-                <Text style={styles.cancelText}>{t('common.cancel')}</Text>
-              </TouchableOpacity>
-              <Button
-                mode="contained"
-                onPress={handleSave}
-                loading={saving}
-                disabled={saving}
-                buttonColor={BRAND_COLOR}
-                textColor="#1a1a2e"
-                style={styles.saveBtn}
-                labelStyle={styles.saveLabel}
-                compact
-              >
-                {verifying ? t('addressBook.verifying') : t('common.save')}
-              </Button>
-            </View>
+            <IconButton
+              icon="close"
+              iconColor="rgba(255,255,255,0.72)"
+              size={20}
+              onPress={onDismiss}
+              style={styles.closeBtn}
+              disabled={saving}
+            />
           </View>
-        </Animated.View>
-      </KeyboardAvoidingView>
+
+          <View style={styles.nameBlock}>
+            <StyledTextInput
+              label={t('addressBook.nameOptional')}
+              value={name}
+              onChangeText={setName}
+              error={!!nameError}
+              maxLength={VALIDATION_LIMITS.NAME_MAX_LENGTH}
+              dense
+              style={styles.input}
+            />
+            <HelperText type="error" visible={!!nameError || !!addressError} style={styles.helperText}>
+              {nameError || addressError}
+            </HelperText>
+          </View>
+
+          <View style={styles.actions}>
+            <TouchableOpacity
+              onPress={onDismiss}
+              activeOpacity={0.75}
+              style={[styles.actionBtn, styles.cancelBtn]}
+              disabled={saving}
+            >
+              <Text style={styles.cancelText}>{t('common.cancel')}</Text>
+            </TouchableOpacity>
+            <Button
+              mode="contained"
+              onPress={handleSave}
+              loading={saving}
+              disabled={saving}
+              buttonColor={BRAND_COLOR}
+              textColor="#1a1a2e"
+              style={styles.saveBtn}
+              labelStyle={styles.saveLabel}
+              compact
+            >
+              {verifying ? t('addressBook.verifying') : t('common.save')}
+            </Button>
+          </View>
+        </View>
+      </Animated.View>
     </View>
   );
 }
@@ -272,10 +242,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     zIndex: 80,
     elevation: 24,
-    justifyContent: 'flex-end',
-  },
-  keyboardAvoider: {
-    ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',
   },
   cardWrap: {
@@ -331,17 +297,8 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.6)',
     marginTop: 1,
   },
-  formRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
+  nameBlock: {
     marginTop: 10,
-  },
-  nameField: {
-    flex: 0.9,
-  },
-  addressField: {
-    flex: 1.25,
   },
   input: {
     minHeight: 42,
