@@ -87,5 +87,8 @@
     "typescript": "~5.8.3",
     "webdriverio": "^9.24.0"
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "shell-quote": "1.8.4"
+  }
 }
