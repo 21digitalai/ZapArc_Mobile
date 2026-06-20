@@ -6,7 +6,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock firebase-functions before importing index
 vi.mock('firebase-functions/v2/https', () => ({
-  onRequest: (handler: Function) => handler,
+  onRequest: (_options: unknown, handler: Function) => handler,
+}));
+
+vi.mock('firebase-admin/app', () => ({
+  initializeApp: vi.fn(),
+}));
+
+vi.mock('firebase-admin/firestore', () => ({
+  getFirestore: vi.fn(() => ({
+    collection: vi.fn(),
+  })),
 }));
 
 // Mock config
@@ -45,13 +55,17 @@ function createMockResponse() {
 
 describe('sendTransactionNotification', () => {
   const originalFetch = global.fetch;
+  let currentTime = 1_700_000_000_000;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    currentTime += 31_000;
+    vi.spyOn(Date, 'now').mockReturnValue(currentTime);
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
+    vi.restoreAllMocks();
   });
 
   describe('Happy Path', () => {
@@ -73,7 +87,7 @@ describe('sendTransactionNotification', () => {
       expect(res.statusCode).toBe(200);
       expect(res.body).toEqual({
         success: true,
-        message: 'Notification sent successfully',
+        message: 'Notification sent successfully to 1 device(s)',
       });
 
       // Verify fetch was called with correct parameters
@@ -86,6 +100,7 @@ describe('sendTransactionNotification', () => {
             to: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]',
             title: 'Payment Received',
             body: 'You received 1000 sats!',
+            data: { amount: 1000, walletNickname: '' },
           }),
         }
       );
@@ -123,7 +138,7 @@ describe('sendTransactionNotification', () => {
       expect(res.statusCode).toBe(400);
       expect(res.body).toEqual({
         success: false,
-        error: 'Missing required parameter: expoPushToken',
+        error: 'Provide expoPushToken, recipientLightningAddress, or recipientPubkey',
       });
     });
 

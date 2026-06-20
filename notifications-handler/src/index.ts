@@ -279,8 +279,24 @@ export const sendTransactionNotification = onRequest(
       const recipientPubkey = (body as Record<string, unknown>).recipientPubkey as string | undefined;
 
       // Validate inputs
-      if (!amount) {
-        response.status(400).json({ success: false, error: 'Amount is required' });
+      if (directToken !== undefined) {
+        const tokenValidation = validateRequest(directToken, 1);
+        if (!tokenValidation.valid) {
+          response.status(400).json({ success: false, error: tokenValidation.error });
+          return;
+        }
+      }
+
+      if (amount === undefined || amount === null) {
+        response.status(400).json({ success: false, error: 'Missing required parameter: amount' });
+        return;
+      }
+      if (typeof amount !== 'number' || Number.isNaN(amount)) {
+        response.status(400).json({ success: false, error: 'Invalid amount: must be a number' });
+        return;
+      }
+      if (amount <= 0) {
+        response.status(400).json({ success: false, error: 'Invalid amount: must be a positive number' });
         return;
       }
       if (!directToken && !recipientLightningAddress && !recipientPubkey) {
