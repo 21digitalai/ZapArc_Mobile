@@ -57,6 +57,11 @@ def ios_export_dir     = env_value("FASTLANE_IOS_EXPORT_DIR", "ios/build/export"
 def ios_ipa_path       = File.join(ios_export_dir, "#{ios_scheme}.ipa")
 def ios_export_options = env_value("FASTLANE_IOS_EXPORT_OPTIONS", "ios/ExportOptions-AppStore.plist")
 def android_aab_path   = env_value("FASTLANE_ANDROID_AAB_PATH", "android/app/build/outputs/bundle/release/app-release.aab")
+def require_existing_aab!
+  path = File.expand_path(android_aab_path, PROJECT_ROOT)
+  UI.user_error!("Android AAB not found at #{path} — run `fastlane android build` first.") unless File.exist?(path)
+  path
+end
 
 def in_root(cmd) = sh("cd #{Shellwords.escape(PROJECT_ROOT)} && #{cmd}")
 def abs(rel) = File.expand_path(rel, PROJECT_ROOT)
@@ -164,7 +169,8 @@ platform :android do
     upload_to_play_store(
       package_name: android_package,
       json_key: require_file_env!("FASTLANE_PLAY_JSON_KEY_PATH"),
-      aab: require_file_env!("FASTLANE_ANDROID_AAB_PATH"),
+      aab: require_existing_aab!,
+      skip_upload_apk: true,
       track: "internal", release_status: "draft",
       skip_upload_metadata: true, skip_upload_images: true, skip_upload_screenshots: true,
     )
@@ -176,7 +182,8 @@ platform :android do
     upload_to_play_store(
       package_name: android_package,
       json_key: require_file_env!("FASTLANE_PLAY_JSON_KEY_PATH"),
-      aab: require_file_env!("FASTLANE_ANDROID_AAB_PATH"),
+      aab: require_existing_aab!,
+      skip_upload_apk: true,
       track: "production",
       release_status: env_value("FASTLANE_PLAY_RELEASE_STATUS", "completed"), # full rollout, sent for review
       skip_upload_metadata: true, skip_upload_images: true, skip_upload_screenshots: true,
