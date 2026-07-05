@@ -9,6 +9,7 @@ import {
   Alert,
   FlatList,
 } from 'react-native';
+import { useKeyboardAwareScroll } from '../../../../hooks/useKeyboardAwareScroll';
 import {
   Text,
   Button,
@@ -50,6 +51,8 @@ export function BlacklistScreen(): React.JSX.Element {
 
   // State
   const [blacklist, setBlacklist] = useState<BlacklistEntry[]>([]);
+  // Manual cross-platform keyboard avoidance (see useKeyboardAwareScroll).
+  const kb = useKeyboardAwareScroll();
   const [newEntry, setNewEntry] = useState('');
   const [entryType, setEntryType] = useState<'domain' | 'address'>('domain');
   const [filterType, setFilterType] = useState<FilterType>('all');
@@ -222,7 +225,14 @@ export function BlacklistScreen(): React.JSX.Element {
           />
         </View>
 
-        <ScrollView style={styles.scrollView}>
+        <ScrollView
+          ref={kb.scrollRef}
+          style={styles.scrollView}
+          contentContainerStyle={kb.contentPadding}
+          keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={16}
+          onScroll={kb.onScroll}
+        >
           <View style={styles.content}>
             {/* Add Entry */}
             <View style={styles.section}>
@@ -241,6 +251,7 @@ export function BlacklistScreen(): React.JSX.Element {
 
               <View style={styles.addRow}>
                 <StyledTextInput
+                onFocus={kb.scrollFieldIntoView}
                   value={newEntry}
                   onChangeText={(text: string) => {
                     setNewEntry(text);

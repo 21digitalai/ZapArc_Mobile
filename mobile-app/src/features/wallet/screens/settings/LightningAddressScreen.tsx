@@ -3,6 +3,7 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import { useKeyboardAwareScroll } from '../../../../hooks/useKeyboardAwareScroll';
 import { Text, Button, IconButton, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
@@ -52,6 +53,8 @@ export function LightningAddressScreen(): React.JSX.Element {
 
   // Form state
   const [username, setUsername] = useState('');
+  // Manual cross-platform keyboard avoidance (see useKeyboardAwareScroll).
+  const kb = useKeyboardAwareScroll();
   const [description, setDescription] = useState('');
 
   // UI state
@@ -243,7 +246,15 @@ export function LightningAddressScreen(): React.JSX.Element {
           <View style={styles.headerSpacer} />
         </View>
 
-        <ScrollView style={styles.scrollView} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
+        <ScrollView
+          ref={kb.scrollRef}
+          style={styles.scrollView}
+          contentContainerStyle={kb.contentPadding}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          scrollEventThrottle={16}
+          onScroll={kb.onScroll}
+        >
           <View style={styles.content}>
             {isRegistered && addressInfo ? (
               /* ===== REGISTERED STATE ===== */
@@ -316,6 +327,7 @@ export function LightningAddressScreen(): React.JSX.Element {
 
                   {/* Username Input */}
                   <StyledTextInput
+                onFocus={kb.scrollFieldIntoView}
                     label={t('lightningAddressScreen.username')}
                     value={username}
                     onChangeText={handleUsernameChange}
@@ -361,6 +373,7 @@ export function LightningAddressScreen(): React.JSX.Element {
 
                   {/* Description Input (Optional) */}
                   <StyledTextInput
+                onFocus={kb.scrollFieldIntoView}
                     label={t('lightningAddressScreen.descriptionOptional')}
                     value={description}
                     onChangeText={setDescription}

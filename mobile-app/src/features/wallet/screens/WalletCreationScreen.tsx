@@ -23,6 +23,7 @@ import {
   validateMnemonic,
 } from '../../../utils/mnemonic';
 import { useWallet } from '../../../hooks/useWallet';
+import { useKeyboardAwareScroll } from '../../../hooks/useKeyboardAwareScroll';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import { getGradientColors, BRAND_COLOR } from '../../../utils/theme-helpers';
 import { WALLET_PIN_LENGTH } from '../constants/security';
@@ -381,6 +382,11 @@ export function WalletCreationScreen(): React.JSX.Element {
   // Render Steps
   // ========================================
 
+  // Manual cross-platform keyboard avoidance for steps with text inputs
+  // (verify paste box; PIN step name/PIN fields). One hook serves all steps:
+  // only one step ScrollView is mounted at a time, so the shared ref is safe.
+  const kb = useKeyboardAwareScroll();
+
   const renderGenerateStep = () => (
     <View style={styles.stepContent}>
       <Text style={styles.stepTitle}>Create Your Wallet</Text>
@@ -487,9 +493,12 @@ export function WalletCreationScreen(): React.JSX.Element {
   const renderVerifyStep = () => (
     <View style={styles.stickyFooterRoot}>
       <ScrollView
+        ref={kb.scrollRef}
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContentSticky}
+        contentContainerStyle={[styles.scrollContentSticky, kb.contentPadding]}
         keyboardShouldPersistTaps="handled"
+        scrollEventThrottle={16}
+        onScroll={kb.onScroll}
       >
       <Text style={styles.stepTitle}>Verify Your Phrase</Text>
       <Text style={styles.stepDescription}>
@@ -535,6 +544,7 @@ export function WalletCreationScreen(): React.JSX.Element {
               setError(null);
             }}
             placeholder="Paste your 12 words here..."
+            onFocus={kb.scrollFieldIntoView}
             style={styles.pasteInput}
             multiline
             numberOfLines={4}
@@ -622,7 +632,14 @@ export function WalletCreationScreen(): React.JSX.Element {
   );
 
   const renderPinStep = () => (
-    <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+    <ScrollView
+      ref={kb.scrollRef}
+      style={styles.scrollView}
+      contentContainerStyle={[styles.scrollContent, kb.contentPadding]}
+      keyboardShouldPersistTaps="handled"
+      scrollEventThrottle={16}
+      onScroll={kb.onScroll}
+    >
       <Text style={styles.stepTitle}>Set Your PIN</Text>
       <Text style={styles.stepDescription}>
         Create a 6-digit PIN to secure your wallet. You'll use this PIN to
@@ -639,6 +656,7 @@ export function WalletCreationScreen(): React.JSX.Element {
         <StyledTextInput
           mode="outlined"
           label="Wallet Name"
+          onFocus={kb.scrollFieldIntoView}
           value={walletName}
           onChangeText={(text: string) => {
             setWalletName(text);
@@ -650,6 +668,7 @@ export function WalletCreationScreen(): React.JSX.Element {
         <StyledTextInput
           mode="outlined"
           label="Enter 6-digit PIN"
+          onFocus={kb.scrollFieldIntoView}
           value={pin}
           onChangeText={(text) => {
             setPin(text.replace(/[^0-9]/g, ''));
@@ -669,6 +688,7 @@ export function WalletCreationScreen(): React.JSX.Element {
         <StyledTextInput
           mode="outlined"
           label="Confirm 6-digit PIN"
+          onFocus={kb.scrollFieldIntoView}
           value={confirmPin}
           onChangeText={(text) => {
             setConfirmPin(text.replace(/[^0-9]/g, ''));

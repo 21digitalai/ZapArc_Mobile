@@ -8,7 +8,6 @@ import {
   StyleSheet,
   View,
   ScrollView,
-  KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import {
@@ -18,6 +17,7 @@ import {
   HelperText,
 } from 'react-native-paper';
 import { StyledTextInput } from '../../../components';
+import { useKeyboardAwareScroll } from '../../../hooks/useKeyboardAwareScroll';
 import { useFeedback } from '../../wallet/components/FeedbackComponents';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -64,6 +64,9 @@ export function AddContactScreen(): React.JSX.Element {
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const { showError } = useFeedback();
+  // Manual keyboard avoidance (Notes sits at the bottom; Android edge-to-edge
+  // ignores adjustResize and KAV 'height' mis-measures there).
+  const kb = useKeyboardAwareScroll();
 
   const [nameError, setNameError] = useState<string | null>(null);
   const [addressError, setAddressError] = useState<string | null>(null);
@@ -163,10 +166,7 @@ export function AddContactScreen(): React.JSX.Element {
   return (
     <LinearGradient colors={gradientColors} style={styles.gradient}>
       <SafeAreaView style={styles.container} edges={['top']}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.keyboardView}
-        >
+        <View style={styles.keyboardView}>
           {/* Header */}
           <View style={styles.header}>
             <IconButton
@@ -190,14 +190,18 @@ export function AddContactScreen(): React.JSX.Element {
           </View>
 
           <ScrollView
+            ref={kb.scrollRef}
             style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[styles.scrollContent, kb.contentPadding]}
             keyboardShouldPersistTaps="handled"
+            scrollEventThrottle={16}
+            onScroll={kb.onScroll}
           >
             {/* Name Input (optional — falls back to the address when blank) */}
             <View style={styles.inputContainer}>
               <StyledTextInput
                 label={t('addressBook.nameOptional')}
+                onFocus={kb.scrollFieldIntoView}
                 value={name}
                 onChangeText={setName}
                 error={!!nameError}
@@ -212,6 +216,7 @@ export function AddContactScreen(): React.JSX.Element {
             <View style={styles.inputContainer}>
               <StyledTextInput
                 label={t('addressBook.lightningAddress')}
+                onFocus={kb.scrollFieldIntoView}
                 value={lightningAddress}
                 onChangeText={setLightningAddress}
                 error={!!addressError}
@@ -229,6 +234,7 @@ export function AddContactScreen(): React.JSX.Element {
             <View style={styles.inputContainer}>
               <StyledTextInput
                 label={t('addressBook.sparkAddressOptional')}
+                onFocus={kb.scrollFieldIntoView}
                 value={sparkAddress}
                 onChangeText={setSparkAddress}
                 error={!!sparkAddressError}
@@ -245,6 +251,7 @@ export function AddContactScreen(): React.JSX.Element {
             <View style={styles.inputContainer}>
               <StyledTextInput
                 label={t('addressBook.notesOptional')}
+                onFocus={kb.scrollFieldIntoView}
                 value={notes}
                 onChangeText={setNotes}
                 error={!!notesError}
@@ -261,7 +268,7 @@ export function AddContactScreen(): React.JSX.Element {
               </Text>
             </View>
           </ScrollView>
-        </KeyboardAvoidingView>
+        </View>
       </SafeAreaView>
     </LinearGradient>
   );

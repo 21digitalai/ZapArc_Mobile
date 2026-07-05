@@ -10,6 +10,7 @@ import {
   FlatList,
   TouchableOpacity,
 } from 'react-native';
+import { useKeyboardAwareScroll } from '../../../../hooks/useKeyboardAwareScroll';
 import {
   Text,
   Button,
@@ -47,6 +48,8 @@ export function DomainManagementScreen(): React.JSX.Element {
 
   // State
   const [trustedDomains, setTrustedDomains] = useState<TrustedDomain[]>([]);
+  // Manual cross-platform keyboard avoidance (see useKeyboardAwareScroll).
+  const kb = useKeyboardAwareScroll();
   const [newDomain, setNewDomain] = useState('');
   const [autoTrustVerified, setAutoTrustVerified] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -170,7 +173,14 @@ export function DomainManagementScreen(): React.JSX.Element {
           <View style={styles.headerSpacer} />
         </View>
 
-        <ScrollView style={styles.scrollView}>
+        <ScrollView
+          ref={kb.scrollRef}
+          style={styles.scrollView}
+          contentContainerStyle={kb.contentPadding}
+          keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={16}
+          onScroll={kb.onScroll}
+        >
           <View style={styles.content}>
             {/* Auto-trust Toggle */}
             <View style={styles.section}>
@@ -195,6 +205,7 @@ export function DomainManagementScreen(): React.JSX.Element {
 
               <View style={styles.addRow}>
                 <StyledTextInput
+                onFocus={kb.scrollFieldIntoView}
                   value={newDomain}
                   onChangeText={(text: string) => {
                     setNewDomain(text);

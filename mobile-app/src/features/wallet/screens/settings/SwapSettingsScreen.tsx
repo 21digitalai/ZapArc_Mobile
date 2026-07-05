@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import { useKeyboardAwareScroll } from '../../../../hooks/useKeyboardAwareScroll';
 import { Text, IconButton, List, TextInput, Button } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -18,6 +19,8 @@ export function SwapSettingsScreen(): React.JSX.Element {
   const secondaryTextColor = getSecondaryTextColor(themeMode);
 
   const [slippageInput, setSlippageInput] = useState('50');
+  // Manual cross-platform keyboard avoidance (see useKeyboardAwareScroll).
+  const kb = useKeyboardAwareScroll();
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -67,7 +70,14 @@ export function SwapSettingsScreen(): React.JSX.Element {
           <View style={styles.headerSpacer} />
         </View>
 
-        <ScrollView style={styles.scrollView}>
+        <ScrollView
+          ref={kb.scrollRef}
+          style={styles.scrollView}
+          contentContainerStyle={kb.contentPadding}
+          keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={16}
+          onScroll={kb.onScroll}
+        >
           <View style={styles.section}>
             <List.Item
               title={t('swap.slippage')}

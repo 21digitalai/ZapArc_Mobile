@@ -5,11 +5,13 @@ import React, { useState, useCallback } from 'react';
 import {
   View,
   StyleSheet,
+  ScrollView,
   TouchableOpacity,
   Keyboard,
   Alert,
 } from 'react-native';
 import { StyledTextInput } from '../../../components';
+import { useKeyboardAwareScroll } from '../../../hooks/useKeyboardAwareScroll';
 import { Text, IconButton, Button, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -39,6 +41,9 @@ export function QRScannerScreen(): React.JSX.Element {
   const params = useLocalSearchParams<{ asset?: string | string[] }>();
   // State
   const [permission, requestPermission] = useCameraPermissions();
+  // Manual keyboard avoidance for the manual-entry form (the multiline code
+  // field would otherwise be typed blind under the keyboard).
+  const kb = useKeyboardAwareScroll();
   const [scanMode, setScanMode] = useState<ScanMode>('camera');
   const [manualInput, setManualInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -348,7 +353,14 @@ export function QRScannerScreen(): React.JSX.Element {
           </CameraView>
         </View>
       ) : (
-        <View style={styles.manualInputContainer}>
+        <ScrollView
+          ref={kb.scrollRef}
+          style={styles.manualInputScroll}
+          contentContainerStyle={[styles.manualInputContainer, kb.contentPadding]}
+          keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={16}
+          onScroll={kb.onScroll}
+        >
           <Text style={styles.manualInputTitle}>Enter Payment Code</Text>
           <Text style={styles.manualInputSubtitle}>
             Paste a Lightning invoice, LNURL, or Lightning address
@@ -360,6 +372,7 @@ export function QRScannerScreen(): React.JSX.Element {
             onChangeText={setManualInput}
             label="Payment Code"
             placeholder="lnbc... or LNURL... or user@domain.com"
+            onFocus={kb.scrollFieldIntoView}
             multiline
             numberOfLines={4}
             autoCapitalize="none"
@@ -377,7 +390,7 @@ export function QRScannerScreen(): React.JSX.Element {
           >
             Continue
           </Button>
-        </View>
+        </ScrollView>
       )}
 
       {/* Bottom Actions */}
@@ -611,11 +624,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginTop: 16,
   },
-  manualInputContainer: {
+  manualInputScroll: {
     flex: 1,
+    backgroundColor: '#1a1a2e',
+  },
+  manualInputContainer: {
     padding: 24,
     paddingTop: 100,
-    backgroundColor: '#1a1a2e',
   },
   manualInputTitle: {
     fontSize: 24,

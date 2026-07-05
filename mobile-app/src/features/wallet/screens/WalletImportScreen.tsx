@@ -6,12 +6,11 @@ import {
   View,
   StyleSheet,
   ScrollView,
-  KeyboardAvoidingView,
   TouchableOpacity,
   TouchableWithoutFeedback,
   Keyboard,
-  Platform,
 } from 'react-native';
+import { useKeyboardAwareScroll } from '../../../hooks/useKeyboardAwareScroll';
 import { Button, Text, ProgressBar } from 'react-native-paper';
 import { StyledTextInput, PinSetupKeypad } from '../../../components';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -146,22 +145,24 @@ export function WalletImportScreen(): React.JSX.Element {
     }
   }, [mnemonic, walletName, importMasterKey, selectWallet]);
 
+  // Manual cross-platform keyboard avoidance for the input step.
+  const kb = useKeyboardAwareScroll();
+
   // ========================================
   // Render Steps
   // ========================================
 
   const renderInputStep = () => (
-    <KeyboardAvoidingView
-      style={styles.kav}
-      // iOS: 'padding' shrinks the scroll area by the keyboard height so the
-      // recovery-phrase field and Import button stay above the keyboard while
-      // typing/pasting. Deterministic, unlike automaticallyAdjustKeyboardInsets.
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
     <ScrollView
+      ref={kb.scrollRef}
       style={styles.scrollView}
-      contentContainerStyle={styles.scrollContent}
+      // Manual keyboard avoidance (see useKeyboardAwareScroll) — keeps the
+      // recovery-phrase field and Import button above the keyboard on both
+      // platforms (Android edge-to-edge ignores adjustResize).
+      contentContainerStyle={[styles.scrollContent, kb.contentPadding]}
       keyboardShouldPersistTaps="handled"
+      scrollEventThrottle={16}
+      onScroll={kb.onScroll}
     >
       <Text style={[styles.stepTitle, { color: primaryText }]}>Import Wallet</Text>
       <Text style={[styles.stepDescription, { color: secondaryText }]}>
@@ -184,6 +185,7 @@ export function WalletImportScreen(): React.JSX.Element {
         }}
         placeholder="word1 word2 word3..."
         style={styles.mnemonicInput}
+        onFocus={kb.scrollFieldIntoView}
         multiline
         numberOfLines={4}
         autoCapitalize="none"
@@ -237,7 +239,6 @@ export function WalletImportScreen(): React.JSX.Element {
         <Text style={styles.cancelButtonText}>Cancel</Text>
       </TouchableOpacity>
     </ScrollView>
-    </KeyboardAvoidingView>
   );
 
   const renderPinStep = () => (
@@ -342,9 +343,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 8,
     textAlign: 'center',
-  },
-  kav: {
-    flex: 1,
   },
   scrollView: {
     flex: 1,

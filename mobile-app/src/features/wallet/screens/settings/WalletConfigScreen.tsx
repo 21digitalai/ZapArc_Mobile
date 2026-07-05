@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import { useKeyboardAwareScroll } from '../../../../hooks/useKeyboardAwareScroll';
 import {
   Text,
   RadioButton,
@@ -35,6 +36,8 @@ export function WalletConfigScreen(): React.JSX.Element {
 
   // State
   const [useBuiltIn, setUseBuiltIn] = useState(true);
+  // Manual cross-platform keyboard avoidance (see useKeyboardAwareScroll).
+  const kb = useKeyboardAwareScroll();
   const [customLNURL, setCustomLNURL] = useState('');
   const [customAddress, setCustomAddress] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -118,7 +121,14 @@ export function WalletConfigScreen(): React.JSX.Element {
           <View style={styles.headerSpacer} />
         </View>
 
-        <ScrollView style={styles.scrollView}>
+        <ScrollView
+          ref={kb.scrollRef}
+          style={styles.scrollView}
+          contentContainerStyle={kb.contentPadding}
+          keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={16}
+          onScroll={kb.onScroll}
+        >
           <View style={styles.content}>
             {/* Wallet Type Selection */}
             <View style={styles.section}>
@@ -169,6 +179,7 @@ export function WalletConfigScreen(): React.JSX.Element {
                 <Text style={[styles.sectionTitle, { color: primaryText }]}>Custom Configuration</Text>
 
                 <StyledTextInput
+                onFocus={kb.scrollFieldIntoView}
                   label="Lightning Address"
                   value={customAddress}
                   onChangeText={(text: string) => {
@@ -185,6 +196,7 @@ export function WalletConfigScreen(): React.JSX.Element {
                 <Text style={[styles.orDivider, { color: secondaryText }]}>— or —</Text>
 
                 <StyledTextInput
+                onFocus={kb.scrollFieldIntoView}
                   label="LNURL-pay"
                   value={customLNURL}
                   onChangeText={(text: string) => {

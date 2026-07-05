@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Alert, TouchableOpacity, FlatList, InputAccessoryView, Keyboard, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, FlatList, InputAccessoryView, Keyboard, Platform, BackHandler } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text, Button, IconButton } from 'react-native-paper';
 import { StyledTextInput } from '../../src/components';
@@ -21,6 +21,7 @@ import { useCurrency } from '../../src/hooks/useCurrency';
 import { formatFiat, satsToFiat, usdbToFiat, fiatToUsdb } from '../../src/utils/currency';
 import { cycleDisplayCurrency, type DisplayCurrency } from '../../src/services/displayCurrencyService';
 import { useLightningAddress } from '../../src/hooks/useLightningAddress';
+import { useKeyboardAwareScroll } from '../../src/hooks/useKeyboardAwareScroll';
 import { getAssetMeta, getAllAssets } from '../../src/features/wallet/registry/assetRegistry';
 import { CurrencyPickerSheet, type PickerCurrency } from '../../src/features/wallet/components/CurrencyPickerSheet';
 import { useContacts } from '../../src/features/addressBook/hooks/useContacts';
@@ -193,13 +194,14 @@ export default function SendScreen() {
   const [paymentInput, setPaymentInput] = useState('');
   const [amount, setAmount] = useState('');
   const [comment, setComment] = useState('');
-  const formScrollRef = useRef<ScrollView | null>(null);
-  // Scroll a focused field into view above the keyboard (the comment/amount
-  // inputs sit near the bottom of the form). Short delay lets the keyboard
-  // finish animating so the resized viewport is correct.
-  const scrollFieldIntoView = useCallback(() => {
-    setTimeout(() => formScrollRef.current?.scrollToEnd({ animated: true }), 150);
-  }, []);
+  // Manual cross-platform keyboard avoidance (see useKeyboardAwareScroll —
+  // neither iOS nor Android edge-to-edge resizes the window for the keyboard).
+  const {
+    scrollRef: formScrollRef,
+    onScroll: onFormScroll,
+    contentPadding: kbContentPadding,
+    scrollFieldIntoView,
+  } = useKeyboardAwareScroll();
   const [preview, setPreview] = useState<PaymentPreview | null>(null);
   const [isPreparing, setIsPreparing] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -1182,6 +1184,34 @@ export default function SendScreen() {
     setSelectedSpeed('medium');
   }, []);
 
+  // System back while in a sub-step of the send flow (inline scanner or
+  // payment preview) must step back WITHIN the flow instead of popping the
+  // whole Send screen — which dumped the user on Home.
+  //
+  // Android: hardware back button / back gesture via BackHandler (runs before
+  // the navigator's own handler; returning true stops the pop).
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (step === 'scanning') {
+        setStep('input');
+        return true;
+      }
+      if (step === 'preview' || step === 'onchain-preview') {
+        handleBackToInput();
+        return true;
+      }
+      return false;
+    });
+    return () => sub.remove();
+  }, [step, handleBackToInput]);
+
+  // iOS: the swipe-back gesture completes NATIVELY on a native stack — the
+  // screen is already dismissed before JS hears about it, so it can't be
+  // remapped to an in-flow step-back (only disabled entirely, which felt
+  // broken). Deliberate trade-off: the gesture stays enabled and pops the
+  // whole Send screen to Home even from the scanner/preview sub-steps; the
+  // on-screen ← Back is the way to step back within the flow on iOS.
+
   const handleSelectSpeed = useCallback(
     (speed: ConfirmationSpeed) => {
       if (!preview) {
@@ -1486,20 +1516,18 @@ export default function SendScreen() {
           </View>
         )}
 
-        <KeyboardAvoidingView
-          style={styles.kav}
-          // iOS: 'padding' shrinks the scroll area by the keyboard height so the
-          // focused field (payment input / amount / comment) scrolls above the
-          // keyboard. Deterministic, unlike automaticallyAdjustKeyboardInsets.
-          // Android resizes the window via windowSoftInputMode.
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
         <ScrollView
           ref={formScrollRef}
           style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
+          // Reserve the keyboard height as extra bottom padding so the lower
+          // fields (amount / comment) have room to scroll above the overlaying
+          // keyboard. Fully manual — no KeyboardAvoidingView / adjustResize,
+          // which don't shrink the window under Android edge-to-edge.
+          contentContainerStyle={[styles.scrollContent, kbContentPadding]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
+          scrollEventThrottle={16}
+          onScroll={onFormScroll}
         >
           <View style={styles.balanceContainer}>
             <Text style={[styles.balanceLabel, { color: secondaryTextColor }]}>{t('send.availableBalance')}</Text>
@@ -1789,7 +1817,6 @@ export default function SendScreen() {
             {isLightningTab ? t('send.previewPayment') : t('send.previewOnchainCta')}
           </Button>
         </ScrollView>
-        </KeyboardAvoidingView>
 
         {/* Shared bottom-sheet currency picker. Same UX as the Receive
             screen — the asset (BTC vs USDB) decides which native unit
@@ -1914,9 +1941,6 @@ const styles = StyleSheet.create({
   tabText: {
     fontSize: 14,
     fontWeight: '700',
-  },
-  kav: {
-    flex: 1,
   },
   scrollView: {
     flex: 1,

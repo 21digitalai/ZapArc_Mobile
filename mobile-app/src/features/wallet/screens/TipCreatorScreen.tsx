@@ -18,6 +18,7 @@ import {
   Divider,
 } from 'react-native-paper';
 import { StyledTextInput, KeyboardDoneAccessory, keyboardDoneAccessoryId } from '../../../components';
+import { useKeyboardAwareScroll } from '../../../hooks/useKeyboardAwareScroll';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -110,6 +111,8 @@ export function TipCreatorScreen(): React.JSX.Element {
   const [customAmountIndex, setCustomAmountIndex] = useState<number | null>(null);
   const [customAmountValue, setCustomAmountValue] = useState('');
   const [previewVisible, setPreviewVisible] = useState(false);
+  // Manual keyboard avoidance (custom LNURL / custom amount fields sit low).
+  const kb = useKeyboardAwareScroll();
 
   // Load settings on mount
   useEffect(() => {
@@ -222,9 +225,12 @@ export function TipCreatorScreen(): React.JSX.Element {
         </View>
 
         <ScrollView
+          ref={kb.scrollRef}
           style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, kb.contentPadding]}
           keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={16}
+          onScroll={kb.onScroll}
         >
           {/* Lightning Address */}
           <View style={styles.section}>
@@ -234,6 +240,7 @@ export function TipCreatorScreen(): React.JSX.Element {
               value={address}
               onChangeText={setAddress}
               placeholder="you@wallet.com"
+              onFocus={kb.scrollFieldIntoView}
               style={styles.input}
               autoCapitalize="none"
               autoCorrect={false}
@@ -289,6 +296,7 @@ export function TipCreatorScreen(): React.JSX.Element {
                 value={lnurl}
                 onChangeText={setLnurl}
                 placeholder="LNURL..."
+                onFocus={kb.scrollFieldIntoView}
                 style={styles.input}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -345,6 +353,7 @@ export function TipCreatorScreen(): React.JSX.Element {
                   keyboardType="numeric"
                   inputAccessoryViewID={keyboardDoneAccessoryId}
                   placeholder="Amount in sats"
+                  onFocus={kb.scrollFieldIntoView}
                   style={styles.customAmountInput}
                   autoFocus
                 />
