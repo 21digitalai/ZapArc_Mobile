@@ -1,5 +1,5 @@
 // Amount Validation Tests
-// Tests for tip amount validation and formatting
+// Tests for amount validation and formatting
 
 describe('Amount Validation', () => {
   // ==========================================================================
@@ -269,8 +269,8 @@ describe('Amount Validation', () => {
   // ==========================================================================
 
   describe('Bitcoin amounts', () => {
-    it('should handle common Bitcoin tip amounts', () => {
-      // Common Lightning tips
+    it('should handle common Bitcoin payment amounts', () => {
+      // Common Lightning payment amounts
       expect(isValidAmount(21)).toBe(true); // 21 sats
       expect(isValidAmount(210)).toBe(true); // 210 sats
       expect(isValidAmount(2100)).toBe(true); // 2,100 sats

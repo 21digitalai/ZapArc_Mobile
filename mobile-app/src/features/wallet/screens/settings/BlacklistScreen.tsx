@@ -309,7 +309,7 @@ export function BlacklistScreen(): React.JSX.Element {
                   <Text style={styles.emptyIcon}>🛡️</Text>
                   <Text style={styles.emptyText}>
                     {blacklist.length === 0
-                      ? 'No blocked domains or addresses. Add entries to prevent receiving tips from specific sources.'
+                      ? 'No blocked domains or addresses. Add entries to prevent unwanted payment sources.'
                       : 'No entries match the current filter.'}
                   </Text>
                 </View>
@@ -327,7 +327,8 @@ export function BlacklistScreen(): React.JSX.Element {
             <View style={styles.infoBox}>
               <Text style={styles.infoTitle}>About Blacklist</Text>
               <Text style={styles.infoText}>
-                Blocked domains and addresses will not be able to send you tips.
+                Blocked domains and addresses will not be able to send you
+                payments.
                 Use this to block spam or unwanted sources.
               </Text>
             </View>

@@ -4,7 +4,6 @@
 export {
   type LnurlPayData,
   type LnurlPayResponse,
-  type TipRequestData,
   type ParsedLnurl,
   convertToLnurlEndpoint,
   isLightningAddress,
@@ -13,10 +12,6 @@ export {
   isValidLnurlFormat,
   isValidLnurlOrAddress,
   extractLnurl,
-  parseTipRequest,
-  generateTipRequest,
-  validateTipAmounts,
-  DEFAULT_TIP_AMOUNTS,
 } from './lnurl';
 
 // Mnemonic utilities

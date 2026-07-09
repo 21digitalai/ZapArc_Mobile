@@ -94,7 +94,7 @@ export type SocialPlatform =
 // =============================================================================
 
 /**
- * Domain status for tip request handling
+ * Domain status for Lightning Address payment handling
  */
 export enum DomainStatus {
   UNMANAGED = 'unmanaged',

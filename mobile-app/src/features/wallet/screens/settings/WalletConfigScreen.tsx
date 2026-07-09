@@ -225,7 +225,7 @@ export function WalletConfigScreen(): React.JSX.Element {
               <Text style={[styles.infoText, { color: secondaryText }]}>
                 {useBuiltIn
                   ? 'The built-in wallet uses Breez SDK to create a non-custodial Lightning wallet. Your seed phrase is encrypted and stored securely on your device.'
-                  : 'Using a custom address means tips will be sent directly to your existing Lightning wallet. Make sure your wallet supports LNURL-pay.'}
+                  : 'Using a custom address means payments will be sent directly to your existing Lightning wallet. Make sure your wallet supports LNURL-pay.'}
               </Text>
             </View>
           </View>

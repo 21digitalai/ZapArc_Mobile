@@ -12,6 +12,7 @@ import type { EncryptedData } from '../features/wallet/types';
 // Constants
 // =============================================================================
 
+// Historical encryption salt. Keep unchanged so existing wallet backups remain decryptable.
 const LEGACY_SALT = 'lightning-tipping-salt';
 const SALT_LENGTH = 32; // 256-bit per-wallet random salt (v3)
 const ITERATIONS = 10000;

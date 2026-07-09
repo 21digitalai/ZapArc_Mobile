@@ -18,13 +18,6 @@ A Lightning Network mobile wallet for iOS and Android, built with React Native a
 - **Sub-Wallet Derivation** - Up to 20 sub-wallets per master key
 - **Wallet Discovery** - Automatic detection of existing sub-wallets on import
 
-### 💡 Tip Requests
-
-- **Multi-Amount Tips** - Configure 3 tip amounts per request
-- **QR Code Generation** - Shareable QR codes for tip requests
-- **Social Sharing** - Share tips on Twitter/X, Nostr, Telegram, WhatsApp
-- **Tip Format** - `[lntip:lnurl:address:amt1:amt2:amt3]`
-
 ### 🔒 Security
 
 - **PIN Authentication** - 6-digit PIN protection
@@ -161,7 +154,7 @@ The app uses React Native Paper with a custom dark theme. Colors are defined in 
 ### Settings
 
 - Wallet configuration (custom LNURL)
-- Default amounts (posting, tipping)
+- Default payment amounts
 - Language selection
 - Security settings (auto-lock, biometric)
 - Domain management (allowlist)

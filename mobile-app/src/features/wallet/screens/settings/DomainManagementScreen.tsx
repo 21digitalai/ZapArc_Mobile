@@ -1,5 +1,5 @@
 // Domain Management Settings Screen
-// Configure trusted domains for Lightning tipping
+// Configure trusted domains for Lightning payments
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
@@ -239,7 +239,7 @@ export function DomainManagementScreen(): React.JSX.Element {
                   <Text style={styles.emptyIcon}>🔒</Text>
                   <Text style={styles.emptyText}>
                     No trusted domains yet. Add domains you trust for Lightning
-                    tipping.
+                    payments.
                   </Text>
                 </View>
               ) : (
@@ -256,8 +256,9 @@ export function DomainManagementScreen(): React.JSX.Element {
             <View style={styles.infoBox}>
               <Text style={styles.infoTitle}>About Trusted Domains</Text>
               <Text style={styles.infoText}>
-                Trusted domains are allowed to receive tips without additional
-                confirmation prompts. Only add domains you fully trust.
+                Trusted domains are allowed to receive payments without
+                additional confirmation prompts. Only add domains you fully
+                trust.
               </Text>
             </View>
           </View>

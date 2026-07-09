@@ -16,9 +16,7 @@ export { TransactionHistoryScreen } from './TransactionHistoryScreen';
 export { WalletManagementScreen } from './WalletManagementScreen';
 export { ArchivedWalletsScreen } from './ArchivedWalletsScreen';
 
-// Tip and payment screens
-export { TipCreatorScreen } from './TipCreatorScreen';
-export { TipQRCodeScreen } from './TipQRCodeScreen';
+// Payment screens
 export { PaymentConfirmationScreen } from './PaymentConfirmationScreen';
 
 // Settings screens

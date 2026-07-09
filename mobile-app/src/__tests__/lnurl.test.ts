@@ -1,5 +1,5 @@
 // Unit tests for LNURL utilities
-// Tests Lightning address validation, tip request parsing, and LNURL extraction
+// Tests Lightning address validation and LNURL extraction
 
 import {
   isLightningAddress,
@@ -8,10 +8,6 @@ import {
   isValidLnurlFormat,
   isValidLnurlOrAddress,
   extractLnurl,
-  parseTipRequest,
-  generateTipRequest,
-  validateTipAmounts,
-  DEFAULT_TIP_AMOUNTS,
 } from '../utils/lnurl';
 
 // =============================================================================
@@ -154,119 +150,5 @@ describe('extractLnurl', () => {
     expect(extractLnurl('invalid')).toBeNull();
     expect(extractLnurl('')).toBeNull();
     expect(extractLnurl('http://example.com')).toBeNull();
-  });
-});
-
-// =============================================================================
-// Tip Request Tests
-// =============================================================================
-
-describe('Tip Request Parsing and Generation', () => {
-  describe('parseTipRequest', () => {
-    it('should parse valid tip request', () => {
-      const tipString = '[lntip:lnurl:lnurl1dp68gurn8ghj7um9wfmxjcm99e3k7mf0v9cxj0m385ekvcen:100:500:1000]';
-      const result = parseTipRequest(tipString);
-
-      expect(result.isValid).toBe(true);
-      expect(result.lnurl).toBe('lnurl1dp68gurn8ghj7um9wfmxjcm99e3k7mf0v9cxj0m385ekvcen');
-      expect(result.suggestedAmounts).toEqual([100, 500, 1000]);
-    });
-
-    it('should parse tip request with Lightning address', () => {
-      const tipString = '[lntip:lnurl:user@example.com:50:100:200]';
-      const result = parseTipRequest(tipString);
-
-      expect(result.isValid).toBe(true);
-      expect(result.lnurl).toBe('user@example.com');
-      expect(result.suggestedAmounts).toEqual([50, 100, 200]);
-    });
-
-    it('should return error for invalid format', () => {
-      const result = parseTipRequest('invalid tip string');
-
-      expect(result.isValid).toBe(false);
-      expect(result.error).toBe('Invalid tip request format');
-    });
-
-    it('should return error for invalid amounts', () => {
-      const tipString = '[lntip:lnurl:user@example.com:0:100:200]';
-      const result = parseTipRequest(tipString);
-
-      expect(result.isValid).toBe(false);
-      expect(result.error).toBe('Invalid suggested amounts');
-    });
-  });
-
-  describe('generateTipRequest', () => {
-    it('should generate valid tip request with LNURL', () => {
-      const lnurl = 'lnurl1dp68gurn8ghj7um9wfmxjcm99e3k7mf0v9cxj0m385ekvcen';
-      const amounts: [number, number, number] = [100, 500, 1000];
-      const result = generateTipRequest(lnurl, amounts);
-
-      expect(result).toBe(`[lntip:lnurl:${lnurl}:100:500:1000]`);
-    });
-
-    it('should generate valid tip request with Lightning address', () => {
-      const address = 'user@example.com';
-      const amounts: [number, number, number] = [50, 100, 200];
-      const result = generateTipRequest(address, amounts);
-
-      expect(result).toBe('[lntip:lnurl:user@example.com:50:100:200]');
-    });
-
-    it('should throw error for invalid LNURL', () => {
-      expect(() => generateTipRequest('invalid', [100, 500, 1000])).toThrow(
-        'Invalid LNURL or Lightning address format'
-      );
-    });
-
-    it('should throw error for invalid amounts', () => {
-      expect(() => generateTipRequest('user@example.com', [0, 100, 200])).toThrow(
-        'Invalid amounts - must be positive integers'
-      );
-    });
-
-    it('should throw error for amount exceeding max', () => {
-      expect(() =>
-        generateTipRequest('user@example.com', [100_000_001, 100, 200])
-      ).toThrow('Amounts must not exceed 100000000 sats');
-    });
-  });
-
-  describe('validateTipAmounts', () => {
-    it('should return valid for proper amounts', () => {
-      const result = validateTipAmounts([100, 500, 1000]);
-      expect(result.isValid).toBe(true);
-    });
-
-    it('should reject non-positive amounts', () => {
-      const result = validateTipAmounts([0, 100, 200]);
-      expect(result.isValid).toBe(false);
-      expect(result.error).toContain('positive integers');
-    });
-
-    it('should reject amounts exceeding max', () => {
-      const result = validateTipAmounts([100_000_001, 100, 200]);
-      expect(result.isValid).toBe(false);
-      expect(result.error).toContain('100,000,000');
-    });
-
-    it('should reject duplicate amounts', () => {
-      const result = validateTipAmounts([100, 100, 200]);
-      expect(result.isValid).toBe(false);
-      expect(result.error).toContain('unique');
-    });
-  });
-});
-
-// =============================================================================
-// Default Values Tests
-// =============================================================================
-
-describe('Default Values', () => {
-  it('should have valid default tip amounts', () => {
-    expect(DEFAULT_TIP_AMOUNTS).toEqual([100, 500, 1000]);
-    const validation = validateTipAmounts(DEFAULT_TIP_AMOUNTS);
-    expect(validation.isValid).toBe(true);
   });
 });
