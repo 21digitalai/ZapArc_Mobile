@@ -7,7 +7,7 @@ protecting local access with PIN/biometric flows, and preparing recovery paths
 that keep the user in control.
 
 The companion browser extension lives in a separate repository:
-`/Users/bvg/Repositories/ZapArc`.
+[github.com/21digitalai/ZapArc](https://github.com/21digitalai/ZapArc).
 
 ## Status
 

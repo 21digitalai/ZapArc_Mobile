@@ -217,7 +217,9 @@ Suggested clips:
 
 ### Browser extension capture
 
-1. Open the companion extension repo at `/Users/bvg/Repositories/ZapArc`.
+1. Open the companion extension repo at
+   [github.com/21digitalai/ZapArc](https://github.com/21digitalai/ZapArc),
+   or a local checkout of that repository.
 2. Follow that repo's local run instructions.
 3. Capture one screen that shows the extension as the desktop companion surface.
 4. Save the screenshot as `assets/opensats-demo/screenshots/10-browser-extension.png`.

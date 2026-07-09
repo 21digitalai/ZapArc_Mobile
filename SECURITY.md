@@ -132,8 +132,8 @@ Password implications:
 
 The mobile app and browser extension are separate codebases:
 
-- Mobile repo: `/Users/bvg/Repositories/ZapArc_Mobile`
-- Browser extension repo: `/Users/bvg/Repositories/ZapArc`
+- Mobile repo: [github.com/21digitalai/ZapArc_Mobile](https://github.com/21digitalai/ZapArc_Mobile)
+- Browser extension repo: [github.com/21digitalai/ZapArc](https://github.com/21digitalai/ZapArc)
 
 Security review should treat them as separate applications:
 
