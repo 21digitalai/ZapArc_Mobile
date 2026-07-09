@@ -1,171 +1,185 @@
-# Mobile App Skeleton
+# ZapArc Mobile
 
-Cross-platform mobile app skeleton with React Native (Expo) frontend and NestJS backend. Full authentication, user management, payments, and ads ready for white-label development.
+ZapArc Mobile is an alpha self-custodial Bitcoin wallet built with React
+Native, Expo, and Breez SDK Spark. The mobile app is the phone-native half of
+ZapArc: a wallet for creating or importing keys, receiving and sending sats,
+protecting local access with PIN/biometric flows, and preparing recovery paths
+that keep the user in control.
 
-## Features
+The companion browser extension lives in a separate repository:
+`/Users/bvg/Repositories/ZapArc`.
 
-- **Authentication:** Email/password + Google OAuth, JWT tokens, email verification
-- **User Management:** Profile editing, password change, account deletion
-- **Premium Subscriptions:** Subscription and one-time payment support
-- **Ads Integration:** Banner and interstitial ads with analytics
-- **Cross-Platform:** iOS, Android, and Web support
+## Status
 
-## Project Structure
+ZapArc Mobile is alpha/prototype software.
 
-```
-├── backend/                      # NestJS API
-│   ├── src/
-│   │   ├── modules/
-│   │   │   ├── auth/             # Authentication & authorization
-│   │   │   ├── user/             # User management
-│   │   │   ├── payments/         # Premium subscriptions
-│   │   │   ├── ads/              # Ad configuration & analytics
-│   │   │   ├── email/            # Email service (Resend)
-│   │   │   ├── prisma/           # Database client
-│   │   │   ├── scheduler/        # Cron jobs
-│   │   │   └── utility/          # Filters, pipes, global config
-│   │   ├── decorators/           # Custom decorators (@GetUser)
-│   │   ├── config/               # App configuration
-│   │   └── main.ts               # Application entry
-│   └── prisma/                   # Database schema & migrations
-│
-├── mobile-app/                   # React Native Expo app
-│   ├── app/                      # Screens (Expo Router)
-│   │   ├── (auth)/               # Auth screens (welcome, login, register)
-│   │   ├── (main)/               # Main app screens
-│   │   └── _layout.tsx           # Root layout
+- It has not completed an external security audit.
+- It should not be used with meaningful funds.
+- Some exchange-like BTC/USDB surfaces are present in code but disabled for
+  normal release builds until review, policy, and distribution questions are
+  resolved.
+- Demo recordings and screenshots should use throwaway wallets, test funds, and
+  sanitized device/account state.
+
+## Why It Matters
+
+ZapArc is aimed at practical Bitcoin utility:
+
+- Make self-custodial Lightning wallet setup easier for mobile users.
+- Give users a clearer path to backups, wallet recovery, and local security.
+- Provide a mobile base that can pair conceptually with browser-based Bitcoin
+  workflows.
+- Keep the project FOSS-friendly and inspectable for grant reviewers,
+  contributors, and users.
+
+## Current Features
+
+- Create a new wallet from a generated BIP39 mnemonic.
+- Import an existing wallet from a recovery phrase.
+- Store wallet seed material encrypted with a user PIN.
+- Unlock with PIN and optional biometric-gated PIN retrieval.
+- Auto-lock and lockout/backoff flows for repeated PIN failures.
+- Receive Lightning payments with invoice/QR flows.
+- Send Lightning payments, including LNURL/Lightning Address routing where
+  supported.
+- QR scanner entry points for payment flows.
+- Transaction history and wallet balance refresh.
+- Google Drive encrypted backup/restore flow for seed backups.
+- Lightning Address registration and push-notification subscription plumbing.
+- Local settings for language, theme, display currency, security, and wallet
+  preferences.
+- BTC/USDB swap UX and Spark integration code behind release feature flags.
+
+## OpenSats Readiness Docs
+
+- Demo package: [docs/opensats/demo-package.md](docs/opensats/demo-package.md)
+- Security model: [SECURITY.md](SECURITY.md)
+- Grant roadmap: [docs/opensats/roadmap.md](docs/opensats/roadmap.md)
+
+## Repository Layout
+
+```text
+.
+├── mobile-app/                    # Expo React Native wallet app
+│   ├── app/                       # Expo Router routes
+│   │   └── wallet/                # Wallet screens and settings routes
 │   └── src/
-│       ├── features/
-│       │   ├── auth/             # Authentication screens
-│       │   ├── profile/          # User profile & settings
-│       │   ├── payments/         # Premium subscription
-│       │   ├── ads/              # Ad components
-│       │   └── home/             # Home screen
-│       ├── hooks/                # Global hooks (useAuth, useUser)
-│       ├── components/           # Shared components
-│       ├── services/             # Token service
-│       ├── lib/                  # API client, query client
-│       ├── config/               # Network configuration
-│       ├── types/                # TypeScript definitions
-│       └── utils/                # Utilities
+│       ├── features/wallet/       # Wallet screens, components, types
+│       ├── hooks/                 # Wallet/auth/settings hooks
+│       ├── services/              # Storage, Breez/Spark, backup, notifications
+│       ├── utils/                 # Mnemonic, currency, deep-link helpers
+│       └── config/                # Runtime feature flags and app config
+├── notifications-handler/         # Firebase notification webhook service
+├── assets/opensats-demo/          # Demo screenshot/video destinations
+├── docs/                          # Development and OpenSats docs
+├── app-store/                     # Store listing/support/privacy materials
+└── library/                       # Project implementation guides
 ```
 
-## Quick Start
+## Requirements
 
-### Prerequisites
 - Node.js 18+
-- Docker (for PostgreSQL database)
-- Expo Go app (for mobile testing)
+- npm
+- Xcode and CocoaPods for iOS simulator builds
+- Android Studio and an Android emulator for Android builds
+- Expo tooling through the mobile app dependencies
 
-### Native Development (iOS Simulator / Android Emulator)
+For local native setup details, see
+[docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md).
 
-For local native builds without EAS cloud services, see **[docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md)** which covers:
-- iOS: Xcode, CocoaPods, Simulator setup
-- Android: Android Studio, SDK, Emulator setup  
-- Appium: Automated UI testing / AI agent integration
+## Setup
 
-### Setup
+Install root and mobile dependencies:
 
 ```bash
-# Clone repository
-git clone https://github.com/xAleksandar/mobile-skeleton-app.git
-cd mobile-skeleton-app
-
-# Run setup script (starts Docker, installs deps, seeds database)
-./setup.sh            # macOS/Linux
-setup.bat             # Windows
-
-# Or manual setup:
-docker-compose up -d  # Start PostgreSQL
-cd backend && npm install && cp .env.example .env && npm run db:setup
-cd ../mobile-app && npm install
+npm install
 ```
 
-**Start development:**
+Run the Expo app:
+
 ```bash
-# Terminal 1 - Backend
-cd backend && npm run dev
-
-# Terminal 2 - Mobile
-cd mobile-app && npm start   # Press 'w' for web, scan QR for Expo Go
+npm run dev:mobile
 ```
 
-### Test Credentials
-- `test@example.com` / `testpassword123`
-- `premium@example.com` / `testpassword123`
+Or run from the mobile app directory:
 
-## Configuration
-
-### Backend (.env)
-
-```env
-DATABASE_URL=postgresql://user:pass@localhost:5432/mobile_app
-JWT_SECRET=your-secret
-JWT_REFRESH_SECRET=your-refresh-secret
-RESEND_API_KEY=re_...
-GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com
-```
-
-### Mobile (src/config/network.ts)
-
-For physical device testing, update `CURRENT_NETWORK_IP` with your local IP:
-
-```typescript
-const CURRENT_NETWORK_IP = '192.168.1.100';
-```
-
-### Google OAuth Setup
-
-1. Create project in [Google Cloud Console](https://console.cloud.google.com/)
-2. Enable Google Sign-In API
-3. Create OAuth 2.0 credentials (Web, Android, iOS)
-4. Add `GOOGLE_CLIENT_ID` to backend `.env`
-5. Configure `webClientId` in mobile app
-
-## Tech Stack
-
-### Backend
-- **NestJS** - Framework
-- **Prisma** - ORM with PostgreSQL
-- **Passport JWT** - Authentication
-- **Resend** - Email service
-
-### Mobile
-- **React Native + Expo** - Framework
-- **Expo Router** - Navigation
-- **TanStack Query** - Data fetching
-- **React Native Paper** - UI components
-
-## Scripts
-
-### Backend
 ```bash
-npm run dev           # Development server
-npm run build         # Production build
-npm test              # Run tests
-npm run db:setup      # Setup database
-npm run db:studio     # Open Prisma Studio
+cd mobile-app
+npm start
 ```
 
-### Mobile
+Common mobile commands:
+
 ```bash
-npm start             # Expo dev server
-npm run ios           # iOS simulator
-npm run android       # Android emulator
-npm run web           # Web browser
-npm test              # Run tests
+cd mobile-app
+npm run ios
+npm run android
+npm test
 ```
 
-## Troubleshooting
+Root shortcuts:
 
-**Backend not starting:** Check `DATABASE_URL` and ensure PostgreSQL is running
+```bash
+npm run setup
+npm run dev
+npm test
+npm run clean
+```
 
-**Mobile network errors:** Update `CURRENT_NETWORK_IP` in `mobile-app/src/config/network.ts`
+## Notification Handler
 
-**Database issues:** Run `npm run db:setup` in backend
+The notification webhook service is separate from the mobile runtime:
 
-**Metro bundler:** Clear cache with `npx expo start --clear`
+```bash
+cd notifications-handler
+npm install
+npm test
+```
+
+See [notifications-handler/README.md](notifications-handler/README.md) and
+[notifications-handler/SETUP_GUIDE.md](notifications-handler/SETUP_GUIDE.md).
+
+## Architecture Notes
+
+### Wallet Storage
+
+Wallet metadata and encrypted seed material are stored through Expo
+SecureStore. Seed phrases are encrypted with PIN-derived AES-256-GCM payloads
+in `mobile-app/src/services/crypto.ts` and managed by
+`mobile-app/src/services/storageService.ts`.
+
+### Backup And Restore
+
+Cloud backup code lives in `mobile-app/src/services/googleDriveBackupService.ts`
+and `mobile-app/src/services/backupEncryption.ts`. Backups use a separate
+backup password with AES-256-GCM and PBKDF2-SHA256. Google Drive is used as a
+user-controlled storage destination for encrypted backup files.
+
+### Lightning / Spark
+
+Breez SDK Spark integration code lives primarily in
+`mobile-app/src/services/breezSparkService.ts`. Wallet hooks and screens call
+that service for balance, receive, send, sync, and swap-related operations.
+
+### Release Feature Flags
+
+User-facing BTC/USDB swap and multi-asset UI entry points are gated in
+`mobile-app/src/config/features.ts`. Keep those flags conservative for public
+release builds until legal/review scope is clear.
+
+## Safety And Responsible Use
+
+This repository is public-facing proof-of-work, not a production security
+claim. Treat it as alpha software:
+
+- Use only test funds or small disposable amounts during development.
+- Never commit seeds, private keys, OAuth secrets, API keys, or real invoices.
+- Do not publish screenshots or video that reveal seed words, backup passwords,
+  personal Google accounts, wallet identifiers, or real balances.
+- Report security issues privately before opening a public issue.
+
+For the detailed threat model and reporting contact, see [SECURITY.md](SECURITY.md).
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
