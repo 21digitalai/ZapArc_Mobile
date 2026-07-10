@@ -21,6 +21,21 @@
 | Primary text (active tab on brand bg) | `#1a1a2e` |
 | Surface muted | `rgba(255,255,255,0.08)` |
 | Text color | `getPrimaryTextColor(themeMode)` |
+| App background | `getAppBackgroundColor(themeMode)` |
+| Card background | `getCardBackgroundColor(themeMode)` |
+| Border/divider | `getBorderColor(themeMode)` |
+| Status bar | `getStatusBarStyle(themeMode)` |
+| Android navigation bar | `getNavigationBarColor(themeMode)` |
+
+## Theme Rules
+
+- `ThemeContext` is the app-wide source for `themeMode`, Paper theme tokens, and theme switching.
+- Theme selection is persisted through `settingsService.updateUserSettings({ theme })`.
+- Use `getGradientColors(themeMode)` for wallet and settings gradient screens.
+- Use `getAppBackgroundColor(themeMode)` for solid-background screens and root surfaces.
+- Use `getCardBackgroundColor(themeMode)` plus `getBorderColor(themeMode)` for cards, rows, modals, and sheet separation.
+- Status bar and Android navigation bar chrome are controlled by `AppThemeSystem`; do not hardcode a light status bar in screens.
+- Dark mode should keep ZapArc's navy/gold brand feel, with visible borders and section separation instead of a flat black surface.
 
 ---
 

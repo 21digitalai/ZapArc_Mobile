@@ -14,6 +14,27 @@ export const getGradientColors = (themeMode: ThemeMode): [string, string, string
 };
 
 /**
+ * Get a solid app background for non-gradient surfaces.
+ */
+export const getAppBackgroundColor = (themeMode: ThemeMode): string => {
+  return themeMode === 'dark' ? '#101828' : '#FFFFFF';
+};
+
+/**
+ * Get a navigation bar color that matches the active app chrome.
+ */
+export const getNavigationBarColor = (themeMode: ThemeMode): string => {
+  return themeMode === 'dark' ? '#0f3460' : '#FFFFFF';
+};
+
+/**
+ * Get status bar icon style for the active theme.
+ */
+export const getStatusBarStyle = (themeMode: ThemeMode): 'light' | 'dark' => {
+  return themeMode === 'dark' ? 'light' : 'dark';
+};
+
+/**
  * Get input background color for outlined TextInputs
  * This should match the gradient background so the floating label
  * can properly mask the border line
@@ -32,6 +53,15 @@ export const getCardBackgroundColor = (themeMode: ThemeMode): string => {
   return themeMode === 'dark'
     ? 'rgba(255, 255, 255, 0.05)' // Light overlay on dark
     : 'rgba(0, 0, 0, 0.03)';        // Dark overlay on light
+};
+
+/**
+ * Get subtle border/divider color for theme-aware cards and rows.
+ */
+export const getBorderColor = (themeMode: ThemeMode): string => {
+  return themeMode === 'dark'
+    ? 'rgba(255, 255, 255, 0.12)'
+    : 'rgba(0, 0, 0, 0.10)';
 };
 
 /**

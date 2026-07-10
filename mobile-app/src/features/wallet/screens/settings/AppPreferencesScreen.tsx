@@ -9,7 +9,12 @@ import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppTheme } from '../../../../contexts/ThemeContext';
 import { useLanguage } from '../../../../hooks/useLanguage';
-import { getGradientColors, BRAND_COLOR } from '../../../../utils/theme-helpers';
+import {
+  getBorderColor,
+  getCardBackgroundColor,
+  getGradientColors,
+  BRAND_COLOR,
+} from '../../../../utils/theme-helpers';
 
 // =============================================================================
 // Component
@@ -21,6 +26,8 @@ export function ThemeSettingsScreen(): React.JSX.Element {
 
   // Dynamic gradient colors based on theme
   const gradientColors = getGradientColors(themeMode);
+  const cardBackgroundColor = getCardBackgroundColor(themeMode);
+  const borderColor = getBorderColor(themeMode);
 
   return (
     <LinearGradient
@@ -60,7 +67,7 @@ export function ThemeSettingsScreen(): React.JSX.Element {
               )}
               titleStyle={[styles.listTitle, { color: theme.colors.onSurface }]}
               descriptionStyle={[styles.listDescription, { color: theme.colors.onSurfaceVariant }]}
-              style={styles.listItem}
+              style={[styles.listItem, { backgroundColor: cardBackgroundColor, borderColor }]}
             />
           </View>
 
@@ -117,8 +124,8 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   listItem: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
     marginBottom: 1,
   },
   listTitle: {

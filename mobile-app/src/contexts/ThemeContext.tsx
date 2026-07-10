@@ -36,11 +36,6 @@ interface ThemeProviderProps {
 export function ThemeProvider({ children }: ThemeProviderProps): React.JSX.Element {
   const themeState = useThemeHook();
 
-  // Debug logging
-  React.useEffect(() => {
-    console.log('ThemeProvider: Current theme mode:', themeState.themeMode);
-  }, [themeState.themeMode]);
-
   return (
     <ThemeContext.Provider value={themeState}>
       <PaperProvider theme={themeState.theme}>

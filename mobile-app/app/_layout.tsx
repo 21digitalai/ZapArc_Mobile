@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '../src/lib/queryClient';
@@ -10,6 +9,7 @@ import { syncAllFromCache } from '../src/services/notificationSubscriptionServic
 import { ThemeProvider } from '../src/contexts/ThemeContext';
 import { LanguageProvider } from '../src/contexts/LanguageContext';
 import { WalletProvider } from '../src/contexts/WalletContext';
+import { AppThemeSystem } from '../src/components/AppThemeSystem';
 import { FeedbackProvider } from '../src/features/wallet/components/FeedbackComponents';
 import { initializeTlsPinning } from '../src/services/tlsPinningService';
 import { installGlobalErrorHandler } from '../src/utils/globalErrorSink';
@@ -66,8 +66,7 @@ export default function RootLayout(): React.JSX.Element {
         <ThemeProvider>
           <WalletProvider>
             <FeedbackProvider>
-              {/* Status bar with light content (white text/icons) for dark theme */}
-              <StatusBar style="light" translucent backgroundColor="transparent" />
+              <AppThemeSystem />
               <Stack
                 screenOptions={{
                   headerShown: false,
