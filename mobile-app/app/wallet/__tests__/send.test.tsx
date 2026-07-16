@@ -267,6 +267,47 @@ describe('SendScreen on-chain flow', () => {
     });
   });
 
+  it('refreshes an expired cross-chain quote and sends the exact refreshed prepared object', async () => {
+    const rawRoute = { provider: 'Breez', chain: 'base', chainId: '8453', asset: 'USDT' };
+    const expiredPrepared = {
+      paymentMethod: { tag: 'CrossChainAddress', inner: {
+        estimatedOut: 990000, feeAmount: 10000, sourceTransferFeeSats: 12,
+        feeMode: 'FeesExcluded', expiresAt: '2000-01-01T00:00:00Z',
+      } },
+    };
+    const refreshedPrepared = {
+      paymentMethod: { tag: 'CrossChainAddress', inner: {
+        estimatedOut: 989000, feeAmount: 11000, sourceTransferFeeSats: 13,
+        feeMode: 'FeesExcluded', expiresAt: '2999-01-01T00:00:00Z',
+      } },
+    };
+    mockParsePaymentRequest.mockResolvedValue({ type: 'crossChainAddress', isValid: true });
+    mockGetCrossChainSendRoutesForAddress.mockResolvedValue([{
+      route: rawRoute,
+      destination: { provider: 'Breez', chain: 'base', chainId: '8453', asset: 'USDT', decimals: 6, exactOutEligible: false },
+    }]);
+    mockPrepareCrossChainSendPayment
+      .mockResolvedValueOnce(expiredPrepared)
+      .mockResolvedValueOnce(refreshedPrepared);
+    mockSendPayment.mockResolvedValue({ success: true, paymentId: 'cross-chain-payment' });
+
+    renderScreen();
+    fireEvent.press(screen.getByText('USDT'));
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], '0xabc');
+    await waitFor(() => expect(screen.getByText('base (8453)')).toBeTruthy());
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
+    fireEvent.press(screen.getByText('Preview Payment'));
+    await waitFor(() => expect(screen.getByText('Quote expires')).toBeTruthy());
+
+    fireEvent.press(screen.getByText('Send Payment'));
+
+    await waitFor(() => {
+      expect(mockPrepareCrossChainSendPayment).toHaveBeenCalledTimes(2);
+      expect(mockSendPayment).toHaveBeenCalledWith(refreshedPrepared, '0xabc', 1000);
+    });
+    expect(mockSendPayment.mock.calls[0][0]).toBe(refreshedPrepared);
+  });
+
   it('lists dynamic EVM, Solana, and Tron routes and requires a network choice for an ambiguous address', async () => {
     const routes = [
       { route: { chain: 'base', chainId: '8453' }, destination: { provider: 'Breez', chain: 'Base', chainId: '8453', asset: 'USDT' as const, decimals: 6, exactOutEligible: false } },

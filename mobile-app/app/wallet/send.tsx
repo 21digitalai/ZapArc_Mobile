@@ -155,6 +155,26 @@ interface PaymentPreview {
   };
 }
 
+function getCrossChainQuote(prepared: any): PaymentPreview['crossChainQuote'] | undefined {
+  const method = prepared?.paymentMethod;
+  if (method?.tag !== 'CrossChainAddress') return undefined;
+
+  const quote = method.inner || method;
+  return {
+    estimatedOut: Number(quote.estimatedOut || 0),
+    feeAmount: Number(quote.feeAmount || 0),
+    sourceTransferFeeSats: Number(quote.sourceTransferFeeSats || 0),
+    feeMode: String(quote.feeMode || 'Unknown'),
+    expiresAt: String(quote.expiresAt || ''),
+  };
+}
+
+function isCrossChainQuoteExpired(quote?: PaymentPreview['crossChainQuote']): boolean {
+  if (!quote?.expiresAt) return false;
+  const expiresAt = Date.parse(quote.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+}
+
 /**
  * Local widening of {@link DisplayCurrency} to also cover USDB as an
  * "input mode" — same approach as on the receive screen. Used purely as
@@ -1132,22 +1152,14 @@ export default function SendScreen() {
         return;
       }
 
-      const crossChainMethod = isCrossChainFlow && prepared?.paymentMethod?.tag === 'CrossChainAddress'
-        ? prepared.paymentMethod.inner
-        : null;
+      const crossChainQuote = isCrossChainFlow ? getCrossChainQuote(prepared) : undefined;
       const paymentPreview: PaymentPreview = {
         recipient: resolvedInput,
         amount: paymentAmount,
         fee: feeAmount,
         total: totalAmount,
         description: parsedRequest.description || comment || undefined,
-        crossChainQuote: crossChainMethod ? {
-          estimatedOut: Number(crossChainMethod.estimatedOut),
-          feeAmount: Number(crossChainMethod.feeAmount),
-          sourceTransferFeeSats: Number(crossChainMethod.sourceTransferFeeSats),
-          feeMode: String(crossChainMethod.feeMode),
-          expiresAt: String(crossChainMethod.expiresAt),
-        } : undefined,
+        crossChainQuote,
       };
 
       setPreview(paymentPreview);
@@ -1197,9 +1209,44 @@ export default function SendScreen() {
       setIsSending(true);
 
       const isOnchainFlow = step === 'onchain-preview';
+      const isCrossChainFlow = recipientAsset === 'usdt' || recipientAsset === 'usdc';
+      let preparedForSend = prepareResponse;
+
+      // Cross-chain SDK quotes are time-bound. Refresh an expired quote before
+      // executing, then pass the freshly returned object through untouched.
+      // In particular, never spread/serialize it: Breez treats object identity
+      // as part of the prepared-payment contract.
+      if (isCrossChainFlow && isCrossChainQuoteExpired(preview.crossChainQuote)) {
+        if (!selectedCrossChainRoute) {
+          Alert.alert(t('send.paymentFailed'), 'The selected destination route is no longer available. Choose a network and try again.');
+          setStep('input');
+          return;
+        }
+        try {
+          preparedForSend = await BreezSparkService.prepareCrossChainSendPayment(
+            preview.recipient,
+            selectedCrossChainRoute,
+            preview.amount,
+            isUsdbAsset ? { tokenIdentifier: usdbTokenIdentifier || undefined } : undefined,
+          );
+          const refreshedQuote = getCrossChainQuote(preparedForSend);
+          if (!refreshedQuote || isCrossChainQuoteExpired(refreshedQuote)) {
+            throw new Error('The refreshed quote has expired. Please try again.');
+          }
+          setPrepareResponse(preparedForSend);
+          setPreview({ ...preview, crossChainQuote: refreshedQuote });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Could not refresh the cross-chain quote.';
+          Alert.alert(t('send.paymentFailed'), message);
+          setStep('input');
+          setPreview(null);
+          setPrepareResponse(null);
+          return;
+        }
+      }
       const result = isOnchainFlow
-        ? await BreezSparkService.sendOnchainPayment(prepareResponse, selectedSpeed)
-        : await BreezSparkService.sendPayment(prepareResponse, paymentInput, preview.amount);
+        ? await BreezSparkService.sendOnchainPayment(preparedForSend, selectedSpeed)
+        : await BreezSparkService.sendPayment(preparedForSend, paymentInput, preview.amount);
 
       if (result.success) {
         if (result.paymentId && comment.trim()) {
@@ -1228,6 +1275,20 @@ export default function SendScreen() {
             await AsyncStorage.setItem(`payment_recipient_${result.paymentId}`, recipientRaw);
           } catch {
             // Non-critical — ignore storage errors
+          }
+        }
+        if (result.paymentId && isCrossChainFlow && preview.crossChainQuote) {
+          try {
+            await AsyncStorage.setItem(`payment_cross_chain_${result.paymentId}`, JSON.stringify({
+              recipientAsset: recipientAsset.toUpperCase(),
+              destination: preview.recipient,
+              sourceAsset: activeAsset,
+              deliveryAmount: preview.crossChainQuote.estimatedOut,
+              feeAmount: preview.crossChainQuote.feeAmount,
+              feeMode: preview.crossChainQuote.feeMode,
+            }));
+          } catch {
+            // Non-critical — the SDK payment remains authoritative.
           }
         }
         await refreshBalance();
@@ -1273,7 +1334,7 @@ export default function SendScreen() {
       setIsSending(false);
       sendInFlightRef.current = false;
     }
-  }, [preview, prepareResponse, refreshBalance, step, selectedSpeed, paymentInput, comment, contacts, t]);
+  }, [preview, prepareResponse, refreshBalance, step, selectedSpeed, paymentInput, comment, contacts, t, recipientAsset, selectedCrossChainRoute, isUsdbAsset, usdbTokenIdentifier, activeAsset]);
 
   const handleBackToInput = useCallback(() => {
     setStep('input');
