@@ -123,6 +123,14 @@ function parseBIP21(input: string): {
 type SendStep = 'input' | 'preview' | 'onchain-preview' | 'scanning';
 type ConfirmationSpeed = 'fast' | 'medium' | 'slow';
 type SendTab = 'lightning' | 'onchain';
+export type RecipientAsset = 'bitcoin' | 'usdb' | 'usdt' | 'usdc';
+
+const RECIPIENT_ASSET_OPTIONS: Array<{ value: RecipientAsset; label: string }> = [
+  { value: 'bitcoin', label: 'Bitcoin / Lightning' },
+  { value: 'usdb', label: 'USDB' },
+  { value: 'usdt', label: 'USDT' },
+  { value: 'usdc', label: 'USDC' },
+];
 
 interface OnchainFeeQuote {
   feeSats: number;        // total fee (service + L1)
@@ -191,6 +199,10 @@ export default function SendScreen() {
 
   const [step, setStep] = useState<SendStep>('input');
   const [activeTab, setActiveTab] = useState<SendTab>('lightning');
+  // Funding remains the asset selected on Home (`activeAsset`). This state
+  // describes only what the recipient will receive; the cross-chain children
+  // use it to load routes and execute stablecoin sends through Breez.
+  const [recipientAsset, setRecipientAsset] = useState<RecipientAsset>('bitcoin');
   const [paymentInput, setPaymentInput] = useState('');
   const [amount, setAmount] = useState('');
   const [comment, setComment] = useState('');
@@ -1507,6 +1519,35 @@ export default function SendScreen() {
           </TouchableOpacity>
         </View>
 
+        <View style={styles.recipientAssetSection}>
+          <Text style={[styles.recipientAssetLabel, { color: primaryTextColor }]}>Recipient receives</Text>
+          <View style={styles.recipientAssetSelector} accessibilityRole="radiogroup" accessibilityLabel="Recipient receives">
+            {RECIPIENT_ASSET_OPTIONS.map((option) => {
+              const isSelected = recipientAsset === option.value;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: isSelected }}
+                  accessibilityLabel={option.label}
+                  onPress={() => setRecipientAsset(option.value)}
+                  style={[
+                    styles.recipientAssetOption,
+                    isSelected && styles.recipientAssetOptionSelected,
+                  ]}
+                >
+                  <Text style={[
+                    styles.recipientAssetOptionText,
+                    { color: isSelected ? '#1a1a2e' : primaryTextColor },
+                  ]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
         {isUsdbAsset && (
           <View style={styles.usdbBanner}>
             <Text style={styles.usdbBannerText}>USDB transfers stay on Spark.</Text>
@@ -1912,6 +1953,36 @@ const styles = StyleSheet.create({
   },
   tabButtonDisabled: {
     opacity: 0.4,
+  },
+  recipientAssetSection: {
+    marginHorizontal: 24,
+    marginTop: 8,
+  },
+  recipientAssetLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  recipientAssetSelector: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  recipientAssetOption: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  recipientAssetOptionSelected: {
+    borderColor: BRAND_COLOR,
+    backgroundColor: BRAND_COLOR,
+  },
+  recipientAssetOptionText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   usdbBanner: {
     marginHorizontal: 20,

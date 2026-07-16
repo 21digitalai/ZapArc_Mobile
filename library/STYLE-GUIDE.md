@@ -109,6 +109,13 @@
 - The picker lists `sats`, `USD`, and `EUR`, shows a checkmark on the active option, and persists the selection through `setDisplayCurrency`.
 - Keep the selector disabled for fixed-asset USDB sends.
 
+### Send screen recipient asset selector
+
+`app/wallet/send.tsx`
+- The **Recipient receives** selector is a wrapped set of compact radio chips.
+- It controls the recipient output asset only; the funding asset continues to come from Home and Send must not add a source-asset selector.
+- Active chip: `BRAND_COLOR` background with `#1a1a2e` text; inactive chips use the muted surface and visible border.
+
 ### Transaction detail custom note row
 
 `src/features/wallet/screens/TransactionHistoryScreen.tsx`
