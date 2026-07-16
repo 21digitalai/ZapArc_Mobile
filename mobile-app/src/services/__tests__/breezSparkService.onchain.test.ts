@@ -17,6 +17,7 @@ jest.mock('../notificationTriggerService', () => ({
 }));
 
 const mockSendPayment = jest.fn();
+const mockPrepareSendPayment = jest.fn();
 const mockAddEventListener = jest.fn().mockResolvedValue('listener-id');
 const mockRemoveEventListener = jest.fn().mockResolvedValue(undefined);
 
@@ -44,9 +45,13 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
       return { type: 'bitcoinAddress', confirmationSpeed };
     },
   },
+  PaymentRequest: {
+    CrossChain: { new: (params: unknown) => ({ tag: 'CrossChain', inner: params }) },
+  },
   defaultConfig: jest.fn(() => ({})),
   connect: jest.fn().mockResolvedValue({
     sendPayment: (...args: unknown[]) => mockSendPayment(...args),
+    prepareSendPayment: (...args: unknown[]) => mockPrepareSendPayment(...args),
     addEventListener: (...args: unknown[]) => mockAddEventListener(...args),
     removeEventListener: (...args: unknown[]) => mockRemoveEventListener(...args),
     disconnect: jest.fn().mockResolvedValue(undefined),
@@ -135,5 +140,26 @@ describe('normalizeCrossChainDestinationRoutes', () => {
 
     expect(routes).toHaveLength(1);
     expect(routes[0]).toMatchObject({ chain: 'base', asset: 'USDT', decimals: 6 });
+  });
+});
+
+describe('prepareCrossChainSendPayment', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it.each([
+    [undefined, 2500],
+    ['usdb-token-id', 2500000],
+  ])('forwards source token and source amount units', async (tokenIdentifier, amount) => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockPrepareSendPayment.mockResolvedValueOnce({ paymentMethod: { tag: 'CrossChainAddress' } });
+
+    await svc.prepareCrossChainSendPayment('0xabc', { chain: 'base', asset: 'USDC' }, amount, { tokenIdentifier });
+
+    expect(mockPrepareSendPayment).toHaveBeenCalledWith(expect.objectContaining({
+      amount: BigInt(amount),
+      tokenIdentifier,
+      paymentRequest: expect.objectContaining({ tag: 'CrossChain' }),
+    }));
   });
 });

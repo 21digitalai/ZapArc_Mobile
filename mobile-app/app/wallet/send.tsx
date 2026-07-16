@@ -1022,7 +1022,12 @@ export default function SendScreen() {
       }
 
       const prepared = isCrossChainFlow
-        ? await BreezSparkService.prepareCrossChainSendPayment(resolvedInput, selectedCrossChainRoute, paymentAmount)
+        ? await BreezSparkService.prepareCrossChainSendPayment(
+          resolvedInput,
+          selectedCrossChainRoute,
+          paymentAmount,
+          isUsdbAsset ? { tokenIdentifier: usdbTokenIdentifier || undefined } : undefined,
+        )
         : await BreezSparkService.prepareSendPayment(
           resolvedInput,
           paymentAmount,

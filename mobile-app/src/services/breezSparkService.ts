@@ -2570,7 +2570,8 @@ export async function getCrossChainSendRoutesForAddress(
 export async function prepareCrossChainSendPayment(
   recipientAddress: string,
   route: unknown,
-  amountSat: number,
+  amount: number,
+  options?: { tokenIdentifier?: string },
 ): Promise<unknown> {
   if (!_isNativeAvailable || !sdkInstance) {
     throw new Error('SDK not available');
@@ -2584,7 +2585,8 @@ export async function prepareCrossChainSendPayment(
   });
   return sdkInstance.prepareSendPayment({
     paymentRequest,
-    amount: BigInt(amountSat),
+    amount: BigInt(amount),
+    tokenIdentifier: options?.tokenIdentifier,
   });
 }
 
