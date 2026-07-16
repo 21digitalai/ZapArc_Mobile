@@ -220,6 +220,59 @@ describe('SendScreen on-chain flow', () => {
     });
   });
 
+  it('lists dynamic EVM, Solana, and Tron routes and requires a network choice for an ambiguous address', async () => {
+    const routes = [
+      { route: { chain: 'base', chainId: '8453' }, destination: { provider: 'Breez', chain: 'Base', chainId: '8453', asset: 'USDT' as const, decimals: 6, exactOutEligible: false } },
+      { route: { chain: 'arbitrum', chainId: '42161' }, destination: { provider: 'Breez', chain: 'Arbitrum', chainId: '42161', asset: 'USDT' as const, decimals: 6, exactOutEligible: false } },
+      { route: { chain: 'solana' }, destination: { provider: 'Breez', chain: 'Solana', asset: 'USDT' as const, decimals: 6, exactOutEligible: false } },
+      { route: { chain: 'tron' }, destination: { provider: 'Breez', chain: 'Tron', asset: 'USDT' as const, decimals: 6, exactOutEligible: false } },
+    ];
+    mockGetCrossChainSendRoutesForAddress.mockResolvedValue(routes);
+
+    renderScreen();
+    fireEvent.press(screen.getByText('USDT'));
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], '0xambiguous');
+
+    await waitFor(() => {
+      expect(screen.getByText('Base (8453)')).toBeTruthy();
+      expect(screen.getByText('Arbitrum (42161)')).toBeTruthy();
+      expect(screen.getByText('Solana')).toBeTruthy();
+      expect(screen.getByText('Tron')).toBeTruthy();
+    });
+
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
+    fireEvent.press(screen.getByText('Preview Payment'));
+    await waitFor(() => {
+      expect(Alert.alert).toHaveBeenCalledWith('Error', 'Enter a supported recipient address and select a destination network.');
+    });
+  });
+
+  it('clears a stale route choice when a route refresh becomes ambiguous or unavailable', async () => {
+    const baseRoute = { provider: 'Breez', chain: 'Base', chainId: '8453', asset: 'USDC' as const, decimals: 6, exactOutEligible: false };
+    const solanaRoute = { provider: 'Breez', chain: 'Solana', asset: 'USDC' as const, decimals: 6, exactOutEligible: false };
+    mockGetCrossChainSendRoutesForAddress
+      .mockResolvedValueOnce([{ route: { chain: 'base' }, destination: baseRoute }])
+      .mockResolvedValueOnce([{ route: { chain: 'base' }, destination: baseRoute }, { route: { chain: 'solana' }, destination: solanaRoute }])
+      .mockResolvedValueOnce([]);
+
+    renderScreen();
+    fireEvent.press(screen.getByText('USDC'));
+    const input = screen.getAllByTestId('destination-input')[0];
+    fireEvent.changeText(input, '0xfirst');
+    await waitFor(() => expect(screen.getByText('Base (8453)')).toBeTruthy());
+
+    fireEvent.changeText(input, '0xrefresh');
+    await waitFor(() => expect(screen.getByText('Solana')).toBeTruthy());
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
+    fireEvent.press(screen.getByText('Preview Payment'));
+    await waitFor(() => {
+      expect(Alert.alert).toHaveBeenCalledWith('Error', 'Enter a supported recipient address and select a destination network.');
+    });
+
+    fireEvent.changeText(input, '0xnone');
+    await waitFor(() => expect(screen.getByText('No USDC route is currently available for this address.')).toBeTruthy());
+  });
+
   it('shows on-chain preview with fee + speed selector and updates fee by speed', async () => {
     renderScreen();
     switchToOnchainTab();

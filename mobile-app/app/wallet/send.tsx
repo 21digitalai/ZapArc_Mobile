@@ -413,6 +413,10 @@ export default function SendScreen() {
         const routes = await BreezSparkService.getCrossChainSendRoutesForAddress(recipientAddress, asset, fundingSource);
         if (cancelled) return;
         setCrossChainRoutes(routes);
+        // A refreshed route list may no longer contain the route the user
+        // previously chose. Never retain that stale route: a single live
+        // destination is safe to select, while any ambiguous address must
+        // receive an explicit network choice.
         setSelectedCrossChainRoute(routes.length === 1 ? routes[0].route : null);
         setCrossChainRouteError(routes.length ? null : `No ${asset} route is currently available for this address.`);
       } catch (error) {
