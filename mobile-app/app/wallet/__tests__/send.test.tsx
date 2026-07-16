@@ -218,6 +218,12 @@ describe('SendScreen on-chain flow', () => {
     await waitFor(() => {
       expect(mockPrepareCrossChainSendPayment).toHaveBeenCalledWith('0xabc', rawRoute, 1000, undefined);
     });
+    expect(screen.getByText('Recipient receives')).toBeTruthy();
+    expect(screen.getByText('USDC')).toBeTruthy();
+    expect(screen.getByText('Destination network')).toBeTruthy();
+    expect(screen.getByText('base (8453)')).toBeTruthy();
+    expect(screen.getByText('Paying from')).toBeTruthy();
+    expect(screen.getByText('BTC wallet')).toBeTruthy();
   });
 
   it('lists dynamic EVM, Solana, and Tron routes and requires a network choice for an ambiguous address', async () => {

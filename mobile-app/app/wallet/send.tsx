@@ -1398,6 +1398,11 @@ export default function SendScreen() {
 
   if ((step === 'preview' || step === 'onchain-preview') && preview) {
     const isOnchainPreview = step === 'onchain-preview';
+    const isCrossChainPreview = recipientAsset === 'usdt' || recipientAsset === 'usdc';
+    const selectedDestination = crossChainRoutes.find(({ route }) => route === selectedCrossChainRoute)?.destination;
+    const destinationNetworkLabel = selectedDestination
+      ? `${selectedDestination.chain}${selectedDestination.chainId ? ` (${selectedDestination.chainId})` : ''}`
+      : null;
     const previewFiat = {
       amount: formatPreviewFiat(preview.amount),
       fee: formatPreviewFiat(preview.fee),
@@ -1455,6 +1460,24 @@ export default function SendScreen() {
             )}
 
             <View style={styles.previewContainer}>
+              {isCrossChainPreview && (
+                <>
+                  <View style={styles.previewRow}>
+                    <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Recipient receives</Text>
+                    <Text style={[styles.previewValue, { color: primaryTextColor }]}>{recipientAsset.toUpperCase()}</Text>
+                  </View>
+                  {destinationNetworkLabel && (
+                    <View style={styles.previewRow}>
+                      <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Destination network</Text>
+                      <Text style={[styles.previewValue, { color: primaryTextColor }]}>{destinationNetworkLabel}</Text>
+                    </View>
+                  )}
+                  <View style={styles.previewRow}>
+                    <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Paying from</Text>
+                    <Text style={[styles.previewValue, { color: primaryTextColor }]}>{activeAsset} wallet</Text>
+                  </View>
+                </>
+              )}
               <View style={styles.previewRow}>
                 <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>{t('send.recipient')}</Text>
                 <Text style={[styles.previewValue, { color: primaryTextColor }]} numberOfLines={1} ellipsizeMode="middle">
