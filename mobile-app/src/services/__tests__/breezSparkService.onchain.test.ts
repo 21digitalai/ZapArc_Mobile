@@ -117,6 +117,21 @@ describe('BreezSparkService.sendOnchainPayment', () => {
   });
 });
 
+describe('BreezSparkService cross-chain rollout gate', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('does not attach cross-chain SDK configuration while the rollout flag is off', async () => {
+    const svc = require('../breezSparkService');
+    const BreezSDK = require('@breeztech/breez-sdk-spark-react-native');
+
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+
+    const config = BreezSDK.defaultConfig.mock.results.at(-1)?.value;
+    expect(config).toBeDefined();
+    expect(config.crossChainConfig).toBeUndefined();
+  });
+});
+
 describe('normalizeCrossChainDestinationRoutes', () => {
   it('keeps live EVM, Solana, and Tron routes for the selected stablecoin', () => {
     const svc = require('../breezSparkService');
@@ -175,6 +190,20 @@ describe('getCrossChainSendRoutesForAddress', () => {
     }]);
   });
 
+  it.each([
+    ['EVM', 'ethereum:0x1111111111111111111111111111111111111111@8453', { chain: 'base' }],
+    ['Solana', 'solana:So11111111111111111111111111111111111111112', { chain: 'solana' }],
+    ['Tron', 'tron:TVjsyZ7fYF3qLF6BQgPmTEZy1xrNLxBE8b', { chain: 'tron' }],
+  ])('accepts canonical %s recipient URIs through the Breez parser', async (_family, uri, addressDetails) => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockParse.mockResolvedValueOnce({ tag: 'CrossChainAddress', inner: [addressDetails] });
+    mockGetCrossChainRoutes.mockResolvedValueOnce([]);
+
+    await expect(svc.getCrossChainSendRoutesForAddress(uri, 'USDT')).resolves.toEqual([]);
+    expect(mockParse).toHaveBeenCalledWith(uri);
+  });
+
   it('rejects a non-cross-chain address before requesting routes', async () => {
     const svc = require('../breezSparkService');
     await svc.initializeSDK('test mnemonic words go here twelve words');
@@ -198,6 +227,32 @@ describe('getCrossChainSendRoutesForAddress', () => {
     expect(svc.isCrossChainRouteCompatibleWithFundingSource(usdbRoute, {
       asset: 'USDB', tokenIdentifier: 'other-token',
     })).toBe(false);
+  });
+
+  it('returns only source-compatible SDK routes for inherited BTC and USDB funding', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    const btcRoute = {
+      provider: 'Orchestra', chain: 'base', chainId: '8453', asset: 'USDC', decimals: 6,
+      supportedSources: [{ tag: 'Bitcoin' }],
+    };
+    const usdbRoute = {
+      provider: 'Orchestra', chain: 'solana', asset: 'USDC', decimals: 6,
+      supportedSources: [{ tag: 'Token', inner: { tokenIdentifier: 'usdb-token' } }],
+    };
+
+    mockParse.mockResolvedValue({ tag: 'CrossChainAddress', inner: [{ chain: 'base' }] });
+    mockGetCrossChainRoutes.mockResolvedValue([btcRoute, usdbRoute]);
+
+    const btcRoutes = await svc.getCrossChainSendRoutesForAddress('0xabc', 'USDC', { asset: 'BTC' });
+    const usdbRoutes = await svc.getCrossChainSendRoutesForAddress('0xabc', 'USDC', {
+      asset: 'USDB', tokenIdentifier: 'usdb-token',
+    });
+
+    expect(btcRoutes).toHaveLength(1);
+    expect(btcRoutes[0].route).toBe(btcRoute);
+    expect(usdbRoutes).toHaveLength(1);
+    expect(usdbRoutes[0].route).toBe(usdbRoute);
   });
 });
 
