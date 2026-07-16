@@ -201,7 +201,8 @@ describe('SendScreen on-chain flow', () => {
       paymentMethod: {
         tag: 'CrossChainAddress',
         inner: {
-          estimatedOut: 990000, feeAmount: 10000, sourceTransferFeeSats: 12,
+          amountIn: 1000, assetAmountIn: 1000, estimatedOut: 990000,
+          feeAmount: 10000, serviceFeeAmount: 500, serviceFeeAsset: 'USDC', sourceTransferFeeSats: 12,
           feeMode: 'FeesExcluded', expiresAt: '2026-07-16T16:00:00Z',
         },
       },
@@ -234,8 +235,14 @@ describe('SendScreen on-chain flow', () => {
     expect(screen.getByText('BTC wallet')).toBeTruthy();
     expect(screen.getByText('Recipient delivery')).toBeTruthy();
     expect(screen.getByText('990,000 USDC')).toBeTruthy();
+    expect(screen.getByText('Source amount')).toBeTruthy();
+    expect(screen.getAllByText('1,000 sats').length).toBeGreaterThan(0);
     expect(screen.getByText('SDK route fee')).toBeTruthy();
     expect(screen.getByText('10,000 USDC (FeesExcluded)')).toBeTruthy();
+    expect(screen.getByText('Source transfer fee')).toBeTruthy();
+    expect(screen.getByText('12 sats')).toBeTruthy();
+    expect(screen.getByText('Provider service fee')).toBeTruthy();
+    expect(screen.getByText('500 USDC')).toBeTruthy();
     expect(screen.getByText('Quote expires')).toBeTruthy();
     expect(screen.getByText('2026-07-16T16:00:00Z')).toBeTruthy();
   });
@@ -254,6 +261,7 @@ describe('SendScreen on-chain flow', () => {
     }]);
 
     renderScreen();
+    await waitFor(() => expect(screen.getByText('250.00 USDB')).toBeTruthy());
     fireEvent.press(screen.getByText('USDT'));
     fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'So11111111111111111111111111111111111111112');
 
@@ -306,6 +314,38 @@ describe('SendScreen on-chain flow', () => {
       expect(mockSendPayment).toHaveBeenCalledWith(refreshedPrepared, '0xabc', 1000);
     });
     expect(mockSendPayment.mock.calls[0][0]).toBe(refreshedPrepared);
+  });
+
+  it('executes a FeesIncluded cross-chain send with the exact prepared object', async () => {
+    const rawRoute = { provider: 'Breez', chain: 'solana', asset: 'USDT' };
+    const prepared = {
+      paymentMethod: { tag: 'CrossChainAddress', inner: {
+        amountIn: 125000000, assetAmountIn: 125000000, estimatedOut: 124500000,
+        feeAmount: 500000, sourceTransferFeeSats: 0, feeMode: 'FeesIncluded', expiresAt: '2999-01-01T00:00:00Z',
+      } },
+    };
+    mockUseLocalSearchParams.mockReturnValue({ asset: 'USDB' });
+    mockParsePaymentRequest.mockResolvedValue({ type: 'crossChainAddress', isValid: true });
+    mockGetCrossChainSendRoutesForAddress.mockResolvedValue([{
+      route: rawRoute,
+      destination: { provider: 'Breez', chain: 'solana', asset: 'USDT', decimals: 6, exactOutEligible: false },
+    }]);
+    mockPrepareCrossChainSendPayment.mockResolvedValue(prepared);
+    mockSendPayment.mockResolvedValue({ success: true, paymentId: 'usdb-cross-chain-payment' });
+
+    renderScreen();
+    fireEvent.press(screen.getByText('USDT'));
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'So11111111111111111111111111111111111111112');
+    await waitFor(() => expect(screen.getByText('solana')).toBeTruthy());
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1.25');
+    fireEvent.press(screen.getByText('Preview Payment'));
+    await waitFor(() => expect(screen.getByText('USDB wallet')).toBeTruthy());
+
+    fireEvent.press(screen.getByText('Send Payment'));
+    await waitFor(() => {
+      expect(mockSendPayment).toHaveBeenCalledWith(prepared, 'So11111111111111111111111111111111111111112', 125);
+    });
+    expect(mockSendPayment.mock.calls[0][0]).toBe(prepared);
   });
 
   it('lists dynamic EVM, Solana, and Tron routes and requires a network choice for an ambiguous address', async () => {
