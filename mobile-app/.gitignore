@@ -88,3 +88,6 @@ fastlane/test_output
 fastlane/metadata/android/*/changelogs
 vendor/bundle
 .bundle
+
+fastlane/README.md
+fastlane/release-notes.txt
