@@ -15,7 +15,7 @@ import {
 import { useAppTheme } from '../../src/contexts/ThemeContext';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { useWallet } from '../../src/hooks/useWallet';
-import { BreezSparkService } from '../../src/services/breezSparkService';
+import { BreezSparkService, type CrossChainDestinationRoute } from '../../src/services/breezSparkService';
 import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
 import { useCurrency } from '../../src/hooks/useCurrency';
 import { formatFiat, satsToFiat, usdbToFiat, fiatToUsdb } from '../../src/utils/currency';
@@ -203,6 +203,10 @@ export default function SendScreen() {
   // describes only what the recipient will receive; the cross-chain children
   // use it to load routes and execute stablecoin sends through Breez.
   const [recipientAsset, setRecipientAsset] = useState<RecipientAsset>('bitcoin');
+  const [crossChainRoutes, setCrossChainRoutes] = useState<Array<{ route: unknown; destination: CrossChainDestinationRoute }>>([]);
+  const [selectedCrossChainRoute, setSelectedCrossChainRoute] = useState<unknown>(null);
+  const [isLoadingCrossChainRoutes, setIsLoadingCrossChainRoutes] = useState(false);
+  const [crossChainRouteError, setCrossChainRouteError] = useState<string | null>(null);
   const [paymentInput, setPaymentInput] = useState('');
   const [amount, setAmount] = useState('');
   const [comment, setComment] = useState('');
@@ -382,6 +386,39 @@ export default function SendScreen() {
       isCancelled = true;
     };
   }, [isUsdbAsset]);
+
+  useEffect(() => {
+    const asset = recipientAsset === 'usdt' ? 'USDT' : recipientAsset === 'usdc' ? 'USDC' : null;
+    const recipientAddress = paymentInput.trim();
+    if (!asset || !recipientAddress) {
+      setCrossChainRoutes([]);
+      setSelectedCrossChainRoute(null);
+      setCrossChainRouteError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const loadRoutes = async () => {
+      setIsLoadingCrossChainRoutes(true);
+      try {
+        const routes = await BreezSparkService.getCrossChainSendRoutesForAddress(recipientAddress, asset);
+        if (cancelled) return;
+        setCrossChainRoutes(routes);
+        setSelectedCrossChainRoute(routes.length === 1 ? routes[0].route : null);
+        setCrossChainRouteError(routes.length ? null : `No ${asset} route is currently available for this address.`);
+      } catch (error) {
+        if (!cancelled) {
+          setCrossChainRoutes([]);
+          setSelectedCrossChainRoute(null);
+          setCrossChainRouteError(error instanceof Error ? error.message : 'Could not load destination networks.');
+        }
+      } finally {
+        if (!cancelled) setIsLoadingCrossChainRoutes(false);
+      }
+    };
+    void loadRoutes();
+    return () => { cancelled = true; };
+  }, [recipientAsset, paymentInput]);
 
 
   const usdbBalance = useMemo(() => getBalanceForAsset('USDB'), [getBalanceForAsset]);
@@ -871,8 +908,14 @@ export default function SendScreen() {
 
       const parsedRequest = await BreezSparkService.parsePaymentRequest(resolvedInput);
       const isOnchainFlow = activeTab === 'onchain';
+      const isCrossChainFlow = recipientAsset === 'usdt' || recipientAsset === 'usdc';
 
-      if (isUsdbAsset) {
+      if (isCrossChainFlow && !selectedCrossChainRoute) {
+        Alert.alert(t('common.error'), 'Enter a supported recipient address and select a destination network.');
+        return;
+      }
+
+      if (isUsdbAsset && !isCrossChainFlow) {
         if (parsedRequest.type === 'bolt11') {
           setUsdbLightningError('USDB transfers stay on Spark. Lightning invoices are BTC-only.');
           return;
@@ -978,11 +1021,13 @@ export default function SendScreen() {
         return;
       }
 
-      const prepared = await BreezSparkService.prepareSendPayment(
-        resolvedInput,
-        paymentAmount,
-        isUsdbAsset ? { tokenIdentifier: usdbTokenIdentifier || undefined } : undefined
-      );
+      const prepared = isCrossChainFlow
+        ? await BreezSparkService.prepareCrossChainSendPayment(resolvedInput, selectedCrossChainRoute, paymentAmount)
+        : await BreezSparkService.prepareSendPayment(
+          resolvedInput,
+          paymentAmount,
+          isUsdbAsset ? { tokenIdentifier: usdbTokenIdentifier || undefined } : undefined
+        );
       console.log('🔍 [Send] prepared response:', JSON.stringify(prepared, (_, v) => typeof v === 'bigint' ? v.toString() : v));
       setPrepareResponse(prepared);
 
@@ -1044,13 +1089,13 @@ export default function SendScreen() {
 
       const totalAmount = paymentAmount + feeAmount;
 
-      if (totalAmount > balance) {
+      if (totalAmount > availableBalance) {
         Alert.alert(
           t('send.insufficientBalance'),
           t('send.insufficientBalanceWithFee')
             .replace('{{total}}', totalAmount.toLocaleString())
             .replace('{{fee}}', feeAmount.toLocaleString())
-            .replace('{{balance}}', balance.toLocaleString())
+            .replace('{{balance}}', availableBalance.toLocaleString())
         );
         return;
       }
@@ -1091,7 +1136,7 @@ export default function SendScreen() {
     } finally {
       setIsPreparing(false);
     }
-  }, [paymentInput, amount, comment, balance, inputCurrency, convertToSats, getOnchainFeeQuote, selectedSpeed, activeTab, isUsdbAsset, usdbTokenIdentifier, isValidUsdbSparkPayment, t]);
+  }, [paymentInput, amount, comment, balance, inputCurrency, convertToSats, getOnchainFeeQuote, selectedSpeed, activeTab, isUsdbAsset, usdbTokenIdentifier, isValidUsdbSparkPayment, recipientAsset, selectedCrossChainRoute, t]);
 
   const handleSendPayment = useCallback(async () => {
     if (!preview || !prepareResponse) {
@@ -1654,6 +1699,32 @@ export default function SendScreen() {
             <Text style={styles.addressErrorText}>{addressError}</Text>
           )}
 
+          {(recipientAsset === 'usdt' || recipientAsset === 'usdc') && (
+            <View style={styles.destinationNetworkSection}>
+              <Text style={[styles.label, { color: primaryTextColor }]}>Destination network</Text>
+              {isLoadingCrossChainRoutes && <Text style={[styles.destinationNetworkHint, { color: secondaryTextColor }]}>Loading live Breez routes…</Text>}
+              {!!crossChainRouteError && <Text style={styles.addressErrorText}>{crossChainRouteError}</Text>}
+              <View style={styles.recipientAssetSelector}>
+                {crossChainRoutes.map(({ route, destination }) => {
+                  const isSelected = selectedCrossChainRoute === route;
+                  const label = destination.chainId ? `${destination.chain} (${destination.chainId})` : destination.chain;
+                  return (
+                    <TouchableOpacity
+                      key={`${destination.provider}:${destination.chain}:${destination.chainId || ''}`}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: isSelected }}
+                      accessibilityLabel={label}
+                      onPress={() => setSelectedCrossChainRoute(route)}
+                      style={[styles.recipientAssetOption, isSelected && styles.recipientAssetOptionSelected]}
+                    >
+                      <Text style={[styles.recipientAssetOptionText, { color: isSelected ? '#1a1a2e' : primaryTextColor }]}>{label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
           {!!usdbLightningError && isLightningTab && isUsdbAsset && (
             <View style={styles.usdbInlineErrorContainer}>
               <Text style={styles.usdbInlineErrorText}>{usdbLightningError}</Text>
@@ -1983,6 +2054,13 @@ const styles = StyleSheet.create({
   recipientAssetOptionText: {
     fontSize: 12,
     fontWeight: '700',
+  },
+  destinationNetworkSection: {
+    marginTop: 4,
+  },
+  destinationNetworkHint: {
+    fontSize: 12,
+    marginBottom: 8,
   },
   usdbBanner: {
     marginHorizontal: 20,

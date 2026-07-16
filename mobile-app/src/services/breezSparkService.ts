@@ -2524,10 +2524,68 @@ export async function getCrossChainDestinationRoutes(
 }
 
 /**
+ * Resolves routes for a recipient address using the SDK parser. Keeping the
+ * parsed address and route together avoids guessing an EVM/Solana/Tron family
+ * in JavaScript and lets Breez select the currently supported provider route.
+ */
+export async function getCrossChainSendRoutesForAddress(
+  recipientAddress: string,
+  asset: CrossChainStablecoin,
+): Promise<Array<{ route: unknown; destination: CrossChainDestinationRoute }>> {
+  if (!_isNativeAvailable || !sdkInstance) {
+    throw new Error('SDK not available');
+  }
+
+  const parsed = await sdkInstance.parse(recipientAddress.trim());
+  if (parsed?.tag !== 'CrossChainAddress') {
+    throw new Error('Enter a valid EVM, Solana, or Tron address');
+  }
+
+  const addressDetails = Array.isArray(parsed.inner) ? parsed.inner[0] : parsed.inner;
+  const filter = BreezSDK.CrossChainRouteFilter.Send.new({ addressDetails });
+  const routes = await sdkInstance.getCrossChainRoutes(filter);
+  const normalized = normalizeCrossChainDestinationRoutes(routes as CrossChainRouteLike[], asset);
+
+  const pairs: Array<{ route: unknown; destination: CrossChainDestinationRoute }> = [];
+  (routes as CrossChainRouteLike[]).forEach((route) => {
+    const destination = normalized.find((candidate) =>
+      candidate.asset === asset &&
+      candidate.chain.toLowerCase() === String(route.chain || '').trim().toLowerCase() &&
+      candidate.chainId === (typeof route.chainId === 'string' ? route.chainId.trim() || undefined : undefined) &&
+      candidate.provider === (typeof route.provider === 'string' ? route.provider : 'breez')
+    );
+    if (destination) pairs.push({ route, destination });
+  });
+  return pairs;
+}
+
+/** Prepare an address-specific Breez cross-chain payment for the selected route. */
+export async function prepareCrossChainSendPayment(
+  recipientAddress: string,
+  route: unknown,
+  amountSat: number,
+): Promise<unknown> {
+  if (!_isNativeAvailable || !sdkInstance) {
+    throw new Error('SDK not available');
+  }
+
+  const paymentRequest = BreezSDK.PaymentRequest.CrossChain.new({
+    address: recipientAddress.trim(),
+    route,
+    maxSlippageBps: undefined,
+    targetOverpayBps: undefined,
+  });
+  return sdkInstance.prepareSendPayment({
+    paymentRequest,
+    amount: BigInt(amountSat),
+  });
+}
+
+/**
  * Parse and validate a payment request
  */
 export async function parsePaymentRequest(input: string): Promise<{
-  type: 'bolt11' | 'sparkInvoice' | 'lnurl' | 'lightningAddress' | 'bitcoinAddress' | 'sparkAddress' | 'unknown';
+  type: 'bolt11' | 'sparkInvoice' | 'lnurl' | 'lightningAddress' | 'bitcoinAddress' | 'sparkAddress' | 'crossChainAddress' | 'unknown';
   isValid: boolean;
   /** Amount in sats. Set for BTC invoices (Bolt11 or sat-denominated SparkInvoice). */
   amountSat?: number;
@@ -2580,6 +2638,10 @@ export async function parsePaymentRequest(input: string): Promise<{
   try {
     // Use SDK to parse for full details including amount
     const parsed = await sdkInstance.parse(trimmed);
+
+    if (parsed.tag === 'CrossChainAddress') {
+      return { type: 'crossChainAddress', isValid: true };
+    }
 
     // Check the parsed result type
     if (parsed.tag === 'Bolt11Invoice' && parsed.inner) {
@@ -3067,6 +3129,8 @@ export const BreezSparkService = {
   isSDKInitialized,
   getRawSdkInstanceForDevtools,
   getCrossChainDestinationRoutes,
+  getCrossChainSendRoutesForAddress,
+  prepareCrossChainSendPayment,
   normalizeCrossChainDestinationRoutes,
   resolveSwapTokens,
   getTokenBalances,
