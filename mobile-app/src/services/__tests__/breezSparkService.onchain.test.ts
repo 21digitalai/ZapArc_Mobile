@@ -104,3 +104,36 @@ describe('BreezSparkService.sendOnchainPayment', () => {
     expect(result.error).toContain('not initialized');
   });
 });
+
+describe('normalizeCrossChainDestinationRoutes', () => {
+  it('keeps live EVM, Solana, and Tron routes for the selected stablecoin', () => {
+    const svc = require('../breezSparkService');
+
+    const routes = svc.normalizeCrossChainDestinationRoutes([
+      { provider: 'Orchestra', chain: 'base', chainId: '8453', asset: 'USDC', decimals: 6, exactOutEligible: true },
+      { provider: 'Orchestra', chain: 'solana', asset: 'USDC', decimals: 6, exactOutEligible: false },
+      { provider: 'Boltz', chain: 'tron', asset: 'USDC', decimals: 6, exactOutEligible: true },
+      { provider: 'Orchestra', chain: 'ethereum', chainId: '1', asset: 'USDT', decimals: 6, exactOutEligible: true },
+    ], 'USDC');
+
+    expect(routes).toEqual([
+      expect.objectContaining({ chain: 'base', chainId: '8453', asset: 'USDC' }),
+      expect.objectContaining({ chain: 'solana', asset: 'USDC' }),
+      expect.objectContaining({ chain: 'tron', asset: 'USDC' }),
+    ]);
+  });
+
+  it('deduplicates provider routes and rejects malformed or wrong-asset records', () => {
+    const svc = require('../breezSparkService');
+
+    const routes = svc.normalizeCrossChainDestinationRoutes([
+      { provider: 'Orchestra', chain: 'base', chainId: '8453', asset: 'USDT', decimals: 6 },
+      { provider: 'Orchestra', chain: 'base', chainId: '8453', asset: 'USDT', decimals: 6 },
+      { provider: 'Orchestra', chain: '', asset: 'USDT' },
+      { provider: 'Orchestra', chain: 'solana', asset: 'USDC' },
+    ], 'USDT');
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0]).toMatchObject({ chain: 'base', asset: 'USDT', decimals: 6 });
+  });
+});
