@@ -132,6 +132,25 @@ interface CrossChainRouteLike {
   contractAddress?: unknown;
   decimals?: unknown;
   exactOutEligible?: unknown;
+  supportedSources?: unknown;
+}
+
+export type CrossChainFundingSource =
+  | { asset: 'BTC' }
+  | { asset: 'USDB'; tokenIdentifier: string };
+
+/** Returns whether Breez advertises this route for the fixed Home funding asset. */
+export function isCrossChainRouteCompatibleWithFundingSource(
+  route: CrossChainRouteLike,
+  source: CrossChainFundingSource,
+): boolean {
+  if (!Array.isArray(route.supportedSources)) return false;
+  return route.supportedSources.some((supportedSource) => {
+    if (!supportedSource || typeof supportedSource !== 'object') return false;
+    const candidate = supportedSource as { tag?: unknown; inner?: { tokenIdentifier?: unknown } };
+    if (source.asset === 'BTC') return candidate.tag === 'Bitcoin';
+    return candidate.tag === 'Token' && candidate.inner?.tokenIdentifier === source.tokenIdentifier;
+  });
 }
 
 /**
@@ -2538,6 +2557,7 @@ export async function getCrossChainDestinationRoutes(
 export async function getCrossChainSendRoutesForAddress(
   recipientAddress: string,
   asset: CrossChainStablecoin,
+  fundingSource?: CrossChainFundingSource,
 ): Promise<Array<{ route: unknown; destination: CrossChainDestinationRoute }>> {
   if (!_isNativeAvailable || !sdkInstance) {
     throw new Error('SDK not available');
@@ -2551,10 +2571,13 @@ export async function getCrossChainSendRoutesForAddress(
   const addressDetails = Array.isArray(parsed.inner) ? parsed.inner[0] : parsed.inner;
   const filter = BreezSDK.CrossChainRouteFilter.Send.new({ addressDetails });
   const routes = await sdkInstance.getCrossChainRoutes(filter);
-  const normalized = normalizeCrossChainDestinationRoutes(routes as CrossChainRouteLike[], asset);
+  const compatibleRoutes = fundingSource
+    ? (routes as CrossChainRouteLike[]).filter((route) => isCrossChainRouteCompatibleWithFundingSource(route, fundingSource))
+    : routes as CrossChainRouteLike[];
+  const normalized = normalizeCrossChainDestinationRoutes(compatibleRoutes, asset);
 
   const pairs: Array<{ route: unknown; destination: CrossChainDestinationRoute }> = [];
-  (routes as CrossChainRouteLike[]).forEach((route) => {
+  compatibleRoutes.forEach((route) => {
     const destination = normalized.find((candidate) =>
       candidate.asset === asset &&
       candidate.chain.toLowerCase() === String(route.chain || '').trim().toLowerCase() &&

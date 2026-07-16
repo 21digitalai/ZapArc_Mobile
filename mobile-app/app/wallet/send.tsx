@@ -396,12 +396,21 @@ export default function SendScreen() {
       setCrossChainRouteError(null);
       return;
     }
+    const fundingSource = activeAsset === 'USDB'
+      ? usdbTokenIdentifier ? { asset: 'USDB' as const, tokenIdentifier: usdbTokenIdentifier } : null
+      : { asset: 'BTC' as const };
+    if (!fundingSource) {
+      setCrossChainRoutes([]);
+      setSelectedCrossChainRoute(null);
+      setCrossChainRouteError('USDB funding is not ready yet. Refresh your wallet and try again.');
+      return;
+    }
 
     let cancelled = false;
     const loadRoutes = async () => {
       setIsLoadingCrossChainRoutes(true);
       try {
-        const routes = await BreezSparkService.getCrossChainSendRoutesForAddress(recipientAddress, asset);
+        const routes = await BreezSparkService.getCrossChainSendRoutesForAddress(recipientAddress, asset, fundingSource);
         if (cancelled) return;
         setCrossChainRoutes(routes);
         setSelectedCrossChainRoute(routes.length === 1 ? routes[0].route : null);
@@ -418,7 +427,7 @@ export default function SendScreen() {
     };
     void loadRoutes();
     return () => { cancelled = true; };
-  }, [recipientAsset, paymentInput]);
+  }, [recipientAsset, paymentInput, activeAsset, usdbTokenIdentifier]);
 
 
   const usdbBalance = useMemo(() => getBalanceForAsset('USDB'), [getBalanceForAsset]);

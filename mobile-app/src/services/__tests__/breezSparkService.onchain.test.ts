@@ -184,6 +184,21 @@ describe('getCrossChainSendRoutesForAddress', () => {
       .rejects.toThrow('Enter a valid EVM, Solana, or Tron address');
     expect(mockGetCrossChainRoutes).not.toHaveBeenCalled();
   });
+
+  it('keeps only routes compatible with the inherited BTC or USDB source', () => {
+    const svc = require('../breezSparkService');
+    const btcRoute = { supportedSources: [{ tag: 'Bitcoin' }] };
+    const usdbRoute = { supportedSources: [{ tag: 'Token', inner: { tokenIdentifier: 'usdb-token' } }] };
+
+    expect(svc.isCrossChainRouteCompatibleWithFundingSource(btcRoute, { asset: 'BTC' })).toBe(true);
+    expect(svc.isCrossChainRouteCompatibleWithFundingSource(usdbRoute, { asset: 'BTC' })).toBe(false);
+    expect(svc.isCrossChainRouteCompatibleWithFundingSource(usdbRoute, {
+      asset: 'USDB', tokenIdentifier: 'usdb-token',
+    })).toBe(true);
+    expect(svc.isCrossChainRouteCompatibleWithFundingSource(usdbRoute, {
+      asset: 'USDB', tokenIdentifier: 'other-token',
+    })).toBe(false);
+  });
 });
 
 describe('prepareCrossChainSendPayment', () => {

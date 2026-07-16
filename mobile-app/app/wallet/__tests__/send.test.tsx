@@ -189,7 +189,9 @@ describe('SendScreen on-chain flow', () => {
   });
 
   it('switches from On-chain to the cross-chain surface before preparing a USDC send', async () => {
-    const rawRoute = { provider: 'Orchestra', chain: 'base', chainId: '8453', asset: 'USDC' };
+    const rawRoute = {
+      provider: 'Orchestra', chain: 'base', chainId: '8453', asset: 'USDC', supportedSources: [{ tag: 'Bitcoin' }],
+    };
     mockParsePaymentRequest.mockResolvedValue({ type: 'crossChainAddress', isValid: true });
     mockGetCrossChainSendRoutesForAddress.mockResolvedValue([{
       route: rawRoute,
@@ -205,7 +207,7 @@ describe('SendScreen on-chain flow', () => {
     fireEvent.changeText(screen.getAllByTestId('destination-input')[0], '0xabc');
 
     await waitFor(() => {
-      expect(mockGetCrossChainSendRoutesForAddress).toHaveBeenCalledWith('0xabc', 'USDC');
+      expect(mockGetCrossChainSendRoutesForAddress).toHaveBeenCalledWith('0xabc', 'USDC', { asset: 'BTC' });
       expect(screen.getByText('base (8453)')).toBeTruthy();
     });
 
