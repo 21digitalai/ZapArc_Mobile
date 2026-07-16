@@ -197,7 +197,15 @@ describe('SendScreen on-chain flow', () => {
       route: rawRoute,
       destination: { provider: 'Orchestra', chain: 'base', chainId: '8453', asset: 'USDC', decimals: 6, exactOutEligible: false },
     }]);
-    mockPrepareCrossChainSendPayment.mockResolvedValue({ paymentMethod: { tag: 'CrossChainAddress' } });
+    mockPrepareCrossChainSendPayment.mockResolvedValue({
+      paymentMethod: {
+        tag: 'CrossChainAddress',
+        inner: {
+          estimatedOut: 990000, feeAmount: 10000, sourceTransferFeeSats: 12,
+          feeMode: 'FeesExcluded', expiresAt: '2026-07-16T16:00:00Z',
+        },
+      },
+    });
 
     renderScreen();
     switchToOnchainTab();
@@ -224,6 +232,12 @@ describe('SendScreen on-chain flow', () => {
     expect(screen.getByText('base (8453)')).toBeTruthy();
     expect(screen.getByText('Paying from')).toBeTruthy();
     expect(screen.getByText('BTC wallet')).toBeTruthy();
+    expect(screen.getByText('Recipient delivery')).toBeTruthy();
+    expect(screen.getByText('990,000 USDC')).toBeTruthy();
+    expect(screen.getByText('SDK route fee')).toBeTruthy();
+    expect(screen.getByText('10,000 USDC (FeesExcluded)')).toBeTruthy();
+    expect(screen.getByText('Quote expires')).toBeTruthy();
+    expect(screen.getByText('2026-07-16T16:00:00Z')).toBeTruthy();
   });
 
   it('uses the inherited USDB token context when resolving a stablecoin route', async () => {

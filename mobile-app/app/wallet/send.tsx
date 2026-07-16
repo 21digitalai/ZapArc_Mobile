@@ -146,6 +146,13 @@ interface PaymentPreview {
   fee: number;
   total: number;
   description?: string;
+  crossChainQuote?: {
+    estimatedOut: number;
+    feeAmount: number;
+    sourceTransferFeeSats: number;
+    feeMode: string;
+    expiresAt: string;
+  };
 }
 
 /**
@@ -1125,12 +1132,22 @@ export default function SendScreen() {
         return;
       }
 
+      const crossChainMethod = isCrossChainFlow && prepared?.paymentMethod?.tag === 'CrossChainAddress'
+        ? prepared.paymentMethod.inner
+        : null;
       const paymentPreview: PaymentPreview = {
         recipient: resolvedInput,
         amount: paymentAmount,
         fee: feeAmount,
         total: totalAmount,
         description: parsedRequest.description || comment || undefined,
+        crossChainQuote: crossChainMethod ? {
+          estimatedOut: Number(crossChainMethod.estimatedOut),
+          feeAmount: Number(crossChainMethod.feeAmount),
+          sourceTransferFeeSats: Number(crossChainMethod.sourceTransferFeeSats),
+          feeMode: String(crossChainMethod.feeMode),
+          expiresAt: String(crossChainMethod.expiresAt),
+        } : undefined,
       };
 
       setPreview(paymentPreview);
@@ -1476,6 +1493,26 @@ export default function SendScreen() {
                     <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Paying from</Text>
                     <Text style={[styles.previewValue, { color: primaryTextColor }]}>{activeAsset} wallet</Text>
                   </View>
+                  {preview.crossChainQuote && (
+                    <>
+                      <View style={styles.previewRow}>
+                        <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Recipient delivery</Text>
+                        <Text style={[styles.previewValue, { color: primaryTextColor }]}>
+                          {preview.crossChainQuote.estimatedOut.toLocaleString()} {recipientAsset.toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={styles.previewRow}>
+                        <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>SDK route fee</Text>
+                        <Text style={[styles.previewValue, { color: primaryTextColor }]}>
+                          {preview.crossChainQuote.feeAmount.toLocaleString()} {recipientAsset.toUpperCase()} ({preview.crossChainQuote.feeMode})
+                        </Text>
+                      </View>
+                      <View style={styles.previewRow}>
+                        <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Quote expires</Text>
+                        <Text style={[styles.previewValue, { color: primaryTextColor }]}>{preview.crossChainQuote.expiresAt}</Text>
+                      </View>
+                    </>
+                  )}
                 </>
               )}
               <View style={styles.previewRow}>
