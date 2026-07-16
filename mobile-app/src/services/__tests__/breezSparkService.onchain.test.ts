@@ -18,6 +18,8 @@ jest.mock('../notificationTriggerService', () => ({
 
 const mockSendPayment = jest.fn();
 const mockPrepareSendPayment = jest.fn();
+const mockParse = jest.fn();
+const mockGetCrossChainRoutes = jest.fn();
 const mockAddEventListener = jest.fn().mockResolvedValue('listener-id');
 const mockRemoveEventListener = jest.fn().mockResolvedValue(undefined);
 
@@ -48,10 +50,15 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
   PaymentRequest: {
     CrossChain: { new: (params: unknown) => ({ tag: 'CrossChain', inner: params }) },
   },
+  CrossChainRouteFilter: {
+    Send: { new: (params: unknown) => ({ tag: 'CrossChainSend', inner: params }) },
+  },
   defaultConfig: jest.fn(() => ({})),
   connect: jest.fn().mockResolvedValue({
     sendPayment: (...args: unknown[]) => mockSendPayment(...args),
     prepareSendPayment: (...args: unknown[]) => mockPrepareSendPayment(...args),
+    parse: (...args: unknown[]) => mockParse(...args),
+    getCrossChainRoutes: (...args: unknown[]) => mockGetCrossChainRoutes(...args),
     addEventListener: (...args: unknown[]) => mockAddEventListener(...args),
     removeEventListener: (...args: unknown[]) => mockRemoveEventListener(...args),
     disconnect: jest.fn().mockResolvedValue(undefined),
@@ -140,6 +147,42 @@ describe('normalizeCrossChainDestinationRoutes', () => {
 
     expect(routes).toHaveLength(1);
     expect(routes[0]).toMatchObject({ chain: 'base', asset: 'USDT', decimals: 6 });
+  });
+});
+
+describe('getCrossChainSendRoutesForAddress', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('parses the recipient, fetches Send routes, and preserves the raw SDK route', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    const addressDetails = { chain: 'base', address: '0xabc' };
+    const rawRoute = {
+      provider: 'Orchestra', chain: 'base', chainId: '8453', asset: 'USDC', decimals: 6,
+    };
+    mockParse.mockResolvedValueOnce({ tag: 'CrossChainAddress', inner: [addressDetails] });
+    mockGetCrossChainRoutes.mockResolvedValueOnce([rawRoute]);
+
+    const routes = await svc.getCrossChainSendRoutesForAddress(' 0xabc ', 'USDC');
+
+    expect(mockParse).toHaveBeenCalledWith('0xabc');
+    expect(mockGetCrossChainRoutes).toHaveBeenCalledWith({
+      tag: 'CrossChainSend', inner: { addressDetails },
+    });
+    expect(routes).toEqual([{
+      route: rawRoute,
+      destination: expect.objectContaining({ chain: 'base', chainId: '8453', asset: 'USDC' }),
+    }]);
+  });
+
+  it('rejects a non-cross-chain address before requesting routes', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockParse.mockResolvedValueOnce({ tag: 'BitcoinAddress', inner: {} });
+
+    await expect(svc.getCrossChainSendRoutesForAddress('bc1invalid', 'USDT'))
+      .rejects.toThrow('Enter a valid EVM, Solana, or Tron address');
+    expect(mockGetCrossChainRoutes).not.toHaveBeenCalled();
   });
 });
 
