@@ -391,12 +391,17 @@ function parseRateFromPrepared(prepared: unknown): number {
 }
 
 function isSlippageRefundError(error: unknown): boolean {
+  // Match only slippage/refund signals. The bare 'conversion' substring was
+  // too broad — the SDK stamps "conversion" on many unrelated conversion-flow
+  // errors (timeouts, prepare failures), so matching it misclassified genuine
+  // errors as user-facing "refunded". (Structured detection via ConversionStatus
+  // is the proper fix — deferred to the SDK 0.18 upgrade where the settled
+  // Payment shape is verified against live data.)
   const msg = extractSdkErrorMessage(error, '').toLowerCase();
   const raw = JSON.stringify(error || {}).toLowerCase();
   return (
     msg.includes('slippage') ||
     msg.includes('refund') ||
-    msg.includes('conversion') ||
     raw.includes('slippage') ||
     raw.includes('refund')
   );
@@ -726,26 +731,32 @@ export async function prepareSwap(params: PrepareSwapParams): Promise<SwapQuote>
     // For USDB→BTC, the user's input is USDB display units; we convert to approx
     // sats. Slippage tolerance on the conversion covers rate drift between here
     // and when the SDK settles the swap.
-    let amountForSdk = BigInt(params.amount);
+    // Both directions require converting the user's SOURCE-unit amount into the
+    // SDK's DESTINATION unit (sats↔USDB base units), which needs a BTC/USD rate.
+    // Without one we must NOT fall back to the raw amount — that would pass a
+    // sats count as USDB base units (or vice-versa), off by both the rate AND
+    // 10^decimals, producing a silently garbage quote. Fail loudly instead.
     const rates = getCachedRates() || (await getExchangeRates().catch(() => null));
-    if (rates && rates.usd > 0) {
-      if (params.direction === 'BTC_TO_USDB') {
-        // source: sats → target USDB base units
-        // sats → USD = sats * USD_PER_BTC / 100_000_000
-        // USD → USDB base units = USD * 10^internalDecimals
-        const sats = Number(params.amount);
-        const usd = (sats * rates.usd) / 100_000_000;
-        const usdbBaseUnits = Math.max(1, Math.floor(usd * 10 ** usdbToken.internalDecimals));
-        amountForSdk = BigInt(usdbBaseUnits);
-      } else {
-        // source: USDB base units (what user typed × 10^decimals) → target sats
-        // base units → USD = base / 10^decimals
-        // USD → sats = USD * 100_000_000 / USD_PER_BTC
-        const usdbBase = Number(params.amount);
-        const usd = usdbBase / 10 ** usdbToken.internalDecimals;
-        const sats = Math.max(1, Math.floor((usd * 100_000_000) / rates.usd));
-        amountForSdk = BigInt(sats);
-      }
+    if (!rates || !(rates.usd > 0)) {
+      throw new Error('Exchange rate unavailable — cannot price the swap right now. Please try again in a moment.');
+    }
+    let amountForSdk: bigint;
+    if (params.direction === 'BTC_TO_USDB') {
+      // source: sats → target USDB base units
+      // sats → USD = sats * USD_PER_BTC / 100_000_000
+      // USD → USDB base units = USD * 10^internalDecimals
+      const sats = Number(params.amount);
+      const usd = (sats * rates.usd) / 100_000_000;
+      const usdbBaseUnits = Math.max(1, Math.floor(usd * 10 ** usdbToken.internalDecimals));
+      amountForSdk = BigInt(usdbBaseUnits);
+    } else {
+      // source: USDB base units (what user typed × 10^decimals) → target sats
+      // base units → USD = base / 10^decimals
+      // USD → sats = USD * 100_000_000 / USD_PER_BTC
+      const usdbBase = Number(params.amount);
+      const usd = usdbBase / 10 ** usdbToken.internalDecimals;
+      const sats = Math.max(1, Math.floor((usd * 100_000_000) / rates.usd));
+      amountForSdk = BigInt(sats);
     }
     console.log('🔬 [prepareSwap] amount conversion', {
       direction: params.direction,
@@ -932,7 +943,14 @@ export async function executeSwap(quote: SwapQuote): Promise<SwapOutcome> {
 
     if (quote.direction === 'USDB_TO_BTC') {
       const postBalance = await getUsdbBalanceBaseUnits(usdbToken.tokenIdentifier);
-      const residual = postBalance > preBalance ? postBalance - preBalance : postBalance;
+      // "Dust" = USDB that was RESERVED for this swap (quote.payAmount, from
+      // conversionEstimate.amountIn) but not actually consumed — the slippage-
+      // protection remainder the SDK left behind. It is NOT the whole remaining
+      // balance: a partial swap intentionally leaves the rest untouched, and the
+      // old `postBalance` logic reported that entire remainder as "dust", sending
+      // the user to the residual result screen after a perfectly normal swap.
+      const actualSpent = preBalance > postBalance ? preBalance - postBalance : 0n;
+      const residual = quote.payAmount > actualSpent ? quote.payAmount - actualSpent : 0n;
       if (residual > 0n) {
         return { kind: 'dustResidual', result, residualUsdbBaseUnits: residual };
       }

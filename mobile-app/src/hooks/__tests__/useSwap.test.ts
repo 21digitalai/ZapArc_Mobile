@@ -26,6 +26,10 @@ jest.mock('../../services/breezSparkService', () => ({
   executeSwap: jest.fn(),
   listPayments: jest.fn().mockResolvedValue([]),
   syncWallet: jest.fn().mockResolvedValue(undefined),
+  // useSwap resolves the USDB token on mount to read its decimals.
+  resolveSwapTokens: jest.fn().mockResolvedValue([
+    { id: 'USDB', internalDecimals: 6, tokenIdentifier: 'usdb-token-id' },
+  ]),
 }));
 
 const svc = jest.requireMock('../../services/breezSparkService') as {
@@ -34,6 +38,7 @@ const svc = jest.requireMock('../../services/breezSparkService') as {
   executeSwap: jest.Mock;
   listPayments: jest.Mock;
   syncWallet: jest.Mock;
+  resolveSwapTokens: jest.Mock;
 };
 
 const netInfo = NetInfo as unknown as {

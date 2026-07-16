@@ -37,6 +37,15 @@ jest.mock('react-native-fs', () => ({
   mkdir: jest.fn().mockResolvedValue(undefined),
 }));
 
+// prepareSwap requires a BTC/USD rate to convert source↔destination units.
+// Provide a cached rate so the swap helpers can price; individual tests
+// override this to exercise the no-rate guard.
+const mockCurrency = {
+  getCachedRates: jest.fn(() => ({ usd: 100000 })),
+  getExchangeRates: jest.fn().mockResolvedValue({ usd: 100000 }),
+};
+jest.mock('../../utils/currency', () => mockCurrency);
+
 jest.mock('@breeztech/breez-sdk-spark-react-native', () => {
   function FromBitcoin(this: Record<string, unknown>) {
     this.tag = 'FromBitcoin';
@@ -75,6 +84,8 @@ describe('breezSparkService swap helpers', () => {
     mockSdk.receivePayment.mockResolvedValue({ paymentRequest: 'spark:req' });
     mockSdk.prepareSendPayment.mockResolvedValue({ receiveAmount: 900n, feeSat: 10n, rate: 1.2 });
     mockSdk.sendPayment.mockResolvedValue({ payment: { id: 'payment-1' } });
+    mockCurrency.getCachedRates.mockReturnValue({ usd: 100000 });
+    mockCurrency.getExchangeRates.mockResolvedValue({ usd: 100000 });
   });
 
   async function initAndResolve() {
@@ -133,7 +144,7 @@ describe('breezSparkService swap helpers', () => {
     });
   });
 
-  it('prepareSwap BTC_TO_USDB sets FromBitcoin and bigint amount', async () => {
+  it('prepareSwap BTC_TO_USDB sets FromBitcoin and converts sats to USDB base units', async () => {
     const svc = await initAndResolve();
     await svc.prepareSwap({ direction: 'BTC_TO_USDB', amount: 1000n, slippageBps: 50 });
 
@@ -143,8 +154,11 @@ describe('breezSparkService swap helpers', () => {
         inner: expect.objectContaining({ tokenIdentifier: 'usdb-token-id' }),
       }),
     });
+    // The SDK amount is the DESTINATION unit (USDB base units), not the raw
+    // sats. At rate $100,000/BTC and 6 USDB decimals: 1000 sats = $1.00 =
+    // 1,000,000 base units.
     expect(mockSdk.prepareSendPayment).toHaveBeenCalledWith(expect.objectContaining({
-      amount: 1000n,
+      amount: 1000000n,
       conversionOptions: expect.objectContaining({ conversionType: { tag: 'FromBitcoin' }, maxSlippageBps: 50, completionTimeoutSecs: 30 }),
     }));
   });
@@ -204,8 +218,16 @@ describe('breezSparkService swap helpers', () => {
     expect(outcome.retryable).toBe(true);
   });
 
-  it('executeSwap detects USDB dust residual for USDB_TO_BTC', async () => {
+  it('executeSwap reports only the RESERVED-but-unspent USDB as dust residual', async () => {
     const svc = await initAndResolve();
+    // The prepare reserved 100 base units (conversionEstimate.amountIn); the
+    // swap actually consumed 96 (balance 100 -> 4), so the true slippage
+    // residual is 100 - 96 = 4 — NOT the whole 4-unit remaining balance by
+    // coincidence, but the reserved-minus-consumed delta.
+    mockSdk.prepareSendPayment.mockResolvedValueOnce({
+      amount: 3000n,
+      conversionEstimate: { amountIn: 100n, amountOut: 3000n, fee: 0n },
+    });
     mockSdk.getInfo
       .mockResolvedValueOnce({ tokenBalances: [{ tokenIdentifier: 'usdb-token-id', balance: 100n }] })
       .mockResolvedValueOnce({ tokenBalances: [{ tokenIdentifier: 'usdb-token-id', balance: 4n }] });
@@ -215,5 +237,33 @@ describe('breezSparkService swap helpers', () => {
 
     expect(outcome.kind).toBe('dustResidual');
     expect((outcome as { residualUsdbBaseUnits: bigint }).residualUsdbBaseUnits).toBe(4n);
+  });
+
+  it('executeSwap does NOT report a partial-swap remainder as dust', async () => {
+    const svc = await initAndResolve();
+    // Reserved 30 units, consumed all 30 (balance 100 -> 70). The 70 left is the
+    // user's intentional remainder, not dust — residual must be 0 -> success.
+    mockSdk.prepareSendPayment.mockResolvedValueOnce({
+      amount: 3000n,
+      conversionEstimate: { amountIn: 30n, amountOut: 3000n, fee: 0n },
+    });
+    mockSdk.getInfo
+      .mockResolvedValueOnce({ tokenBalances: [{ tokenIdentifier: 'usdb-token-id', balance: 100n }] })
+      .mockResolvedValueOnce({ tokenBalances: [{ tokenIdentifier: 'usdb-token-id', balance: 70n }] });
+
+    const quote = await svc.prepareSwap({ direction: 'USDB_TO_BTC', amount: 3000n, slippageBps: 50 });
+    const outcome = await svc.executeSwap(quote);
+
+    expect(outcome.kind).toBe('success');
+  });
+
+  it('prepareSwap throws instead of building a garbage quote when no rate is available', async () => {
+    const svc = await initAndResolve();
+    mockCurrency.getCachedRates.mockReturnValue(null as unknown as { usd: number });
+    mockCurrency.getExchangeRates.mockResolvedValue(null as unknown as { usd: number });
+
+    await expect(
+      svc.prepareSwap({ direction: 'BTC_TO_USDB', amount: 3000n, slippageBps: 50 })
+    ).rejects.toThrow(/rate unavailable/i);
   });
 });
