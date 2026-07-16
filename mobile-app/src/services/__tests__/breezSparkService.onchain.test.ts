@@ -17,9 +17,6 @@ jest.mock('../notificationTriggerService', () => ({
 }));
 
 const mockSendPayment = jest.fn();
-const mockPrepareSendPayment = jest.fn();
-const mockParse = jest.fn();
-const mockGetCrossChainRoutes = jest.fn();
 const mockAddEventListener = jest.fn().mockResolvedValue('listener-id');
 const mockRemoveEventListener = jest.fn().mockResolvedValue(undefined);
 
@@ -47,18 +44,9 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
       return { type: 'bitcoinAddress', confirmationSpeed };
     },
   },
-  PaymentRequest: {
-    CrossChain: { new: (params: unknown) => ({ tag: 'CrossChain', inner: params }) },
-  },
-  CrossChainRouteFilter: {
-    Send: { new: (params: unknown) => ({ tag: 'CrossChainSend', inner: params }) },
-  },
   defaultConfig: jest.fn(() => ({})),
   connect: jest.fn().mockResolvedValue({
     sendPayment: (...args: unknown[]) => mockSendPayment(...args),
-    prepareSendPayment: (...args: unknown[]) => mockPrepareSendPayment(...args),
-    parse: (...args: unknown[]) => mockParse(...args),
-    getCrossChainRoutes: (...args: unknown[]) => mockGetCrossChainRoutes(...args),
     addEventListener: (...args: unknown[]) => mockAddEventListener(...args),
     removeEventListener: (...args: unknown[]) => mockRemoveEventListener(...args),
     disconnect: jest.fn().mockResolvedValue(undefined),
@@ -114,165 +102,5 @@ describe('BreezSparkService.sendOnchainPayment', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('not initialized');
-  });
-});
-
-describe('BreezSparkService cross-chain rollout gate', () => {
-  beforeEach(() => jest.clearAllMocks());
-
-  it('does not attach cross-chain SDK configuration while the rollout flag is off', async () => {
-    const svc = require('../breezSparkService');
-    const BreezSDK = require('@breeztech/breez-sdk-spark-react-native');
-
-    await svc.initializeSDK('test mnemonic words go here twelve words');
-
-    const config = BreezSDK.defaultConfig.mock.results.at(-1)?.value;
-    expect(config).toBeDefined();
-    expect(config.crossChainConfig).toBeUndefined();
-  });
-});
-
-describe('normalizeCrossChainDestinationRoutes', () => {
-  it('keeps live EVM, Solana, and Tron routes for the selected stablecoin', () => {
-    const svc = require('../breezSparkService');
-
-    const routes = svc.normalizeCrossChainDestinationRoutes([
-      { provider: 'Orchestra', chain: 'base', chainId: '8453', asset: 'USDC', decimals: 6, exactOutEligible: true },
-      { provider: 'Orchestra', chain: 'solana', asset: 'USDC', decimals: 6, exactOutEligible: false },
-      { provider: 'Boltz', chain: 'tron', asset: 'USDC', decimals: 6, exactOutEligible: true },
-      { provider: 'Orchestra', chain: 'ethereum', chainId: '1', asset: 'USDT', decimals: 6, exactOutEligible: true },
-    ], 'USDC');
-
-    expect(routes).toEqual([
-      expect.objectContaining({ chain: 'base', chainId: '8453', asset: 'USDC' }),
-      expect.objectContaining({ chain: 'solana', asset: 'USDC' }),
-      expect.objectContaining({ chain: 'tron', asset: 'USDC' }),
-    ]);
-  });
-
-  it('deduplicates provider routes and rejects malformed or wrong-asset records', () => {
-    const svc = require('../breezSparkService');
-
-    const routes = svc.normalizeCrossChainDestinationRoutes([
-      { provider: 'Orchestra', chain: 'base', chainId: '8453', asset: 'USDT', decimals: 6 },
-      { provider: 'Orchestra', chain: 'base', chainId: '8453', asset: 'USDT', decimals: 6 },
-      { provider: 'Orchestra', chain: '', asset: 'USDT' },
-      { provider: 'Orchestra', chain: 'solana', asset: 'USDC' },
-    ], 'USDT');
-
-    expect(routes).toHaveLength(1);
-    expect(routes[0]).toMatchObject({ chain: 'base', asset: 'USDT', decimals: 6 });
-  });
-});
-
-describe('getCrossChainSendRoutesForAddress', () => {
-  beforeEach(() => jest.clearAllMocks());
-
-  it('parses the recipient, fetches Send routes, and preserves the raw SDK route', async () => {
-    const svc = require('../breezSparkService');
-    await svc.initializeSDK('test mnemonic words go here twelve words');
-    const addressDetails = { chain: 'base', address: '0xabc' };
-    const rawRoute = {
-      provider: 'Orchestra', chain: 'base', chainId: '8453', asset: 'USDC', decimals: 6,
-    };
-    mockParse.mockResolvedValueOnce({ tag: 'CrossChainAddress', inner: [addressDetails] });
-    mockGetCrossChainRoutes.mockResolvedValueOnce([rawRoute]);
-
-    const routes = await svc.getCrossChainSendRoutesForAddress(' 0xabc ', 'USDC');
-
-    expect(mockParse).toHaveBeenCalledWith('0xabc');
-    expect(mockGetCrossChainRoutes).toHaveBeenCalledWith({
-      tag: 'CrossChainSend', inner: { addressDetails },
-    });
-    expect(routes).toEqual([{
-      route: rawRoute,
-      destination: expect.objectContaining({ chain: 'base', chainId: '8453', asset: 'USDC' }),
-    }]);
-  });
-
-  it.each([
-    ['EVM', 'ethereum:0x1111111111111111111111111111111111111111@8453', { chain: 'base' }],
-    ['Solana', 'solana:So11111111111111111111111111111111111111112', { chain: 'solana' }],
-    ['Tron', 'tron:TVjsyZ7fYF3qLF6BQgPmTEZy1xrNLxBE8b', { chain: 'tron' }],
-  ])('accepts canonical %s recipient URIs through the Breez parser', async (_family, uri, addressDetails) => {
-    const svc = require('../breezSparkService');
-    await svc.initializeSDK('test mnemonic words go here twelve words');
-    mockParse.mockResolvedValueOnce({ tag: 'CrossChainAddress', inner: [addressDetails] });
-    mockGetCrossChainRoutes.mockResolvedValueOnce([]);
-
-    await expect(svc.getCrossChainSendRoutesForAddress(uri, 'USDT')).resolves.toEqual([]);
-    expect(mockParse).toHaveBeenCalledWith(uri);
-  });
-
-  it('rejects a non-cross-chain address before requesting routes', async () => {
-    const svc = require('../breezSparkService');
-    await svc.initializeSDK('test mnemonic words go here twelve words');
-    mockParse.mockResolvedValueOnce({ tag: 'BitcoinAddress', inner: {} });
-
-    await expect(svc.getCrossChainSendRoutesForAddress('bc1invalid', 'USDT'))
-      .rejects.toThrow('Enter a valid EVM, Solana, or Tron address');
-    expect(mockGetCrossChainRoutes).not.toHaveBeenCalled();
-  });
-
-  it('keeps only routes compatible with the inherited BTC or USDB source', () => {
-    const svc = require('../breezSparkService');
-    const btcRoute = { supportedSources: [{ tag: 'Bitcoin' }] };
-    const usdbRoute = { supportedSources: [{ tag: 'Token', inner: { tokenIdentifier: 'usdb-token' } }] };
-
-    expect(svc.isCrossChainRouteCompatibleWithFundingSource(btcRoute, { asset: 'BTC' })).toBe(true);
-    expect(svc.isCrossChainRouteCompatibleWithFundingSource(usdbRoute, { asset: 'BTC' })).toBe(false);
-    expect(svc.isCrossChainRouteCompatibleWithFundingSource(usdbRoute, {
-      asset: 'USDB', tokenIdentifier: 'usdb-token',
-    })).toBe(true);
-    expect(svc.isCrossChainRouteCompatibleWithFundingSource(usdbRoute, {
-      asset: 'USDB', tokenIdentifier: 'other-token',
-    })).toBe(false);
-  });
-
-  it('returns only source-compatible SDK routes for inherited BTC and USDB funding', async () => {
-    const svc = require('../breezSparkService');
-    await svc.initializeSDK('test mnemonic words go here twelve words');
-    const btcRoute = {
-      provider: 'Orchestra', chain: 'base', chainId: '8453', asset: 'USDC', decimals: 6,
-      supportedSources: [{ tag: 'Bitcoin' }],
-    };
-    const usdbRoute = {
-      provider: 'Orchestra', chain: 'solana', asset: 'USDC', decimals: 6,
-      supportedSources: [{ tag: 'Token', inner: { tokenIdentifier: 'usdb-token' } }],
-    };
-
-    mockParse.mockResolvedValue({ tag: 'CrossChainAddress', inner: [{ chain: 'base' }] });
-    mockGetCrossChainRoutes.mockResolvedValue([btcRoute, usdbRoute]);
-
-    const btcRoutes = await svc.getCrossChainSendRoutesForAddress('0xabc', 'USDC', { asset: 'BTC' });
-    const usdbRoutes = await svc.getCrossChainSendRoutesForAddress('0xabc', 'USDC', {
-      asset: 'USDB', tokenIdentifier: 'usdb-token',
-    });
-
-    expect(btcRoutes).toHaveLength(1);
-    expect(btcRoutes[0].route).toBe(btcRoute);
-    expect(usdbRoutes).toHaveLength(1);
-    expect(usdbRoutes[0].route).toBe(usdbRoute);
-  });
-});
-
-describe('prepareCrossChainSendPayment', () => {
-  beforeEach(() => jest.clearAllMocks());
-
-  it.each([
-    [undefined, 2500],
-    ['usdb-token-id', 2500000],
-  ])('forwards source token and source amount units', async (tokenIdentifier, amount) => {
-    const svc = require('../breezSparkService');
-    await svc.initializeSDK('test mnemonic words go here twelve words');
-    mockPrepareSendPayment.mockResolvedValueOnce({ paymentMethod: { tag: 'CrossChainAddress' } });
-
-    await svc.prepareCrossChainSendPayment('0xabc', { chain: 'base', asset: 'USDC' }, amount, { tokenIdentifier });
-
-    expect(mockPrepareSendPayment).toHaveBeenCalledWith(expect.objectContaining({
-      amount: BigInt(amount),
-      tokenIdentifier,
-      paymentRequest: expect.objectContaining({ tag: 'CrossChain' }),
-    }));
   });
 });

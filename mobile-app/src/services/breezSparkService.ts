@@ -9,7 +9,6 @@
 import { BREEZ_API_KEY, BREEZ_STORAGE_DIR } from '../config';
 import { getExchangeRates, getCachedRates } from '../utils/currency';
 import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
-import { CROSS_CHAIN_SEND_ENABLED } from '../config/features';
 // Push notifications now flow via Breez's webhook registration + relay.
 // Foreground UX still comes from the local notification/event listeners.
 
@@ -109,86 +108,6 @@ export interface PaymentResult {
 export interface ReceivePaymentResult {
   paymentRequest: string;
   feeSat: number;
-}
-
-export type CrossChainStablecoin = 'USDT' | 'USDC';
-
-/** A destination network returned by Breez's cross-chain route API. */
-export interface CrossChainDestinationRoute {
-  provider: string;
-  chain: string;
-  chainId?: string;
-  asset: CrossChainStablecoin;
-  contractAddress?: string;
-  decimals: number;
-  exactOutEligible: boolean;
-}
-
-interface CrossChainRouteLike {
-  provider?: unknown;
-  chain?: unknown;
-  chainId?: unknown;
-  asset?: unknown;
-  contractAddress?: unknown;
-  decimals?: unknown;
-  exactOutEligible?: unknown;
-  supportedSources?: unknown;
-}
-
-export type CrossChainFundingSource =
-  | { asset: 'BTC' }
-  | { asset: 'USDB'; tokenIdentifier: string };
-
-/** Returns whether Breez advertises this route for the fixed Home funding asset. */
-export function isCrossChainRouteCompatibleWithFundingSource(
-  route: CrossChainRouteLike,
-  source: CrossChainFundingSource,
-): boolean {
-  if (!Array.isArray(route.supportedSources)) return false;
-  return route.supportedSources.some((supportedSource) => {
-    if (!supportedSource || typeof supportedSource !== 'object') return false;
-    const candidate = supportedSource as { tag?: unknown; inner?: { tokenIdentifier?: unknown } };
-    if (source.asset === 'BTC') return candidate.tag === 'Bitcoin';
-    return candidate.tag === 'Token' && candidate.inner?.tokenIdentifier === source.tokenIdentifier;
-  });
-}
-
-/**
- * Normalizes live Breez route records for the Send UI.  Do not replace this
- * with a hard-coded network list: providers decide the currently supported
- * EVM chains, Solana, and Tron at runtime.
- */
-export function normalizeCrossChainDestinationRoutes(
-  routes: CrossChainRouteLike[],
-  asset: CrossChainStablecoin,
-): CrossChainDestinationRoute[] {
-  const targetAsset = asset.toUpperCase();
-  const seen = new Set<string>();
-
-  return routes.reduce<CrossChainDestinationRoute[]>((result, route) => {
-    if (typeof route.asset !== 'string' || route.asset.toUpperCase() !== targetAsset) return result;
-    if (typeof route.chain !== 'string' || route.chain.trim() === '') return result;
-
-    const chain = route.chain.trim();
-    const chainId = typeof route.chainId === 'string' && route.chainId.trim() ? route.chainId.trim() : undefined;
-    const provider = typeof route.provider === 'string' ? route.provider : 'breez';
-    const key = `${provider}:${chain.toLowerCase()}:${chainId || ''}:${targetAsset}`;
-    if (seen.has(key)) return result;
-    seen.add(key);
-
-    result.push({
-      provider,
-      chain,
-      chainId,
-      asset,
-      contractAddress: typeof route.contractAddress === 'string' && route.contractAddress.trim()
-        ? route.contractAddress.trim()
-        : undefined,
-      decimals: typeof route.decimals === 'number' ? route.decimals : 0,
-      exactOutEligible: route.exactOutEligible === true,
-    });
-    return result;
-  }, []);
 }
 
 export interface TransactionInfo {
@@ -1177,12 +1096,6 @@ export async function initializeSDK(
 
     // Create the default config
     const config = BreezSDK.defaultConfig(BreezSDK.Network.Mainnet);
-    if (CROSS_CHAIN_SEND_ENABLED) {
-      config.crossChainConfig = new BreezSDK.CrossChainConfig({
-        defaultSlippageBps: undefined,
-        defaultTargetOverpayBps: undefined,
-      });
-    }
     
     // Only set API key if provided (empty string = no key)
     const effectiveApiKey = apiKey || BREEZ_API_KEY;
@@ -2532,92 +2445,10 @@ function decodeBolt11AmountSats(invoice: string): number | undefined {
 }
 
 /**
- * Fetches the currently available Breez routes for an already-parsed external
- * recipient. The caller must construct Breez's `CrossChainRouteFilter.Send`
- * from that address; route availability is address-specific, so a static
- * chain catalogue would be inaccurate.
- */
-export async function getCrossChainDestinationRoutes(
-  routeFilter: unknown,
-  asset: CrossChainStablecoin,
-): Promise<CrossChainDestinationRoute[]> {
-  if (!_isNativeAvailable || !sdkInstance) {
-    throw new Error('SDK not available');
-  }
-
-  const routes = await sdkInstance.getCrossChainRoutes(routeFilter);
-  return normalizeCrossChainDestinationRoutes(routes as CrossChainRouteLike[], asset);
-}
-
-/**
- * Resolves routes for a recipient address using the SDK parser. Keeping the
- * parsed address and route together avoids guessing an EVM/Solana/Tron family
- * in JavaScript and lets Breez select the currently supported provider route.
- */
-export async function getCrossChainSendRoutesForAddress(
-  recipientAddress: string,
-  asset: CrossChainStablecoin,
-  fundingSource?: CrossChainFundingSource,
-): Promise<Array<{ route: unknown; destination: CrossChainDestinationRoute }>> {
-  if (!_isNativeAvailable || !sdkInstance) {
-    throw new Error('SDK not available');
-  }
-
-  const parsed = await sdkInstance.parse(recipientAddress.trim());
-  if (parsed?.tag !== 'CrossChainAddress') {
-    throw new Error('Enter a valid EVM, Solana, or Tron address');
-  }
-
-  const addressDetails = Array.isArray(parsed.inner) ? parsed.inner[0] : parsed.inner;
-  const filter = BreezSDK.CrossChainRouteFilter.Send.new({ addressDetails });
-  const routes = await sdkInstance.getCrossChainRoutes(filter);
-  const compatibleRoutes = fundingSource
-    ? (routes as CrossChainRouteLike[]).filter((route) => isCrossChainRouteCompatibleWithFundingSource(route, fundingSource))
-    : routes as CrossChainRouteLike[];
-  const normalized = normalizeCrossChainDestinationRoutes(compatibleRoutes, asset);
-
-  const pairs: Array<{ route: unknown; destination: CrossChainDestinationRoute }> = [];
-  compatibleRoutes.forEach((route) => {
-    const destination = normalized.find((candidate) =>
-      candidate.asset === asset &&
-      candidate.chain.toLowerCase() === String(route.chain || '').trim().toLowerCase() &&
-      candidate.chainId === (typeof route.chainId === 'string' ? route.chainId.trim() || undefined : undefined) &&
-      candidate.provider === (typeof route.provider === 'string' ? route.provider : 'breez')
-    );
-    if (destination) pairs.push({ route, destination });
-  });
-  return pairs;
-}
-
-/** Prepare an address-specific Breez cross-chain payment for the selected route. */
-export async function prepareCrossChainSendPayment(
-  recipientAddress: string,
-  route: unknown,
-  amount: number,
-  options?: { tokenIdentifier?: string },
-): Promise<unknown> {
-  if (!_isNativeAvailable || !sdkInstance) {
-    throw new Error('SDK not available');
-  }
-
-  const paymentRequest = BreezSDK.PaymentRequest.CrossChain.new({
-    address: recipientAddress.trim(),
-    route,
-    maxSlippageBps: undefined,
-    targetOverpayBps: undefined,
-  });
-  return sdkInstance.prepareSendPayment({
-    paymentRequest,
-    amount: BigInt(amount),
-    tokenIdentifier: options?.tokenIdentifier,
-  });
-}
-
-/**
  * Parse and validate a payment request
  */
 export async function parsePaymentRequest(input: string): Promise<{
-  type: 'bolt11' | 'sparkInvoice' | 'lnurl' | 'lightningAddress' | 'bitcoinAddress' | 'sparkAddress' | 'crossChainAddress' | 'unknown';
+  type: 'bolt11' | 'sparkInvoice' | 'lnurl' | 'lightningAddress' | 'bitcoinAddress' | 'sparkAddress' | 'unknown';
   isValid: boolean;
   /** Amount in sats. Set for BTC invoices (Bolt11 or sat-denominated SparkInvoice). */
   amountSat?: number;
@@ -2670,10 +2501,6 @@ export async function parsePaymentRequest(input: string): Promise<{
   try {
     // Use SDK to parse for full details including amount
     const parsed = await sdkInstance.parse(trimmed);
-
-    if (parsed.tag === 'CrossChainAddress') {
-      return { type: 'crossChainAddress', isValid: true };
-    }
 
     // Check the parsed result type
     if (parsed.tag === 'Bolt11Invoice' && parsed.inner) {
@@ -3160,10 +2987,6 @@ export const BreezSparkService = {
   beginDisconnectSDK,
   isSDKInitialized,
   getRawSdkInstanceForDevtools,
-  getCrossChainDestinationRoutes,
-  getCrossChainSendRoutesForAddress,
-  prepareCrossChainSendPayment,
-  normalizeCrossChainDestinationRoutes,
   resolveSwapTokens,
   getTokenBalances,
   fetchSwapLimits,

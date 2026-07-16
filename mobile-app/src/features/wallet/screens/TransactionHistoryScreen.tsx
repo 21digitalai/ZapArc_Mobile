@@ -33,15 +33,6 @@ import { buildTransactionRows, type TransactionRow, type WalletAsset } from '../
 
 type FilterType = 'all' | 'sent' | 'received';
 
-type CrossChainHistory = {
-  recipientAsset: string;
-  destination: string;
-  sourceAsset: string;
-  deliveryAmount: number;
-  feeAmount: number;
-  feeMode: string;
-};
-
 // =============================================================================
 // Component
 // =============================================================================
@@ -67,7 +58,6 @@ export function TransactionHistoryScreen(): React.JSX.Element {
   const [selectedSwapRow, setSelectedSwapRow] = useState<TransactionRow | null>(null);
   const [selectedTxNote, setSelectedTxNote] = useState<string | null>(null);
   const [selectedTxRecipient, setSelectedTxRecipient] = useState<string | null>(null);
-  const [selectedCrossChain, setSelectedCrossChain] = useState<CrossChainHistory | null>(null);
   // Full-text popover for truncated detail values. Holds the label + full
   // value + the on-screen anchor rect (measured from the tapped row) so we
   // can float a bubble just above it.
@@ -83,7 +73,6 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     if (!selectedTransaction?.id) {
       setSelectedTxNote(null);
       setSelectedTxRecipient(null);
-      setSelectedCrossChain(null);
       return;
     }
     const id = selectedTransaction.id;
@@ -93,16 +82,6 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     AsyncStorage.getItem(`payment_recipient_${id}`)
       .then((r) => setSelectedTxRecipient(r))
       .catch(() => setSelectedTxRecipient(null));
-    AsyncStorage.getItem(`payment_cross_chain_${id}`)
-      .then((value) => {
-        if (!value) return setSelectedCrossChain(null);
-        try {
-          setSelectedCrossChain(JSON.parse(value) as CrossChainHistory);
-        } catch {
-          setSelectedCrossChain(null);
-        }
-      })
-      .catch(() => setSelectedCrossChain(null));
   }, [selectedTransaction]);
 
   // Dismiss the popover whenever the detail modal closes.
@@ -306,17 +285,6 @@ export function TransactionHistoryScreen(): React.JSX.Element {
             {/* Details */}
             <View style={styles.detailsContainer}>
               <DetailRow label={t('wallet.type')} value={isReceived ? t('wallet.received') : t('wallet.sent')} />
-              {selectedCrossChain && !isReceived && (
-                <>
-                  <DetailRow
-                    label="Cross-chain send"
-                    value={`Sent ${selectedCrossChain.deliveryAmount.toLocaleString()} ${selectedCrossChain.recipientAsset}`}
-                  />
-                  <DetailRow label="From" value={`${selectedCrossChain.sourceAsset} wallet`} />
-                  <DetailRow label="Destination" value={selectedCrossChain.destination} copyable fullValue={selectedCrossChain.destination} onShowFull={setDetailPopover} />
-                  <DetailRow label="Route fee" value={`${selectedCrossChain.feeAmount.toLocaleString()} ${selectedCrossChain.recipientAsset} (${selectedCrossChain.feeMode})`} />
-                </>
-              )}
               <DetailRow label="Method" value={method === 'onchain' ? 'On-chain' : 'Lightning'} />
               <DetailRow
                 label={t('wallet.date')}

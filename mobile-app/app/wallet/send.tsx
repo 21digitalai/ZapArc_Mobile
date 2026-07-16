@@ -15,8 +15,8 @@ import {
 import { useAppTheme } from '../../src/contexts/ThemeContext';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { useWallet } from '../../src/hooks/useWallet';
-import { BreezSparkService, type CrossChainDestinationRoute } from '../../src/services/breezSparkService';
-import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED, CROSS_CHAIN_SEND_ENABLED } from '../../src/config/features';
+import { BreezSparkService } from '../../src/services/breezSparkService';
+import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
 import { useCurrency } from '../../src/hooks/useCurrency';
 import { formatFiat, satsToFiat, usdbToFiat, fiatToUsdb } from '../../src/utils/currency';
 import { cycleDisplayCurrency, type DisplayCurrency } from '../../src/services/displayCurrencyService';
@@ -123,14 +123,6 @@ function parseBIP21(input: string): {
 type SendStep = 'input' | 'preview' | 'onchain-preview' | 'scanning';
 type ConfirmationSpeed = 'fast' | 'medium' | 'slow';
 type SendTab = 'lightning' | 'onchain';
-export type RecipientAsset = 'bitcoin' | 'usdb' | 'usdt' | 'usdc';
-
-const RECIPIENT_ASSET_OPTIONS: Array<{ value: RecipientAsset; label: string }> = [
-  { value: 'bitcoin', label: 'Bitcoin / Lightning' },
-  { value: 'usdb', label: 'USDB' },
-  { value: 'usdt', label: 'USDT' },
-  { value: 'usdc', label: 'USDC' },
-];
 
 interface OnchainFeeQuote {
   feeSats: number;        // total fee (service + L1)
@@ -146,52 +138,6 @@ interface PaymentPreview {
   fee: number;
   total: number;
   description?: string;
-  crossChainQuote?: {
-    sourceAmount: number;
-    sourceAssetAmount: number;
-    estimatedOut: number;
-    feeAmount: number;
-    serviceFeeAmount: number;
-    serviceFeeAsset?: string;
-    sourceTransferFeeSats: number;
-    feeMode: string;
-    expiresAt: string;
-    sdkRate?: string;
-    slippageBps?: number;
-  };
-}
-
-function getCrossChainQuote(prepared: any): PaymentPreview['crossChainQuote'] | undefined {
-  const method = prepared?.paymentMethod;
-  if (method?.tag !== 'CrossChainAddress') return undefined;
-
-  const quote = method.inner || method;
-  // These values must come from the SDK-prepared object. In particular, do
-  // not derive a rate from input/output amounts: that would conceal provider
-  // spread and fee treatment. Provider contexts expose the slippage guard for
-  // routes that support it.
-  const sdkRate = quote.rate ?? prepared?.conversionEstimate?.rate;
-  const providerSlippageBps = quote.providerContext?.inner?.maxSlippageBps;
-  const slippageBps = quote.maxSlippageBps ?? providerSlippageBps;
-  return {
-    sourceAmount: Number(quote.amountIn || 0),
-    sourceAssetAmount: Number(quote.assetAmountIn || 0),
-    estimatedOut: Number(quote.estimatedOut || 0),
-    feeAmount: Number(quote.feeAmount || 0),
-    serviceFeeAmount: Number(quote.serviceFeeAmount || 0),
-    serviceFeeAsset: quote.serviceFeeAsset ? String(quote.serviceFeeAsset) : undefined,
-    sourceTransferFeeSats: Number(quote.sourceTransferFeeSats || 0),
-    feeMode: String(quote.feeMode || 'Unknown'),
-    expiresAt: String(quote.expiresAt || ''),
-    sdkRate: sdkRate === undefined || sdkRate === null ? undefined : String(sdkRate),
-    slippageBps: Number.isFinite(Number(slippageBps)) ? Number(slippageBps) : undefined,
-  };
-}
-
-function isCrossChainQuoteExpired(quote?: PaymentPreview['crossChainQuote']): boolean {
-  if (!quote?.expiresAt) return false;
-  const expiresAt = Date.parse(quote.expiresAt);
-  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
 }
 
 /**
@@ -245,14 +191,6 @@ export default function SendScreen() {
 
   const [step, setStep] = useState<SendStep>('input');
   const [activeTab, setActiveTab] = useState<SendTab>('lightning');
-  // Funding remains the asset selected on Home (`activeAsset`). This state
-  // describes only what the recipient will receive; the cross-chain children
-  // use it to load routes and execute stablecoin sends through Breez.
-  const [recipientAsset, setRecipientAsset] = useState<RecipientAsset>('bitcoin');
-  const [crossChainRoutes, setCrossChainRoutes] = useState<Array<{ route: unknown; destination: CrossChainDestinationRoute }>>([]);
-  const [selectedCrossChainRoute, setSelectedCrossChainRoute] = useState<unknown>(null);
-  const [isLoadingCrossChainRoutes, setIsLoadingCrossChainRoutes] = useState(false);
-  const [crossChainRouteError, setCrossChainRouteError] = useState<string | null>(null);
   const [paymentInput, setPaymentInput] = useState('');
   const [amount, setAmount] = useState('');
   const [comment, setComment] = useState('');
@@ -433,52 +371,6 @@ export default function SendScreen() {
     };
   }, [isUsdbAsset]);
 
-  useEffect(() => {
-    const asset = recipientAsset === 'usdt' ? 'USDT' : recipientAsset === 'usdc' ? 'USDC' : null;
-    const recipientAddress = paymentInput.trim();
-    if (!asset || !recipientAddress) {
-      setCrossChainRoutes([]);
-      setSelectedCrossChainRoute(null);
-      setCrossChainRouteError(null);
-      return;
-    }
-    const fundingSource = activeAsset === 'USDB'
-      ? usdbTokenIdentifier ? { asset: 'USDB' as const, tokenIdentifier: usdbTokenIdentifier } : null
-      : { asset: 'BTC' as const };
-    if (!fundingSource) {
-      setCrossChainRoutes([]);
-      setSelectedCrossChainRoute(null);
-      setCrossChainRouteError('USDB funding is not ready yet. Refresh your wallet and try again.');
-      return;
-    }
-
-    let cancelled = false;
-    const loadRoutes = async () => {
-      setIsLoadingCrossChainRoutes(true);
-      try {
-        const routes = await BreezSparkService.getCrossChainSendRoutesForAddress(recipientAddress, asset, fundingSource);
-        if (cancelled) return;
-        setCrossChainRoutes(routes);
-        // A refreshed route list may no longer contain the route the user
-        // previously chose. Never retain that stale route: a single live
-        // destination is safe to select, while any ambiguous address must
-        // receive an explicit network choice.
-        setSelectedCrossChainRoute(routes.length === 1 ? routes[0].route : null);
-        setCrossChainRouteError(routes.length ? null : `No ${asset} route is currently available for this address.`);
-      } catch (error) {
-        if (!cancelled) {
-          setCrossChainRoutes([]);
-          setSelectedCrossChainRoute(null);
-          setCrossChainRouteError(error instanceof Error ? error.message : 'Could not load destination networks.');
-        }
-      } finally {
-        if (!cancelled) setIsLoadingCrossChainRoutes(false);
-      }
-    };
-    void loadRoutes();
-    return () => { cancelled = true; };
-  }, [recipientAsset, paymentInput, activeAsset, usdbTokenIdentifier]);
-
 
   const usdbBalance = useMemo(() => getBalanceForAsset('USDB'), [getBalanceForAsset]);
 
@@ -565,13 +457,6 @@ export default function SendScreen() {
     },
     [activeTab, isUsdbAsset, resetFormState]
   );
-
-  const handleRecipientAssetChange = useCallback((asset: RecipientAsset) => {
-    setRecipientAsset(asset);
-    if ((asset === 'usdt' || asset === 'usdc') && activeTab === 'onchain') {
-      setActiveTab('lightning');
-    }
-  }, [activeTab]);
 
   // (cycleCurrency removed — superseded by the bottom-sheet picker)
 
@@ -974,14 +859,8 @@ export default function SendScreen() {
 
       const parsedRequest = await BreezSparkService.parsePaymentRequest(resolvedInput);
       const isOnchainFlow = activeTab === 'onchain';
-      const isCrossChainFlow = recipientAsset === 'usdt' || recipientAsset === 'usdc';
 
-      if (isCrossChainFlow && !selectedCrossChainRoute) {
-        Alert.alert(t('common.error'), 'Enter a supported recipient address and select a destination network.');
-        return;
-      }
-
-      if (isUsdbAsset && !isCrossChainFlow) {
+      if (isUsdbAsset) {
         if (parsedRequest.type === 'bolt11') {
           setUsdbLightningError('USDB transfers stay on Spark. Lightning invoices are BTC-only.');
           return;
@@ -1087,18 +966,11 @@ export default function SendScreen() {
         return;
       }
 
-      const prepared = isCrossChainFlow
-        ? await BreezSparkService.prepareCrossChainSendPayment(
-          resolvedInput,
-          selectedCrossChainRoute,
-          paymentAmount,
-          isUsdbAsset ? { tokenIdentifier: usdbTokenIdentifier || undefined } : undefined,
-        )
-        : await BreezSparkService.prepareSendPayment(
-          resolvedInput,
-          paymentAmount,
-          isUsdbAsset ? { tokenIdentifier: usdbTokenIdentifier || undefined } : undefined
-        );
+      const prepared = await BreezSparkService.prepareSendPayment(
+        resolvedInput,
+        paymentAmount,
+        isUsdbAsset ? { tokenIdentifier: usdbTokenIdentifier || undefined } : undefined
+      );
       console.log('🔍 [Send] prepared response:', JSON.stringify(prepared, (_, v) => typeof v === 'bigint' ? v.toString() : v));
       setPrepareResponse(prepared);
 
@@ -1160,25 +1032,23 @@ export default function SendScreen() {
 
       const totalAmount = paymentAmount + feeAmount;
 
-      if (totalAmount > availableBalance) {
+      if (totalAmount > balance) {
         Alert.alert(
           t('send.insufficientBalance'),
           t('send.insufficientBalanceWithFee')
             .replace('{{total}}', totalAmount.toLocaleString())
             .replace('{{fee}}', feeAmount.toLocaleString())
-            .replace('{{balance}}', availableBalance.toLocaleString())
+            .replace('{{balance}}', balance.toLocaleString())
         );
         return;
       }
 
-      const crossChainQuote = isCrossChainFlow ? getCrossChainQuote(prepared) : undefined;
       const paymentPreview: PaymentPreview = {
         recipient: resolvedInput,
         amount: paymentAmount,
         fee: feeAmount,
         total: totalAmount,
         description: parsedRequest.description || comment || undefined,
-        crossChainQuote,
       };
 
       setPreview(paymentPreview);
@@ -1209,7 +1079,7 @@ export default function SendScreen() {
     } finally {
       setIsPreparing(false);
     }
-  }, [paymentInput, amount, comment, balance, inputCurrency, convertToSats, getOnchainFeeQuote, selectedSpeed, activeTab, isUsdbAsset, usdbTokenIdentifier, isValidUsdbSparkPayment, recipientAsset, selectedCrossChainRoute, t]);
+  }, [paymentInput, amount, comment, balance, inputCurrency, convertToSats, getOnchainFeeQuote, selectedSpeed, activeTab, isUsdbAsset, usdbTokenIdentifier, isValidUsdbSparkPayment, t]);
 
   const handleSendPayment = useCallback(async () => {
     if (!preview || !prepareResponse) {
@@ -1228,44 +1098,9 @@ export default function SendScreen() {
       setIsSending(true);
 
       const isOnchainFlow = step === 'onchain-preview';
-      const isCrossChainFlow = recipientAsset === 'usdt' || recipientAsset === 'usdc';
-      let preparedForSend = prepareResponse;
-
-      // Cross-chain SDK quotes are time-bound. Refresh an expired quote before
-      // executing, then pass the freshly returned object through untouched.
-      // In particular, never spread/serialize it: Breez treats object identity
-      // as part of the prepared-payment contract.
-      if (isCrossChainFlow && isCrossChainQuoteExpired(preview.crossChainQuote)) {
-        if (!selectedCrossChainRoute) {
-          Alert.alert(t('send.paymentFailed'), 'The selected destination route is no longer available. Choose a network and try again.');
-          setStep('input');
-          return;
-        }
-        try {
-          preparedForSend = await BreezSparkService.prepareCrossChainSendPayment(
-            preview.recipient,
-            selectedCrossChainRoute,
-            preview.amount,
-            isUsdbAsset ? { tokenIdentifier: usdbTokenIdentifier || undefined } : undefined,
-          );
-          const refreshedQuote = getCrossChainQuote(preparedForSend);
-          if (!refreshedQuote || isCrossChainQuoteExpired(refreshedQuote)) {
-            throw new Error('The refreshed quote has expired. Please try again.');
-          }
-          setPrepareResponse(preparedForSend);
-          setPreview({ ...preview, crossChainQuote: refreshedQuote });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Could not refresh the cross-chain quote.';
-          Alert.alert(t('send.paymentFailed'), message);
-          setStep('input');
-          setPreview(null);
-          setPrepareResponse(null);
-          return;
-        }
-      }
       const result = isOnchainFlow
-        ? await BreezSparkService.sendOnchainPayment(preparedForSend, selectedSpeed)
-        : await BreezSparkService.sendPayment(preparedForSend, paymentInput, preview.amount);
+        ? await BreezSparkService.sendOnchainPayment(prepareResponse, selectedSpeed)
+        : await BreezSparkService.sendPayment(prepareResponse, paymentInput, preview.amount);
 
       if (result.success) {
         if (result.paymentId && comment.trim()) {
@@ -1294,20 +1129,6 @@ export default function SendScreen() {
             await AsyncStorage.setItem(`payment_recipient_${result.paymentId}`, recipientRaw);
           } catch {
             // Non-critical — ignore storage errors
-          }
-        }
-        if (result.paymentId && isCrossChainFlow && preview.crossChainQuote) {
-          try {
-            await AsyncStorage.setItem(`payment_cross_chain_${result.paymentId}`, JSON.stringify({
-              recipientAsset: recipientAsset.toUpperCase(),
-              destination: preview.recipient,
-              sourceAsset: activeAsset,
-              deliveryAmount: preview.crossChainQuote.estimatedOut,
-              feeAmount: preview.crossChainQuote.feeAmount,
-              feeMode: preview.crossChainQuote.feeMode,
-            }));
-          } catch {
-            // Non-critical — the SDK payment remains authoritative.
           }
         }
         await refreshBalance();
@@ -1353,7 +1174,7 @@ export default function SendScreen() {
       setIsSending(false);
       sendInFlightRef.current = false;
     }
-  }, [preview, prepareResponse, refreshBalance, step, selectedSpeed, paymentInput, comment, contacts, t, recipientAsset, selectedCrossChainRoute, isUsdbAsset, usdbTokenIdentifier, activeAsset]);
+  }, [preview, prepareResponse, refreshBalance, step, selectedSpeed, paymentInput, comment, contacts, t]);
 
   const handleBackToInput = useCallback(() => {
     setStep('input');
@@ -1495,11 +1316,6 @@ export default function SendScreen() {
 
   if ((step === 'preview' || step === 'onchain-preview') && preview) {
     const isOnchainPreview = step === 'onchain-preview';
-    const isCrossChainPreview = recipientAsset === 'usdt' || recipientAsset === 'usdc';
-    const selectedDestination = crossChainRoutes.find(({ route }) => route === selectedCrossChainRoute)?.destination;
-    const destinationNetworkLabel = selectedDestination
-      ? `${selectedDestination.chain}${selectedDestination.chainId ? ` (${selectedDestination.chainId})` : ''}`
-      : null;
     const previewFiat = {
       amount: formatPreviewFiat(preview.amount),
       fee: formatPreviewFiat(preview.fee),
@@ -1557,80 +1373,6 @@ export default function SendScreen() {
             )}
 
             <View style={styles.previewContainer}>
-              {isCrossChainPreview && (
-                <>
-                  <View style={styles.previewRow}>
-                    <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Recipient receives</Text>
-                    <Text style={[styles.previewValue, { color: primaryTextColor }]}>{recipientAsset.toUpperCase()}</Text>
-                  </View>
-                  {destinationNetworkLabel && (
-                    <View style={styles.previewRow}>
-                      <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Destination network</Text>
-                      <Text style={[styles.previewValue, { color: primaryTextColor }]}>{destinationNetworkLabel}</Text>
-                    </View>
-                  )}
-                  <View style={styles.previewRow}>
-                    <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Paying from</Text>
-                    <Text style={[styles.previewValue, { color: primaryTextColor }]}>{activeAsset} wallet</Text>
-                  </View>
-                  {preview.crossChainQuote && (
-                    <>
-                      <View style={styles.previewRow}>
-                        <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Recipient delivery</Text>
-                        <Text style={[styles.previewValue, { color: primaryTextColor }]}>
-                          {preview.crossChainQuote.estimatedOut.toLocaleString()} {recipientAsset.toUpperCase()}
-                        </Text>
-                      </View>
-                      <View style={styles.previewRow}>
-                        <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Source amount</Text>
-                        <Text style={[styles.previewValue, { color: primaryTextColor }]}>
-                          {isUsdbAsset
-                            ? `${formatUsdbFromBaseUnits(preview.crossChainQuote.sourceAmount)} USDB`
-                            : `${preview.crossChainQuote.sourceAmount.toLocaleString()} sats`}
-                        </Text>
-                      </View>
-                      <View style={styles.previewRow}>
-                        <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>SDK route fee</Text>
-                        <Text style={[styles.previewValue, { color: primaryTextColor }]}>
-                          {preview.crossChainQuote.feeAmount.toLocaleString()} {recipientAsset.toUpperCase()} ({preview.crossChainQuote.feeMode})
-                        </Text>
-                      </View>
-                      <View style={styles.previewRow}>
-                        <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Source transfer fee</Text>
-                        <Text style={[styles.previewValue, { color: primaryTextColor }]}>
-                          {preview.crossChainQuote.sourceTransferFeeSats.toLocaleString()} sats
-                        </Text>
-                      </View>
-                      {preview.crossChainQuote.serviceFeeAmount > 0 && (
-                        <View style={styles.previewRow}>
-                          <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Provider service fee</Text>
-                          <Text style={[styles.previewValue, { color: primaryTextColor }]}>
-                            {preview.crossChainQuote.serviceFeeAmount.toLocaleString()} {preview.crossChainQuote.serviceFeeAsset || recipientAsset.toUpperCase()}
-                          </Text>
-                        </View>
-                      )}
-                      {preview.crossChainQuote.sdkRate && (
-                        <View style={styles.previewRow}>
-                          <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>SDK rate</Text>
-                          <Text style={[styles.previewValue, { color: primaryTextColor }]}>{preview.crossChainQuote.sdkRate}</Text>
-                        </View>
-                      )}
-                      {preview.crossChainQuote.slippageBps !== undefined && (
-                        <View style={styles.previewRow}>
-                          <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Slippage tolerance</Text>
-                          <Text style={[styles.previewValue, { color: primaryTextColor }]}>
-                            {preview.crossChainQuote.slippageBps} bps
-                          </Text>
-                        </View>
-                      )}
-                      <View style={styles.previewRow}>
-                        <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Quote expires</Text>
-                        <Text style={[styles.previewValue, { color: primaryTextColor }]}>{preview.crossChainQuote.expiresAt}</Text>
-                      </View>
-                    </>
-                  )}
-                </>
-              )}
               <View style={styles.previewRow}>
                 <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>{t('send.recipient')}</Text>
                 <Text style={[styles.previewValue, { color: primaryTextColor }]} numberOfLines={1} ellipsizeMode="middle">
@@ -1765,35 +1507,6 @@ export default function SendScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.recipientAssetSection}>
-          <Text style={[styles.recipientAssetLabel, { color: primaryTextColor }]}>Recipient receives</Text>
-          <View style={styles.recipientAssetSelector} accessibilityRole="radiogroup" accessibilityLabel="Recipient receives">
-            {RECIPIENT_ASSET_OPTIONS.filter((option) => CROSS_CHAIN_SEND_ENABLED || (option.value !== 'usdt' && option.value !== 'usdc')).map((option) => {
-              const isSelected = recipientAsset === option.value;
-              return (
-                <TouchableOpacity
-                  key={option.value}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: isSelected }}
-                  accessibilityLabel={option.label}
-                  onPress={() => handleRecipientAssetChange(option.value)}
-                  style={[
-                    styles.recipientAssetOption,
-                    isSelected && styles.recipientAssetOptionSelected,
-                  ]}
-                >
-                  <Text style={[
-                    styles.recipientAssetOptionText,
-                    { color: isSelected ? '#1a1a2e' : primaryTextColor },
-                  ]}>
-                    {option.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-
         {isUsdbAsset && (
           <View style={styles.usdbBanner}>
             <Text style={styles.usdbBannerText}>USDB transfers stay on Spark.</Text>
@@ -1898,32 +1611,6 @@ export default function SendScreen() {
 
           {addressError && activeTab === 'onchain' && (
             <Text style={styles.addressErrorText}>{addressError}</Text>
-          )}
-
-          {(recipientAsset === 'usdt' || recipientAsset === 'usdc') && (
-            <View style={styles.destinationNetworkSection}>
-              <Text style={[styles.label, { color: primaryTextColor }]}>Destination network</Text>
-              {isLoadingCrossChainRoutes && <Text style={[styles.destinationNetworkHint, { color: secondaryTextColor }]}>Loading live Breez routes…</Text>}
-              {!!crossChainRouteError && <Text style={styles.addressErrorText}>{crossChainRouteError}</Text>}
-              <View style={styles.recipientAssetSelector}>
-                {crossChainRoutes.map(({ route, destination }) => {
-                  const isSelected = selectedCrossChainRoute === route;
-                  const label = destination.chainId ? `${destination.chain} (${destination.chainId})` : destination.chain;
-                  return (
-                    <TouchableOpacity
-                      key={`${destination.provider}:${destination.chain}:${destination.chainId || ''}`}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: isSelected }}
-                      accessibilityLabel={label}
-                      onPress={() => setSelectedCrossChainRoute(route)}
-                      style={[styles.recipientAssetOption, isSelected && styles.recipientAssetOptionSelected]}
-                    >
-                      <Text style={[styles.recipientAssetOptionText, { color: isSelected ? '#1a1a2e' : primaryTextColor }]}>{label}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
           )}
 
           {!!usdbLightningError && isLightningTab && isUsdbAsset && (
@@ -2225,43 +1912,6 @@ const styles = StyleSheet.create({
   },
   tabButtonDisabled: {
     opacity: 0.4,
-  },
-  recipientAssetSection: {
-    marginHorizontal: 24,
-    marginTop: 8,
-  },
-  recipientAssetLabel: {
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  recipientAssetSelector: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  recipientAssetOption: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-  },
-  recipientAssetOptionSelected: {
-    borderColor: BRAND_COLOR,
-    backgroundColor: BRAND_COLOR,
-  },
-  recipientAssetOptionText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  destinationNetworkSection: {
-    marginTop: 4,
-  },
-  destinationNetworkHint: {
-    fontSize: 12,
-    marginBottom: 8,
   },
   usdbBanner: {
     marginHorizontal: 20,
