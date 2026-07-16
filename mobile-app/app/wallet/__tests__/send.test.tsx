@@ -8,6 +8,7 @@ import SendScreen from '../send';
 jest.mock('../../../src/config/features', () => ({
   SWAP_FEATURE_ENABLED: true,
   MULTI_ASSET_UI_ENABLED: true,
+  CROSS_CHAIN_SEND_ENABLED: true,
   CONTACTS_BACKUP_ENABLED: false,
 }));
 
@@ -46,6 +47,8 @@ jest.mock('react-native-paper', () => {
 
 const mockParsePaymentRequest = jest.fn();
 const mockPrepareSendPayment = jest.fn();
+const mockPrepareCrossChainSendPayment = jest.fn();
+const mockGetCrossChainSendRoutesForAddress = jest.fn();
 const mockSendOnchainPayment = jest.fn();
 const mockSendPayment = jest.fn();
 
@@ -121,6 +124,8 @@ jest.mock('../../../src/services/breezSparkService', () => ({
   BreezSparkService: {
     parsePaymentRequest: (...args: unknown[]) => mockParsePaymentRequest(...args),
     prepareSendPayment: (...args: unknown[]) => mockPrepareSendPayment(...args),
+    prepareCrossChainSendPayment: (...args: unknown[]) => mockPrepareCrossChainSendPayment(...args),
+    getCrossChainSendRoutesForAddress: (...args: unknown[]) => mockGetCrossChainSendRoutesForAddress(...args),
     sendOnchainPayment: (...args: unknown[]) => mockSendOnchainPayment(...args),
     sendPayment: (...args: unknown[]) => mockSendPayment(...args),
     resolveSwapTokens: jest.fn().mockResolvedValue([{ tokenIdentifier: 'usdb-token', decimals: 2 }]),
@@ -180,6 +185,36 @@ describe('SendScreen on-chain flow', () => {
 
     await waitFor(() => {
       expect(mockParsePaymentRequest).toHaveBeenCalled();
+    });
+  });
+
+  it('switches from On-chain to the cross-chain surface before preparing a USDC send', async () => {
+    const rawRoute = { provider: 'Orchestra', chain: 'base', chainId: '8453', asset: 'USDC' };
+    mockParsePaymentRequest.mockResolvedValue({ type: 'crossChainAddress', isValid: true });
+    mockGetCrossChainSendRoutesForAddress.mockResolvedValue([{
+      route: rawRoute,
+      destination: { provider: 'Orchestra', chain: 'base', chainId: '8453', asset: 'USDC', decimals: 6, exactOutEligible: false },
+    }]);
+    mockPrepareCrossChainSendPayment.mockResolvedValue({ paymentMethod: { tag: 'CrossChainAddress' } });
+
+    renderScreen();
+    switchToOnchainTab();
+    fireEvent.press(screen.getByText('USDC'));
+
+    expect(screen.queryByText('Bitcoin on-chain transaction')).toBeNull();
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], '0xabc');
+
+    await waitFor(() => {
+      expect(mockGetCrossChainSendRoutesForAddress).toHaveBeenCalledWith('0xabc', 'USDC');
+      expect(screen.getByText('base (8453)')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByText('base (8453)'));
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
+    fireEvent.press(screen.getByText('Preview Payment'));
+
+    await waitFor(() => {
+      expect(mockPrepareCrossChainSendPayment).toHaveBeenCalledWith('0xabc', rawRoute, 1000, undefined);
     });
   });
 

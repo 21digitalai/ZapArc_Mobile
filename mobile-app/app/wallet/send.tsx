@@ -507,6 +507,13 @@ export default function SendScreen() {
     [activeTab, isUsdbAsset, resetFormState]
   );
 
+  const handleRecipientAssetChange = useCallback((asset: RecipientAsset) => {
+    setRecipientAsset(asset);
+    if ((asset === 'usdt' || asset === 'usdc') && activeTab === 'onchain') {
+      setActiveTab('lightning');
+    }
+  }, [activeTab]);
+
   // (cycleCurrency removed — superseded by the bottom-sheet picker)
 
   const handleContactSelect = useCallback((contact: Contact) => {
@@ -1580,7 +1587,7 @@ export default function SendScreen() {
                   accessibilityRole="radio"
                   accessibilityState={{ selected: isSelected }}
                   accessibilityLabel={option.label}
-                  onPress={() => setRecipientAsset(option.value)}
+                  onPress={() => handleRecipientAssetChange(option.value)}
                   style={[
                     styles.recipientAssetOption,
                     isSelected && styles.recipientAssetOptionSelected,
