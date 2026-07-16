@@ -16,7 +16,7 @@ import { useAppTheme } from '../../src/contexts/ThemeContext';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { useWallet } from '../../src/hooks/useWallet';
 import { BreezSparkService, type CrossChainDestinationRoute } from '../../src/services/breezSparkService';
-import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
+import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED, CROSS_CHAIN_SEND_ENABLED } from '../../src/config/features';
 import { useCurrency } from '../../src/hooks/useCurrency';
 import { formatFiat, satsToFiat, usdbToFiat, fiatToUsdb } from '../../src/utils/currency';
 import { cycleDisplayCurrency, type DisplayCurrency } from '../../src/services/displayCurrencyService';
@@ -1567,7 +1567,7 @@ export default function SendScreen() {
         <View style={styles.recipientAssetSection}>
           <Text style={[styles.recipientAssetLabel, { color: primaryTextColor }]}>Recipient receives</Text>
           <View style={styles.recipientAssetSelector} accessibilityRole="radiogroup" accessibilityLabel="Recipient receives">
-            {RECIPIENT_ASSET_OPTIONS.map((option) => {
+            {RECIPIENT_ASSET_OPTIONS.filter((option) => CROSS_CHAIN_SEND_ENABLED || (option.value !== 'usdt' && option.value !== 'usdc')).map((option) => {
               const isSelected = recipientAsset === option.value;
               return (
                 <TouchableOpacity

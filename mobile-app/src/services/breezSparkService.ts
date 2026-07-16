@@ -9,6 +9,7 @@
 import { BREEZ_API_KEY, BREEZ_STORAGE_DIR } from '../config';
 import { getExchangeRates, getCachedRates } from '../utils/currency';
 import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
+import { CROSS_CHAIN_SEND_ENABLED } from '../config/features';
 // Push notifications now flow via Breez's webhook registration + relay.
 // Foreground UX still comes from the local notification/event listeners.
 
@@ -1157,6 +1158,12 @@ export async function initializeSDK(
 
     // Create the default config
     const config = BreezSDK.defaultConfig(BreezSDK.Network.Mainnet);
+    if (CROSS_CHAIN_SEND_ENABLED) {
+      config.crossChainConfig = new BreezSDK.CrossChainConfig({
+        defaultSlippageBps: undefined,
+        defaultTargetOverpayBps: undefined,
+      });
+    }
     
     // Only set API key if provided (empty string = no key)
     const effectiveApiKey = apiKey || BREEZ_API_KEY;

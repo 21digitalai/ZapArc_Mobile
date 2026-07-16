@@ -71,6 +71,13 @@ export const SWAP_FEATURE_ENABLED = false as boolean;
 export const MULTI_ASSET_UI_ENABLED = false as boolean;
 
 /**
+ * Enables external-chain USDT/USDC sends through Breez SDK Spark. Keep this
+ * disabled until the operator completes the small-value mainnet validation and
+ * App Store rollout review; the SDK config stays absent while disabled.
+ */
+export const CROSS_CHAIN_SEND_ENABLED = false as boolean;
+
+/**
  * CONTACTS_BACKUP_ENABLED gates including the address book in cloud backups and
  * the merge-on-restore prompt. The full implementation (encryption, opt-in
  * toggle, dedup-by-lightning-address merge) stays in the codebase — this flag
