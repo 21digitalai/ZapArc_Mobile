@@ -203,7 +203,8 @@ describe('SendScreen on-chain flow', () => {
         inner: {
           amountIn: 1000, assetAmountIn: 1000, estimatedOut: 990000,
           feeAmount: 10000, serviceFeeAmount: 500, serviceFeeAsset: 'USDC', sourceTransferFeeSats: 12,
-          feeMode: 'FeesExcluded', expiresAt: '2026-07-16T16:00:00Z',
+          feeMode: 'FeesExcluded', expiresAt: '2026-07-16T16:00:00Z', rate: '0.99 USDC per 1,000 sats',
+          providerContext: { tag: 'Boltz', inner: { maxSlippageBps: 50 } },
         },
       },
     });
@@ -243,6 +244,10 @@ describe('SendScreen on-chain flow', () => {
     expect(screen.getByText('12 sats')).toBeTruthy();
     expect(screen.getByText('Provider service fee')).toBeTruthy();
     expect(screen.getByText('500 USDC')).toBeTruthy();
+    expect(screen.getByText('SDK rate')).toBeTruthy();
+    expect(screen.getByText('0.99 USDC per 1,000 sats')).toBeTruthy();
+    expect(screen.getByText('Slippage tolerance')).toBeTruthy();
+    expect(screen.getByText('50 bps')).toBeTruthy();
     expect(screen.getByText('Quote expires')).toBeTruthy();
     expect(screen.getByText('2026-07-16T16:00:00Z')).toBeTruthy();
   });
@@ -346,6 +351,43 @@ describe('SendScreen on-chain flow', () => {
       expect(mockSendPayment).toHaveBeenCalledWith(prepared, 'So11111111111111111111111111111111111111112', 125);
     });
     expect(mockSendPayment.mock.calls[0][0]).toBe(prepared);
+  });
+
+  it('prevents two rapid cross-chain confirmations from sending twice', async () => {
+    const rawRoute = { provider: 'Breez', chain: 'base', chainId: '8453', asset: 'USDC' };
+    const prepared = {
+      paymentMethod: { tag: 'CrossChainAddress', inner: {
+        amountIn: 1000, assetAmountIn: 1000, estimatedOut: 990000,
+        feeAmount: 10000, sourceTransferFeeSats: 12,
+        feeMode: 'FeesExcluded', expiresAt: '2999-01-01T00:00:00Z',
+      } },
+    };
+    let resolveSend: (value: { success: boolean; paymentId: string }) => void;
+    const sendPromise = new Promise<{ success: boolean; paymentId: string }>((resolve) => {
+      resolveSend = resolve;
+    });
+    mockParsePaymentRequest.mockResolvedValue({ type: 'crossChainAddress', isValid: true });
+    mockGetCrossChainSendRoutesForAddress.mockResolvedValue([{
+      route: rawRoute,
+      destination: { provider: 'Breez', chain: 'base', chainId: '8453', asset: 'USDC', decimals: 6, exactOutEligible: false },
+    }]);
+    mockPrepareCrossChainSendPayment.mockResolvedValue(prepared);
+    mockSendPayment.mockReturnValue(sendPromise);
+
+    renderScreen();
+    fireEvent.press(screen.getByText('USDC'));
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], '0xabc');
+    await waitFor(() => expect(screen.getByText('base (8453)')).toBeTruthy());
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
+    fireEvent.press(screen.getByText('Preview Payment'));
+    await waitFor(() => expect(screen.getByText('Send Payment')).toBeTruthy());
+
+    fireEvent.press(screen.getByText('Send Payment'));
+    fireEvent.press(screen.getByText('Send Payment'));
+
+    await waitFor(() => expect(mockSendPayment).toHaveBeenCalledTimes(1));
+    expect(mockSendPayment.mock.calls[0][0]).toBe(prepared);
+    resolveSend!({ success: true, paymentId: 'single-cross-chain-send' });
   });
 
   it('lists dynamic EVM, Solana, and Tron routes and requires a network choice for an ambiguous address', async () => {

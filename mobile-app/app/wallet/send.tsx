@@ -156,6 +156,8 @@ interface PaymentPreview {
     sourceTransferFeeSats: number;
     feeMode: string;
     expiresAt: string;
+    sdkRate?: string;
+    slippageBps?: number;
   };
 }
 
@@ -164,6 +166,13 @@ function getCrossChainQuote(prepared: any): PaymentPreview['crossChainQuote'] | 
   if (method?.tag !== 'CrossChainAddress') return undefined;
 
   const quote = method.inner || method;
+  // These values must come from the SDK-prepared object. In particular, do
+  // not derive a rate from input/output amounts: that would conceal provider
+  // spread and fee treatment. Provider contexts expose the slippage guard for
+  // routes that support it.
+  const sdkRate = quote.rate ?? prepared?.conversionEstimate?.rate;
+  const providerSlippageBps = quote.providerContext?.inner?.maxSlippageBps;
+  const slippageBps = quote.maxSlippageBps ?? providerSlippageBps;
   return {
     sourceAmount: Number(quote.amountIn || 0),
     sourceAssetAmount: Number(quote.assetAmountIn || 0),
@@ -174,6 +183,8 @@ function getCrossChainQuote(prepared: any): PaymentPreview['crossChainQuote'] | 
     sourceTransferFeeSats: Number(quote.sourceTransferFeeSats || 0),
     feeMode: String(quote.feeMode || 'Unknown'),
     expiresAt: String(quote.expiresAt || ''),
+    sdkRate: sdkRate === undefined || sdkRate === null ? undefined : String(sdkRate),
+    slippageBps: Number.isFinite(Number(slippageBps)) ? Number(slippageBps) : undefined,
   };
 }
 
@@ -1595,6 +1606,20 @@ export default function SendScreen() {
                           <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Provider service fee</Text>
                           <Text style={[styles.previewValue, { color: primaryTextColor }]}>
                             {preview.crossChainQuote.serviceFeeAmount.toLocaleString()} {preview.crossChainQuote.serviceFeeAsset || recipientAsset.toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                      {preview.crossChainQuote.sdkRate && (
+                        <View style={styles.previewRow}>
+                          <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>SDK rate</Text>
+                          <Text style={[styles.previewValue, { color: primaryTextColor }]}>{preview.crossChainQuote.sdkRate}</Text>
+                        </View>
+                      )}
+                      {preview.crossChainQuote.slippageBps !== undefined && (
+                        <View style={styles.previewRow}>
+                          <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>Slippage tolerance</Text>
+                          <Text style={[styles.previewValue, { color: primaryTextColor }]}>
+                            {preview.crossChainQuote.slippageBps} bps
                           </Text>
                         </View>
                       )}
