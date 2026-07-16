@@ -226,6 +226,33 @@ describe('SendScreen on-chain flow', () => {
     expect(screen.getByText('BTC wallet')).toBeTruthy();
   });
 
+  it('uses the inherited USDB token context when resolving a stablecoin route', async () => {
+    const rawRoute = {
+      provider: 'Orchestra', chain: 'solana', asset: 'USDT', supportedSources: [{
+        tag: 'Token', inner: { tokenIdentifier: 'usdb-token' },
+      }],
+    };
+    mockUseLocalSearchParams.mockReturnValue({ asset: 'USDB' });
+    mockParsePaymentRequest.mockResolvedValue({ type: 'crossChainAddress', isValid: true });
+    mockGetCrossChainSendRoutesForAddress.mockResolvedValue([{
+      route: rawRoute,
+      destination: { provider: 'Orchestra', chain: 'solana', asset: 'USDT', decimals: 6, exactOutEligible: false },
+    }]);
+
+    renderScreen();
+    fireEvent.press(screen.getByText('USDT'));
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'So11111111111111111111111111111111111111112');
+
+    await waitFor(() => {
+      expect(mockGetCrossChainSendRoutesForAddress).toHaveBeenCalledWith(
+        'So11111111111111111111111111111111111111112',
+        'USDT',
+        { asset: 'USDB', tokenIdentifier: 'usdb-token' },
+      );
+      expect(screen.getByText('solana')).toBeTruthy();
+    });
+  });
+
   it('lists dynamic EVM, Solana, and Tron routes and requires a network choice for an ambiguous address', async () => {
     const routes = [
       { route: { chain: 'base', chainId: '8453' }, destination: { provider: 'Breez', chain: 'Base', chainId: '8453', asset: 'USDT' as const, decimals: 6, exactOutEligible: false } },
