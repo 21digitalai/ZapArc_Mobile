@@ -233,6 +233,7 @@ export function FeedbackProvider({ children }: FeedbackProviderProps): React.JSX
       <ToastBanner
         visible={!!toast}
         onDismiss={() => setToast(null)}
+        revision={toast?.id}
         title={toast?.message ?? ''}
         tone={toast ? TYPE_TO_TONE[toast.type] : 'info'}
         icon={toast ? TYPE_TO_ICON[toast.type] : undefined}

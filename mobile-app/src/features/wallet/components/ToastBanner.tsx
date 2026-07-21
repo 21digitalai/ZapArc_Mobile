@@ -20,7 +20,7 @@ export interface ToastBannerProps {
    * Changes whenever a visible notification is replaced. This deliberately
    * restarts the display timer without tying it to incidental parent renders.
    */
-  revision?: number;
+  revision?: string | number;
   /**
    * Leading text icon (emoji or single glyph). Rendered inside a tone-tinted
    * square chip on the left of the pill.
