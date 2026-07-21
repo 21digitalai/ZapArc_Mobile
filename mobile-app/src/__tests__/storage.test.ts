@@ -155,6 +155,9 @@ describe('StorageService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (SecureStore.getItemAsync as jest.Mock).mockReset().mockResolvedValue(null);
+    (SecureStore.setItemAsync as jest.Mock).mockReset().mockResolvedValue(undefined);
+    (SecureStore.deleteItemAsync as jest.Mock).mockReset().mockResolvedValue(undefined);
     storageService = new StorageService();
   });
 
@@ -227,8 +230,11 @@ describe('StorageService', () => {
     const testPin = '123456';
 
     it('should create a new master key', async () => {
-      (SecureStore.getItemAsync as jest.Mock).mockResolvedValue(null);
-      (SecureStore.setItemAsync as jest.Mock).mockResolvedValue(undefined);
+      const values = new Map<string, string>();
+      (SecureStore.getItemAsync as jest.Mock).mockImplementation(async (key: string) => values.get(key) ?? null);
+      (SecureStore.setItemAsync as jest.Mock).mockImplementation(async (key: string, value: string) => {
+        values.set(key, value);
+      });
 
       const masterKeyId = await storageService.createMasterKey(
         testMnemonic,
@@ -300,6 +306,11 @@ describe('StorageService', () => {
   describe('PIN lockout/backoff', () => {
     it('applies lockout after threshold failed PIN attempts', async () => {
       const masterKeyId = 'mk-lockout';
+      const values = new Map<string, string>();
+      (SecureStore.getItemAsync as jest.Mock).mockImplementation(async (key: string) => values.get(key) ?? null);
+      (SecureStore.setItemAsync as jest.Mock).mockImplementation(async (key: string, value: string) => {
+        values.set(key, value);
+      });
       jest.spyOn(storageService, 'getMasterKeyMnemonic').mockRejectedValue(new Error('Wrong PIN'));
 
       await storageService.verifyMasterKeyPin(masterKeyId, '111111');
@@ -558,6 +569,8 @@ describe('SettingsService', () => {
         '@zap_arc/user_settings',
         '@zap_arc/domain_settings',
         '@zap_arc/blacklist_data',
+        '@zap_arc/swap_settings',
+        '@zap_arc/active_asset',
         '@zap_arc/onboarding_complete',
         '@zap_arc/last_sync_time',
       ]);

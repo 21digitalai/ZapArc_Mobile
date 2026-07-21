@@ -411,7 +411,7 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB', options
     confirmInFlightRef.current = true;
     const activeQuote = state.quote;
     lastQuoteRef.current = activeQuote;
-    lastInputRef.current = String(activeQuote.amount);
+    lastInputRef.current = amountInput;
     lastDirectionRef.current = activeQuote.direction;
     inFlightPaymentIdRef.current = toPaymentId(activeQuote.preparedPayment);
     setState({ status: 'confirming', quote: activeQuote });
@@ -442,7 +442,7 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB', options
     } finally {
       confirmInFlightRef.current = false;
     }
-  }, [options, state]);
+  }, [amountInput, options, state]);
 
   const retrySwap = useCallback(() => {
     const preservedAmount = lastInputRef.current || amountInput;

@@ -41,6 +41,11 @@ const svc = jest.requireMock('../../services/breezSparkService') as {
   resolveSwapTokens: jest.Mock;
 };
 
+const settings = jest.requireMock('../../services/settingsService').settingsService as {
+  getSwapSettings: jest.Mock;
+  updateSwapSettings: jest.Mock;
+};
+
 const netInfo = NetInfo as unknown as {
   fetch: jest.Mock;
   addEventListener: jest.Mock;
@@ -49,6 +54,7 @@ const netInfo = NetInfo as unknown as {
 const baseQuote = {
   direction: 'BTC_TO_USDB',
   amount: 1000n,
+  payAmount: 1000n,
   slippageBps: 50,
   receiveAmount: 995n,
   feeSat: 5n,
@@ -58,19 +64,27 @@ const baseQuote = {
 
 describe('useSwap', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     jest.useFakeTimers();
     netInfo.fetch.mockResolvedValue({ isConnected: true });
     netInfo.addEventListener.mockImplementation(() => jest.fn());
 
+    settings.getSwapSettings.mockResolvedValue({ slippageBps: 50 });
+    settings.updateSwapSettings.mockResolvedValue({ slippageBps: 50 });
     svc.fetchSwapLimits.mockResolvedValue({ min: 100n, max: 1000000n });
     svc.prepareSwap.mockImplementation(async ({ direction, amount, slippageBps }: { direction: string; amount: bigint; slippageBps: number }) => ({
       ...baseQuote,
       direction,
       amount,
+      payAmount: amount,
       slippageBps,
       receiveAmount: amount > 5n ? amount - 5n : amount,
     }));
+    svc.listPayments.mockResolvedValue([]);
+    svc.syncWallet.mockResolvedValue(undefined);
+    svc.resolveSwapTokens.mockResolvedValue([
+      { id: 'USDB', internalDecimals: 6, tokenIdentifier: 'usdb-token-id' },
+    ]);
   });
 
   afterEach(() => {
@@ -345,12 +359,12 @@ describe('useSwap', () => {
   it('retrySwap preserves last amount and direction', async () => {
     svc.executeSwap.mockResolvedValueOnce({ kind: 'error', message: 'oops', retryable: true });
     const { result } = renderHook(() => useSwap('USDB_TO_BTC'));
-    await quote(result, '2000');
+    await quote(result, '0.0002');
     act(() => result.current.openReview());
     await act(async () => void (await result.current.confirmSwap()));
     act(() => result.current.retrySwap());
     expect(result.current.direction).toBe('USDB_TO_BTC');
-    expect(result.current.amountInput).toBe('2000');
+    expect(result.current.amountInput).toBe('0.0002');
   });
 
   it('tryAgainFromRefund preserves amount and requotes', async () => {
