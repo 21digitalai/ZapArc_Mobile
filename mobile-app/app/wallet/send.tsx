@@ -169,7 +169,7 @@ export default function SendScreen() {
   const primaryTextColor = getPrimaryTextColor(themeMode);
   const secondaryTextColor = getSecondaryTextColor(themeMode);
 
-  const { balance, refreshBalance, getBalanceForAsset } = useWallet();
+  const { balance, refreshBalance, refreshTransactions, getBalanceForAsset } = useWallet();
   const {
     displayCurrency,
     setDisplayCurrency,
@@ -1131,7 +1131,7 @@ export default function SendScreen() {
             // Non-critical — ignore storage errors
           }
         }
-        await refreshBalance();
+        await Promise.all([refreshBalance(), refreshTransactions()]);
 
         // Offer to save the recipient as a contact — but only for a
         // human-readable Lightning Address that isn't already in the address
@@ -1148,6 +1148,9 @@ export default function SendScreen() {
         // home. For an unsaved Lightning Address we pass it along so Home can
         // open the in-place save-contact sheet over the balance page.
         setPrepareResponse(null);
+        if (result.status === 'pending') {
+          Alert.alert('Payment pending', 'Your payment is pending. Funds are temporarily reserved while it completes.');
+        }
         if (isContactSavableRecipient && !alreadyAContact) {
           router.navigate({ pathname: '/wallet/home', params: { saveContact: recipientRaw } });
         } else {
@@ -1174,7 +1177,7 @@ export default function SendScreen() {
       setIsSending(false);
       sendInFlightRef.current = false;
     }
-  }, [preview, prepareResponse, refreshBalance, step, selectedSpeed, paymentInput, comment, contacts, t]);
+  }, [preview, prepareResponse, refreshBalance, refreshTransactions, step, selectedSpeed, paymentInput, comment, contacts, t]);
 
   const handleBackToInput = useCallback(() => {
     setStep('input');

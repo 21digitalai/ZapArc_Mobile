@@ -101,6 +101,8 @@ export interface WalletBalance {
 export interface PaymentResult {
   success: boolean;
   paymentId?: string;
+  /** Authoritative Breez state returned by sendPayment. */
+  status?: 'pending' | 'completed' | 'failed';
   error?: string;
   errorDetails?: string;
 }
@@ -1411,13 +1413,14 @@ async function setupEventListeners(): Promise<void> {
             };
           };
 
-          const eventTag = evt?.tag || (event as Record<string, unknown>)?.type || 'unknown';
+          const eventTag = String(evt?.tag || (event as Record<string, unknown>)?.type || 'unknown');
 
-          // Handle PaymentSucceeded event (try multiple possible formats)
-          const isPaymentEvent = 
-            eventTag === 'PaymentSucceeded' || 
-            eventTag === 'paymentSucceeded' ||
-            eventTag === 'payment_succeeded';
+          // Breez may report a payment as pending before its terminal event.
+          const isPaymentEvent = [
+            'PaymentSucceeded', 'paymentSucceeded', 'payment_succeeded',
+            'PaymentPending', 'paymentPending', 'payment_pending',
+            'PaymentFailed', 'paymentFailed', 'payment_failed',
+          ].includes(String(eventTag));
             
           if (isPaymentEvent) {
             // Try to find payment data in different possible locations
@@ -1441,7 +1444,9 @@ async function setupEventListeners(): Promise<void> {
               type: isReceived ? 'receive' : 'send',
               amountSat: Number(paymentData?.amountSat || paymentData?.amount || paymentData?.amountSats || 0),
               feeSat: Number(paymentData?.feeSat || paymentData?.fee || paymentData?.feesSats || 0),
-              status: 'completed',
+              status: eventTag.toLowerCase().includes('failed')
+                ? 'failed'
+                : eventTag.toLowerCase().includes('pending') ? 'pending' : 'completed',
               timestamp: Date.now(),
               description: String(paymentData?.description || ''),
             };
@@ -1720,10 +1725,11 @@ export async function payInvoice(
           }
     }
 
-    return {
-      success: true,
-      paymentId,
-    };
+    const status = mapPaymentStatus(response.payment?.status);
+    if (status === 'failed') {
+      return { success: false, paymentId, status, error: 'Payment failed — balance restored' };
+    }
+    return { success: true, paymentId, status };
   } catch (error) {
     console.error('Failed to pay invoice:', error);
     return {

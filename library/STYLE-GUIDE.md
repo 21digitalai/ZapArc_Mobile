@@ -114,3 +114,9 @@
 `src/features/wallet/screens/TransactionHistoryScreen.tsx`
 - Sender-authored comments saved after send are loaded from `AsyncStorage` with the `payment_note_<paymentId>` key when a transaction detail modal opens.
 - Transaction detail modals must render invoice `Description` and user `Note` as separate rows when both exist.
+
+### Pending outgoing payment treatment
+
+`src/features/wallet/screens/HomeScreen.tsx`
+- The BTC available-balance card shows an amber, tappable pending-payment row only when refreshed authoritative transaction data contains an outgoing payment with `status: 'pending'`.
+- The row must never calculate or present a synthetic locked total; it states that funds are temporarily reserved and routes to history.

@@ -147,6 +147,9 @@ export function HomeScreen(): React.JSX.Element {
   const displayBalance = getBalanceForAsset(activeAsset);
   const displayTransactions = getTransactionsForAsset(activeAsset);
   const transactionRows = buildTransactionRows(displayTransactions, activeAsset);
+  const pendingOutgoing = transactions.filter(
+    (transaction) => transaction.type === 'send' && transaction.status === 'pending'
+  );
   const showUsdbEmptyState = activeAsset === 'USDB' && usdbBalance <= 0 && transactionRows.length === 0;
 
   // Decide which security banner (if any) to show above the balance.
@@ -596,6 +599,11 @@ export function HomeScreen(): React.JSX.Element {
             {row.displayDescription || tx.description || (isReceived ? t('wallet.received') : t('wallet.sent'))}
           </Text>
           <Text style={[styles.transactionDate, { color: secondaryTextColor }]}>{`${date} · ${time}`}</Text>
+          {tx.status !== 'completed' && (
+            <Text style={[styles.transactionDate, { color: tx.status === 'failed' ? '#FF6B6B' : '#FBBF24' }]}>
+              {tx.status === 'failed' ? `✕ ${t('wallet.statusFailed')}` : `⏳ ${t('wallet.statusPending')}`}
+            </Text>
+          )}
         </View>
         <View style={styles.transactionAmountContainer}>
           <Text
@@ -874,6 +882,17 @@ export function HomeScreen(): React.JSX.Element {
             {!showBalance && (
               <TouchableOpacity onPress={() => setShowBalance(true)}>
                 <Text style={styles.tapToReveal}>{t('common.tapToReveal')}</Text>
+              </TouchableOpacity>
+            )}
+            {activeAsset === 'BTC' && pendingOutgoing.length > 0 && (
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Pending payment"
+                style={styles.pendingBalanceRow}
+                onPress={() => router.push('/wallet/history')}
+              >
+                <Text style={styles.pendingBalanceTitle}>⏳ Pending payment</Text>
+                <Text style={styles.pendingBalanceCopy}>Temporarily reserved while payment completes</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -1421,6 +1440,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: BRAND_COLOR,
     marginTop: 8,
+  },
+  pendingBalanceRow: {
+    marginTop: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    backgroundColor: 'rgba(245, 158, 11, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.6)',
+    alignSelf: 'stretch',
+  },
+  pendingBalanceTitle: {
+    color: '#FBBF24',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  pendingBalanceCopy: {
+    color: '#FDE68A',
+    fontSize: 12,
+    marginTop: 2,
   },
   quickActionsContainer: {
     flexDirection: 'row',

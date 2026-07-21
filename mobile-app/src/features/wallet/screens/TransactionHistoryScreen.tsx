@@ -276,7 +276,11 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                 </Text>
               )}
               <Text style={styles.modalStatus}>
-                {tx.status === 'completed' ? `\u2713 ${t('wallet.statusCompleted')}` : tx.status}
+                {tx.status === 'completed'
+                  ? `\u2713 ${t('wallet.statusCompleted')}`
+                  : tx.status === 'failed'
+                    ? `✕ ${t('wallet.statusFailed')}`
+                    : `⏳ ${t('wallet.statusPending')}`}
               </Text>
             </View>
 
