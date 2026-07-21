@@ -79,6 +79,11 @@ jest.mock('expo-router', () => ({
   router: { back: jest.fn() },
 }));
 
+jest.mock('../../../../config/features', () => ({
+  SWAP_FEATURE_ENABLED: true,
+  MULTI_ASSET_UI_ENABLED: true,
+}));
+
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ setOptions: jest.fn() }),
 }));
@@ -88,6 +93,7 @@ jest.mock('react-native-safe-area-context', () => {
   const { View } = require('react-native');
   return {
     SafeAreaView: ({ children }: any) => React.createElement(View, null, children),
+    useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
   };
 });
 

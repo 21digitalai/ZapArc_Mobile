@@ -8,7 +8,11 @@ const mockSwapScreen = jest.fn<null, [{ initialDirection: string }]>(() => null)
 
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => mockUseLocalSearchParams(),
-  router: { back: jest.fn() },
+  router: { back: jest.fn(), replace: jest.fn() },
+}));
+
+jest.mock('../../../src/config/features', () => ({
+  SWAP_FEATURE_ENABLED: true,
 }));
 
 jest.mock('../../../src/features/wallet/screens/SwapScreen', () => ({
