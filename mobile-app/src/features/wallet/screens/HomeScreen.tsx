@@ -126,6 +126,7 @@ export function HomeScreen(): React.JSX.Element {
   // Structured toast state — richer than a single string so the heads-up
   // banner can render an icon chip + subtitle + trailing amount pill.
   const [toast, setToast] = useState<{
+    revision: number;
     title: string;
     subtitle?: string;
     trailing?: string;
@@ -133,9 +134,11 @@ export function HomeScreen(): React.JSX.Element {
     tone?: ToastTone;
     position?: 'top' | 'bottom';
   } | null>(null);
+  const toastRevisionRef = useRef(0);
   const showToast = useCallback(
     (next: { title: string; subtitle?: string; trailing?: string; icon?: string; tone?: ToastTone; position?: 'top' | 'bottom' }) => {
-      setToast(next);
+      toastRevisionRef.current += 1;
+      setToast({ ...next, revision: toastRevisionRef.current });
     },
     [],
   );
@@ -765,7 +768,7 @@ export function HomeScreen(): React.JSX.Element {
                   if (Platform.OS === 'android' && ToastAndroid?.show) {
                     ToastAndroid.show('Copied', ToastAndroid.SHORT);
                   } else {
-                    setToast({
+                  showToast({
                       tone: 'info',
                       icon: '⚡',
                       title: 'Address copied',
@@ -1062,6 +1065,7 @@ export function HomeScreen(): React.JSX.Element {
       <ToastBanner
         visible={!!toast}
         onDismiss={dismissToast}
+        revision={toast?.revision}
         icon={toast?.icon}
         title={toast?.title || ''}
         subtitle={toast?.subtitle}

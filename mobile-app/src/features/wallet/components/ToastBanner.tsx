@@ -17,6 +17,11 @@ export interface ToastBannerProps {
   visible: boolean;
   onDismiss: () => void;
   /**
+   * Changes whenever a visible notification is replaced. This deliberately
+   * restarts the display timer without tying it to incidental parent renders.
+   */
+  revision?: number;
+  /**
    * Leading text icon (emoji or single glyph). Rendered inside a tone-tinted
    * square chip on the left of the pill.
    */
@@ -52,6 +57,7 @@ const TONE_COLORS: Record<ToastTone, { accent: string; bg: string; border: strin
 export function ToastBanner({
   visible,
   onDismiss,
+  revision = 0,
   icon = '⚡',
   title,
   subtitle,
@@ -111,7 +117,7 @@ export function ToastBanner({
       if (finished) setMounted(false);
     });
     return () => {};
-  }, [visible, anim, duration, onDismiss, position]);
+  }, [visible, anim, duration, onDismiss, position, revision]);
 
   if (!mounted) return null;
 
