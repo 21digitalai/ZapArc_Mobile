@@ -226,6 +226,25 @@ describe('HomeScreen quick actions', () => {
     expect(mockRefreshTransactions).toHaveBeenCalled();
   });
 
+  it('reconciles a failed payment when its event fired before Home mounted', async () => {
+    mockUseLocalSearchParams.mockReturnValue({
+      paymentPending: 'true',
+      paymentId: 'fast-failed',
+      paymentAmount: '42',
+    });
+    mockGetPayment.mockResolvedValue({
+      id: 'fast-failed', type: 'send', status: 'failed', amountSat: 42,
+    });
+
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByText('Payment failed — balance restored')).toBeTruthy());
+    expect(screen.queryByText('Payment pending')).toBeNull();
+    expect(mockGetPayment).toHaveBeenCalledWith('fast-failed');
+    expect(mockRefreshBalance).toHaveBeenCalled();
+    expect(mockRefreshTransactions).toHaveBeenCalled();
+  });
+
   it('replaces a pending banner once when a tracked payment completes by event', async () => {
     mockUseLocalSearchParams.mockReturnValue({
       paymentPending: 'true', paymentId: 'event-success', paymentAmount: '42',
