@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react-native';
+import { act, render, screen, waitFor } from '@testing-library/react-native';
 
 import { HomeScreen } from '../HomeScreen';
 
@@ -149,15 +149,36 @@ describe('HomeScreen quick actions', () => {
     expect(screen.getByText('Scan QR')).toBeTruthy();
   });
 
-  it('shows compact pending UI and does not call a pending outgoing event sent', async () => {
+  it('shows compact pending UI, refreshes on terminal state, and removes it after settlement', async () => {
     mockWalletTransactions = [{ id: 'pending-1', type: 'send', status: 'pending', amountSat: 42 }];
+    mockGetActiveAsset.mockResolvedValue('BTC');
+    const view = render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByLabelText('Pending payment')).toBeTruthy());
+    await act(async () => {
+      mockPaymentListener?.({ id: 'pending-1', type: 'send', status: 'pending', amountSat: 42 });
+    });
+
+    await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
+    expect(screen.queryByText('Payment sent')).toBeNull();
+    expect(mockRefreshBalance).toHaveBeenCalled();
+    expect(mockRefreshTransactions).toHaveBeenCalled();
+
+    mockWalletTransactions = [];
+    view.rerender(<HomeScreen />);
+    await waitFor(() => expect(screen.queryByLabelText('Pending payment')).toBeNull());
+  });
+
+  it('shows a failed outgoing event as failed, not sent', async () => {
     mockGetActiveAsset.mockResolvedValue('BTC');
     render(<HomeScreen />);
 
-    await waitFor(() => expect(screen.getByLabelText('Pending payment')).toBeTruthy());
-    mockPaymentListener?.({ id: 'pending-1', type: 'send', status: 'pending', amountSat: 42 });
+    await waitFor(() => expect(mockPaymentListener).toBeDefined());
+    await act(async () => {
+      mockPaymentListener?.({ id: 'failed-1', type: 'send', status: 'failed', amountSat: 42 });
+    });
 
-    await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Payment failed — balance restored')).toBeTruthy());
     expect(screen.queryByText('Payment sent')).toBeNull();
     expect(mockRefreshBalance).toHaveBeenCalled();
     expect(mockRefreshTransactions).toHaveBeenCalled();
@@ -168,8 +189,10 @@ describe('HomeScreen quick actions', () => {
     render(<HomeScreen />);
 
     await waitFor(() => expect(mockPaymentListener).toBeDefined());
-    mockPaymentListener?.({ id: 'complete-1', type: 'send', status: 'completed', amountSat: 42 });
-    mockPaymentListener?.({ id: 'complete-1', type: 'send', status: 'completed', amountSat: 42 });
+    await act(async () => {
+      mockPaymentListener?.({ id: 'complete-1', type: 'send', status: 'completed', amountSat: 42 });
+      mockPaymentListener?.({ id: 'complete-1', type: 'send', status: 'completed', amountSat: 42 });
+    });
 
     await waitFor(() => expect(screen.getByText('Payment sent')).toBeTruthy());
     expect(mockRefreshBalance).toHaveBeenCalledTimes(2);
