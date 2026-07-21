@@ -1131,8 +1131,6 @@ export default function SendScreen() {
             // Non-critical — ignore storage errors
           }
         }
-        await Promise.all([refreshBalance(), refreshTransactions()]);
-
         // Offer to save the recipient as a contact — but only for a
         // human-readable Lightning Address that isn't already in the address
         // book. Raw BOLT11 invoices and LNURLs are not useful contact labels.
@@ -1148,9 +1146,22 @@ export default function SendScreen() {
         // open the in-place save-contact sheet over the balance page.
         setPrepareResponse(null);
         if (result.status === 'pending') {
-          router.navigate({ pathname: '/wallet/home', params: { paymentPending: 'true', paymentId: result.paymentId } });
+          // A Pending payment can settle before Home has mounted. Navigate
+          // first so Home can subscribe and reconcile the exact payment;
+          // post-send refreshes run in the background instead of widening
+          // that race window.
+          router.navigate({
+            pathname: '/wallet/home',
+            params: {
+              paymentPending: 'true',
+              paymentId: result.paymentId,
+              paymentAmount: String(preview.amount),
+            },
+          });
+          void Promise.all([refreshBalance(), refreshTransactions()]);
           return;
         }
+        await Promise.all([refreshBalance(), refreshTransactions()]);
         if (isContactSavableRecipient && !alreadyAContact) {
           router.navigate({ pathname: '/wallet/home', params: { saveContact: recipientRaw, paymentSuccess: 'true', paymentAmount: String(preview.amount), paymentId: result.paymentId } });
         } else {

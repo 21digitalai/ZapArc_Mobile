@@ -27,7 +27,7 @@ import { useWalletAuth } from '../../../hooks/useWalletAuth';
 import { useLanguage } from '../../../hooks/useLanguage';
 import { useCurrency } from '../../../hooks/useCurrency';
 import { useLightningAddress } from '../../../hooks/useLightningAddress';
-import { onPaymentReceived } from '../../../services/breezSparkService';
+import { getPayment, onPaymentReceived } from '../../../services/breezSparkService';
 import { settingsService } from '../../../services/settingsService';
 import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../../config/features';
 import { formatFiat, usdbToFiat } from '../../../utils/currency';
@@ -146,6 +146,10 @@ export function HomeScreen(): React.JSX.Element {
   const [activeAsset, setActiveAsset] = useState<WalletAsset>('BTC');
   const [assetPickerVisible, setAssetPickerVisible] = useState(false);
   const notifiedPaymentStatesRef = useRef<Set<string>>(new Set());
+  const [trackedPendingPayment, setTrackedPendingPayment] = useState<{
+    id: string;
+    amountSat: number;
+  } | null>(null);
 
   const displayBalance = getBalanceForAsset(activeAsset);
   const displayTransactions = getTransactionsForAsset(activeAsset);
@@ -318,6 +322,25 @@ export function HomeScreen(): React.JSX.Element {
     }
   }, [showToast]);
 
+  const reconcileTrackedPayment = useCallback(async (): Promise<void> => {
+    if (!trackedPendingPayment) return;
+
+    const payment = await getPayment(trackedPendingPayment.id);
+    if (!payment || payment.type !== 'send') return;
+
+    const status = payment.status;
+    if (status !== 'completed' && status !== 'failed') return;
+
+    showOutgoingPaymentState({
+      id: payment.id,
+      status,
+      amountSat: payment.amountSat || trackedPendingPayment.amountSat,
+      description: payment.description,
+    });
+    setTrackedPendingPayment(null);
+    await Promise.all([refreshBalance(), refreshTransactions()]);
+  }, [refreshBalance, refreshTransactions, showOutgoingPaymentState, trackedPendingPayment]);
+
   // Initial load and wallet switch - refresh when connected or when wallet changes
   // Don't show pull-to-refresh spinner here since cached data loads instantly
   useEffect(() => {
@@ -347,6 +370,13 @@ export function HomeScreen(): React.JSX.Element {
 
         if (payment.type === 'send' && amount > 0) {
           showOutgoingPaymentState(payment);
+          if (
+            trackedPendingPayment &&
+            payment.id === trackedPendingPayment.id &&
+            (payment.status === 'completed' || payment.status === 'failed')
+          ) {
+            setTrackedPendingPayment(null);
+          }
         } else if (payment.type === 'receive' && amount > 0) {
           // Foreground receive — success tone (mint green, celebratory).
           // Background receives are handled by the FCM push push; this
@@ -380,7 +410,7 @@ export function HomeScreen(): React.JSX.Element {
     return () => {
       unsubscribe();
     };
-  }, [refreshBalance, refreshTransactions, showOutgoingPaymentState]);
+  }, [refreshBalance, refreshTransactions, showOutgoingPaymentState, trackedPendingPayment]);
 
   // Refresh balance, transactions and settings when screen comes into focus
   // This ensures data updates when returning from other screens, wallet switches, or opening from notification
@@ -400,7 +430,8 @@ export function HomeScreen(): React.JSX.Element {
         refreshBalance();
         refreshTransactions();
       }
-    }, [isConnected, refreshBalance, refreshTransactions, refreshSettings, loadWalletData])
+      void reconcileTrackedPayment();
+    }, [isConnected, refreshBalance, refreshTransactions, refreshSettings, loadWalletData, reconcileTrackedPayment])
   );
 
   // Show payment success toast when returning from successful payment (via PaymentConfirmationScreen)
@@ -414,9 +445,17 @@ export function HomeScreen(): React.JSX.Element {
 
   useEffect(() => {
     if (params.paymentPending !== 'true') return;
-    showOutgoingPaymentState({ id: params.paymentId, status: 'pending' });
-    router.setParams({ paymentPending: undefined, paymentId: undefined });
-  }, [params.paymentPending, params.paymentId, showOutgoingPaymentState]);
+    const amount = parseInt(params.paymentAmount || '0', 10) || 0;
+    if (params.paymentId) {
+      setTrackedPendingPayment({ id: params.paymentId, amountSat: amount });
+    }
+    showOutgoingPaymentState({ id: params.paymentId, status: 'pending', amountSat: amount });
+    router.setParams({ paymentPending: undefined, paymentAmount: undefined, paymentId: undefined });
+  }, [params.paymentPending, params.paymentAmount, params.paymentId, showOutgoingPaymentState]);
+
+  useEffect(() => {
+    void reconcileTrackedPayment();
+  }, [reconcileTrackedPayment]);
 
   // Show the standard "Payment received" toast when the Receive screen handed
   // off after a payment landed on the invoice page (matches the toast shown for

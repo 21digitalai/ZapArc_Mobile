@@ -120,3 +120,4 @@
 `src/features/wallet/screens/HomeScreen.tsx`
 - The BTC available-balance card shows an amber, tappable pending-payment row only when refreshed authoritative transaction data contains an outgoing payment with `status: 'pending'`.
 - The row must never calculate or present a synthetic locked total; it states that funds are temporarily reserved and routes to history.
+- A Send handoff carries the pending payment ID and amount. Home reconciles that ID through Breez before retaining the pending banner, and a completed/failed result replaces it with the normal terminal banner rather than flashing a stale pending state.

@@ -5,9 +5,12 @@ import { HomeScreen } from '../HomeScreen';
 
 const mockGetActiveAsset = jest.fn<Promise<'BTC' | 'USDB'>, []>();
 let mockPaymentListener: ((payment: any) => void) | undefined;
+let mockFocusCallback: (() => void) | undefined;
 let mockWalletTransactions: any[] = [];
 const mockRefreshBalance = jest.fn().mockResolvedValue(undefined);
 const mockRefreshTransactions = jest.fn().mockResolvedValue(undefined);
+const mockGetPayment = jest.fn();
+const mockUseLocalSearchParams = jest.fn(() => ({}));
 
 jest.mock('../../../../contexts/ThemeContext', () => ({
   useAppTheme: () => ({ themeMode: 'dark' }),
@@ -78,6 +81,7 @@ jest.mock('../../../../services/breezSparkService', () => ({
     mockPaymentListener = listener;
     return () => undefined;
   }),
+  getPayment: (...args: unknown[]) => mockGetPayment(...args),
 }));
 
 jest.mock('../../../../services/settingsService', () => ({
@@ -108,8 +112,10 @@ jest.mock('expo-router', () => ({
     replace: jest.fn(),
     setParams: jest.fn(),
   },
-  useFocusEffect: jest.fn(),
-  useLocalSearchParams: () => ({}),
+  useFocusEffect: jest.fn((callback) => {
+    mockFocusCallback = callback;
+  }),
+  useLocalSearchParams: () => mockUseLocalSearchParams(),
 }));
 
 jest.mock('react-native-safe-area-context', () => {
@@ -125,7 +131,10 @@ describe('HomeScreen quick actions', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockPaymentListener = undefined;
+    mockFocusCallback = undefined;
     mockWalletTransactions = [];
+    mockUseLocalSearchParams.mockReturnValue({});
+    mockGetPayment.mockResolvedValue(null);
   });
 
   it('renders BTC quick actions while multi-asset UI is disabled', async () => {
@@ -197,5 +206,58 @@ describe('HomeScreen quick actions', () => {
     await waitFor(() => expect(screen.getByText('Payment sent')).toBeTruthy());
     expect(mockRefreshBalance).toHaveBeenCalledTimes(2);
     expect(mockRefreshTransactions).toHaveBeenCalledTimes(2);
+  });
+
+  it('reconciles a completed payment when its event fired before Home mounted', async () => {
+    mockUseLocalSearchParams.mockReturnValue({
+      paymentPending: 'true',
+      paymentId: 'fast-success',
+      paymentAmount: '42',
+    });
+    mockGetPayment.mockResolvedValue({
+      id: 'fast-success', type: 'send', status: 'completed', amountSat: 42,
+    });
+
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByText('Payment sent')).toBeTruthy());
+    expect(mockGetPayment).toHaveBeenCalledWith('fast-success');
+    expect(mockRefreshBalance).toHaveBeenCalled();
+    expect(mockRefreshTransactions).toHaveBeenCalled();
+  });
+
+  it('replaces a pending banner once when a tracked payment completes by event', async () => {
+    mockUseLocalSearchParams.mockReturnValue({
+      paymentPending: 'true', paymentId: 'event-success', paymentAmount: '42',
+    });
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(mockPaymentListener).toBeDefined());
+    await act(async () => {
+      mockPaymentListener?.({ id: 'event-success', type: 'send', status: 'completed', amountSat: 42 });
+      mockPaymentListener?.({ id: 'event-success', type: 'send', status: 'completed', amountSat: 42 });
+    });
+
+    await waitFor(() => expect(screen.getByText('Payment sent')).toBeTruthy());
+    expect(screen.queryByText('Payment pending')).toBeNull();
+  });
+
+  it('reconciles a failed tracked payment when Home regains focus', async () => {
+    mockUseLocalSearchParams.mockReturnValue({
+      paymentPending: 'true', paymentId: 'focus-failed', paymentAmount: '42',
+    });
+    mockGetPayment.mockResolvedValueOnce(null).mockResolvedValue({
+      id: 'focus-failed', type: 'send', status: 'failed', amountSat: 42,
+    });
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(mockFocusCallback).toBeDefined());
+    await act(async () => {
+      mockFocusCallback?.();
+    });
+
+    await waitFor(() => expect(screen.getByText('Payment failed — balance restored')).toBeTruthy());
+    expect(mockRefreshBalance).toHaveBeenCalled();
+    expect(mockRefreshTransactions).toHaveBeenCalled();
   });
 });
