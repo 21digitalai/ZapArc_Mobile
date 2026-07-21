@@ -1,7 +1,7 @@
 // Home/Balance Screen
 // Main wallet dashboard with balance, recent transactions, and quick actions
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -87,6 +87,8 @@ export function HomeScreen(): React.JSX.Element {
   const params = useLocalSearchParams<{
     paymentSuccess?: string;
     paymentAmount?: string;
+    paymentId?: string;
+    paymentPending?: string;
     asset?: string;
     swapSuccess?: string;
     swapAsset?: string;
@@ -143,6 +145,7 @@ export function HomeScreen(): React.JSX.Element {
   const [activeReminder, setActiveReminder] = useState<SecurityReminderKind>(null);
   const [activeAsset, setActiveAsset] = useState<WalletAsset>('BTC');
   const [assetPickerVisible, setAssetPickerVisible] = useState(false);
+  const notifiedPaymentStatesRef = useRef<Set<string>>(new Set());
 
   const displayBalance = getBalanceForAsset(activeAsset);
   const displayTransactions = getTransactionsForAsset(activeAsset);
@@ -289,6 +292,32 @@ export function HomeScreen(): React.JSX.Element {
     }
   }, [refreshBalance, refreshTransactions]);
 
+  const showOutgoingPaymentState = useCallback((payment: {
+    id?: string;
+    status: 'pending' | 'completed' | 'failed';
+    amountSat?: number;
+    asset?: 'BTC' | 'USDB';
+    description?: string;
+  }): void => {
+    const key = `${payment.id || 'unknown'}:${payment.status}`;
+    if (notifiedPaymentStatesRef.current.has(key)) return;
+    notifiedPaymentStatesRef.current.add(key);
+
+    const amount = payment.amountSat || 0;
+    const asset = payment.asset === 'USDB' ? 'USDB' : 'BTC';
+    const formatted = asset === 'USDB'
+      ? `${(amount / 1e6).toFixed(2)} USDB`
+      : `${amount.toLocaleString()} sat`;
+
+    if (payment.status === 'pending') {
+      showToast({ icon: '⏳', title: 'Payment pending', subtitle: payment.description || 'Funds are temporarily reserved', tone: 'warn' });
+    } else if (payment.status === 'completed') {
+      showToast({ icon: '↑', title: 'Payment sent', subtitle: payment.description || (asset === 'USDB' ? 'USDB' : 'Lightning'), trailing: `-${formatted}`, tone: 'accent' });
+    } else {
+      showToast({ icon: '✕', title: 'Payment failed — balance restored', subtitle: payment.description || 'Try again or contact support', tone: 'danger' });
+    }
+  }, [showToast]);
+
   // Initial load and wallet switch - refresh when connected or when wallet changes
   // Don't show pull-to-refresh spinner here since cached data loads instantly
   useEffect(() => {
@@ -317,14 +346,7 @@ export function HomeScreen(): React.JSX.Element {
           : `${amount.toLocaleString()} sat`;
 
         if (payment.type === 'send' && amount > 0) {
-          // Outgoing payment — accent tone (user initiated it, just a receipt).
-          showToast({
-            icon: '↑',
-            title: 'Payment sent',
-            subtitle: payment.description || (asset === 'USDB' ? 'USDB' : 'Lightning'),
-            trailing: `-${formatted}`,
-            tone: 'accent',
-          });
+          showOutgoingPaymentState(payment);
         } else if (payment.type === 'receive' && amount > 0) {
           // Foreground receive — success tone (mint green, celebratory).
           // Background receives are handled by the FCM push push; this
@@ -338,11 +360,12 @@ export function HomeScreen(): React.JSX.Element {
           });
         }
 
-        // Failed / refunded payments — danger tone so the user notices.
-        if (payment.status === 'failed') {
+        // Failed incoming payments still need their own notice. Outgoing
+        // payments were already status-gated above.
+        if (payment.status === 'failed' && payment.type !== 'send') {
           showToast({
             icon: '✕',
-            title: payment.type === 'send' ? 'Payment failed' : 'Incoming payment failed',
+            title: 'Incoming payment failed',
             subtitle: payment.description || 'Try again or contact support',
             tone: 'danger',
           });
@@ -357,7 +380,7 @@ export function HomeScreen(): React.JSX.Element {
     return () => {
       unsubscribe();
     };
-  }, [refreshBalance, refreshTransactions]);
+  }, [refreshBalance, refreshTransactions, showOutgoingPaymentState]);
 
   // Refresh balance, transactions and settings when screen comes into focus
   // This ensures data updates when returning from other screens, wallet switches, or opening from notification
@@ -384,16 +407,16 @@ export function HomeScreen(): React.JSX.Element {
   useEffect(() => {
     if (params.paymentSuccess === 'true' && params.paymentAmount) {
       const amount = parseInt(params.paymentAmount, 10);
-      const formattedAmount = amount.toLocaleString();
-      showToast({
-        icon: '↑',
-        title: 'Payment sent',
-        trailing: `-${formattedAmount} sat`,
-        tone: 'accent',
-      });
-      router.setParams({ paymentSuccess: undefined, paymentAmount: undefined });
+      showOutgoingPaymentState({ id: params.paymentId, status: 'completed', amountSat: amount });
+      router.setParams({ paymentSuccess: undefined, paymentAmount: undefined, paymentId: undefined });
     }
-  }, [params.paymentSuccess, params.paymentAmount]);
+  }, [params.paymentSuccess, params.paymentAmount, params.paymentId, showOutgoingPaymentState]);
+
+  useEffect(() => {
+    if (params.paymentPending !== 'true') return;
+    showOutgoingPaymentState({ id: params.paymentId, status: 'pending' });
+    router.setParams({ paymentPending: undefined, paymentId: undefined });
+  }, [params.paymentPending, params.paymentId, showOutgoingPaymentState]);
 
   // Show the standard "Payment received" toast when the Receive screen handed
   // off after a payment landed on the invoice page (matches the toast shown for
@@ -891,8 +914,7 @@ export function HomeScreen(): React.JSX.Element {
                 style={styles.pendingBalanceRow}
                 onPress={() => router.push('/wallet/history')}
               >
-                <Text style={styles.pendingBalanceTitle}>⏳ Pending payment</Text>
-                <Text style={styles.pendingBalanceCopy}>Temporarily reserved while payment completes</Text>
+                <Text style={styles.pendingBalanceTitle}>⏳ Pending</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -1455,11 +1477,6 @@ const styles = StyleSheet.create({
     color: '#FBBF24',
     fontSize: 13,
     fontWeight: '700',
-  },
-  pendingBalanceCopy: {
-    color: '#FDE68A',
-    fontSize: 12,
-    marginTop: 2,
   },
   quickActionsContainer: {
     flexDirection: 'row',

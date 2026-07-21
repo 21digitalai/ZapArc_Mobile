@@ -4,6 +4,10 @@ import { render, screen, waitFor } from '@testing-library/react-native';
 import { HomeScreen } from '../HomeScreen';
 
 const mockGetActiveAsset = jest.fn<Promise<'BTC' | 'USDB'>, []>();
+let mockPaymentListener: ((payment: any) => void) | undefined;
+let mockWalletTransactions: any[] = [];
+const mockRefreshBalance = jest.fn().mockResolvedValue(undefined);
+const mockRefreshTransactions = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('../../../../contexts/ThemeContext', () => ({
   useAppTheme: () => ({ themeMode: 'dark' }),
@@ -12,12 +16,12 @@ jest.mock('../../../../contexts/ThemeContext', () => ({
 jest.mock('../../../../hooks/useWallet', () => ({
   useWallet: () => ({
     balance: 123456,
-    transactions: [],
+    transactions: mockWalletTransactions,
     usdbBalance: 0,
     isLoading: false,
     isConnected: false,
-    refreshBalance: jest.fn().mockResolvedValue(undefined),
-    refreshTransactions: jest.fn().mockResolvedValue(undefined),
+    refreshBalance: mockRefreshBalance,
+    refreshTransactions: mockRefreshTransactions,
     getBalanceForAsset: (asset: 'BTC' | 'USDB') => (asset === 'USDB' ? 0 : 123456),
     getTransactionsForAsset: () => [],
     activeWalletInfo: { masterKeyNickname: 'Main', subWalletNickname: 'Wallet 1' },
@@ -55,6 +59,10 @@ jest.mock('../../../../hooks/useLanguage', () => ({
   }),
 }));
 
+jest.mock('../../../../hooks/useLightningAddress', () => ({
+  useLightningAddress: () => ({ addressInfo: null, isRegistered: false }),
+}));
+
 jest.mock('../../../../hooks/useCurrency', () => ({
   useCurrency: () => ({
     format: (sats: number) => ({ primary: `${sats} sats`, secondary: '$0.00' }),
@@ -66,7 +74,10 @@ jest.mock('../../../../hooks/useCurrency', () => ({
 }));
 
 jest.mock('../../../../services/breezSparkService', () => ({
-  onPaymentReceived: jest.fn(() => () => undefined),
+  onPaymentReceived: jest.fn((listener) => {
+    mockPaymentListener = listener;
+    return () => undefined;
+  }),
 }));
 
 jest.mock('../../../../services/settingsService', () => ({
@@ -113,34 +124,55 @@ jest.mock('react-native-safe-area-context', () => {
 describe('HomeScreen quick actions', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPaymentListener = undefined;
+    mockWalletTransactions = [];
   });
 
-  it('renders all four quick actions for BTC tab', async () => {
+  it('renders BTC quick actions while multi-asset UI is disabled', async () => {
     mockGetActiveAsset.mockResolvedValue('BTC');
 
     render(<HomeScreen />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Swap')).toBeTruthy();
-    });
-
     expect(screen.getByText('Send')).toBeTruthy();
     expect(screen.getByText('Receive')).toBeTruthy();
     expect(screen.getByText('Scan QR')).toBeTruthy();
   });
 
-  it('renders all four quick actions for USDB tab with zero balance', async () => {
+  it('coerces a persisted USDB tab to BTC while multi-asset UI is disabled', async () => {
     mockGetActiveAsset.mockResolvedValue('USDB');
 
     render(<HomeScreen />);
 
-    await waitFor(() => {
-      expect(screen.getByText('No USDB yet')).toBeTruthy();
-    });
-
-    expect(screen.getByText('Swap')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Balance')).toBeTruthy());
     expect(screen.getByText('Send')).toBeTruthy();
     expect(screen.getByText('Receive')).toBeTruthy();
     expect(screen.getByText('Scan QR')).toBeTruthy();
+  });
+
+  it('shows compact pending UI and does not call a pending outgoing event sent', async () => {
+    mockWalletTransactions = [{ id: 'pending-1', type: 'send', status: 'pending', amountSat: 42 }];
+    mockGetActiveAsset.mockResolvedValue('BTC');
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByLabelText('Pending payment')).toBeTruthy());
+    mockPaymentListener?.({ id: 'pending-1', type: 'send', status: 'pending', amountSat: 42 });
+
+    await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
+    expect(screen.queryByText('Payment sent')).toBeNull();
+    expect(mockRefreshBalance).toHaveBeenCalled();
+    expect(mockRefreshTransactions).toHaveBeenCalled();
+  });
+
+  it('deduplicates matching completed outgoing payment notifications', async () => {
+    mockGetActiveAsset.mockResolvedValue('BTC');
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(mockPaymentListener).toBeDefined());
+    mockPaymentListener?.({ id: 'complete-1', type: 'send', status: 'completed', amountSat: 42 });
+    mockPaymentListener?.({ id: 'complete-1', type: 'send', status: 'completed', amountSat: 42 });
+
+    await waitFor(() => expect(screen.getByText('Payment sent')).toBeTruthy());
+    expect(mockRefreshBalance).toHaveBeenCalledTimes(2);
+    expect(mockRefreshTransactions).toHaveBeenCalledTimes(2);
   });
 });

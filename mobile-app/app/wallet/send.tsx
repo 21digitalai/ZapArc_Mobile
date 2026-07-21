@@ -1143,18 +1143,18 @@ export default function SendScreen() {
               normalizeLightningAddress(c.lightningAddress) ===
               normalizeLightningAddress(recipientRaw)
           );
-        await new Promise(resolve => setTimeout(resolve, 1000));
         // Clear the prepared payment so nothing can re-submit it, then redirect
         // home. For an unsaved Lightning Address we pass it along so Home can
         // open the in-place save-contact sheet over the balance page.
         setPrepareResponse(null);
         if (result.status === 'pending') {
-          Alert.alert('Payment pending', 'Your payment is pending. Funds are temporarily reserved while it completes.');
+          router.navigate({ pathname: '/wallet/home', params: { paymentPending: 'true', paymentId: result.paymentId } });
+          return;
         }
         if (isContactSavableRecipient && !alreadyAContact) {
-          router.navigate({ pathname: '/wallet/home', params: { saveContact: recipientRaw } });
+          router.navigate({ pathname: '/wallet/home', params: { saveContact: recipientRaw, paymentSuccess: 'true', paymentAmount: String(preview.amount), paymentId: result.paymentId } });
         } else {
-          router.navigate('/wallet/home');
+          router.navigate({ pathname: '/wallet/home', params: { paymentSuccess: 'true', paymentAmount: String(preview.amount), paymentId: result.paymentId } });
         }
       } else {
         const errorMsg = result.error || 'Unknown error occurred';
