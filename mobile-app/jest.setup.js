@@ -2,33 +2,41 @@ import mockAsyncStorage from '@react-native-async-storage/async-storage/jest/asy
 
 jest.mock('@react-native-async-storage/async-storage', () => mockAsyncStorage);
 jest.mock('react-native-quick-crypto', () => {
-  const subtleDigest = jest.fn(async (_algorithm, data) => data);
-  const deriveBits = jest.fn(async () => new ArrayBuffer(32));
+  const crypto = require('crypto');
 
   return {
     __esModule: true,
-    default: {
-      pbkdf2Sync: jest.fn(() => Buffer.alloc(32, 1)),
-      createCipheriv: jest.fn(() => ({
-        update: jest.fn(() => Buffer.alloc(0)),
-        final: jest.fn(() => Buffer.alloc(0)),
-        getAuthTag: jest.fn(() => Buffer.alloc(16, 2)),
-      })),
-      createDecipheriv: jest.fn(() => ({
-        setAuthTag: jest.fn(),
-        update: jest.fn(() => Buffer.alloc(0)),
-        final: jest.fn(() => Buffer.alloc(0)),
-      })),
-      webcrypto: {
-        subtle: {
-          digest: subtleDigest,
-          importKey: jest.fn(async () => ({})),
-          deriveBits,
-        },
-      },
-    },
+    default: crypto,
   };
 });
+
+// Native modules are unavailable in Jest's Node runtime. Individual service
+// tests provide their own richer SDK doubles when they exercise Breez calls.
+jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
+  __esModule: true,
+  default: {},
+  ConversionType: {},
+  SendPaymentOptions: {},
+  OnchainConfirmationSpeed: {},
+}));
+
+jest.mock('react-native-fs', () => ({
+  DocumentDirectoryPath: '/tmp',
+  exists: jest.fn(async () => false),
+  readFile: jest.fn(async () => ''),
+  writeFile: jest.fn(async () => undefined),
+  unlink: jest.fn(async () => undefined),
+}));
+
+jest.mock('@react-native-google-signin/google-signin', () => ({
+  GoogleSignin: {
+    configure: jest.fn(),
+    hasPlayServices: jest.fn(async () => true),
+    signIn: jest.fn(async () => ({})),
+    signOut: jest.fn(async () => undefined),
+  },
+  statusCodes: {},
+}));
 
 // Polyfill for crypto.getRandomValues
 if (typeof global.crypto !== 'object') {
