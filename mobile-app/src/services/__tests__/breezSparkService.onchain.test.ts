@@ -66,12 +66,14 @@ describe('BreezSparkService.sendOnchainPayment', () => {
       const svc = require('../breezSparkService');
       await svc.initializeSDK('test mnemonic words go here twelve words');
 
-      mockSendPayment.mockResolvedValueOnce({ payment: { id: `payment-${speed}` } });
+      mockSendPayment.mockResolvedValueOnce({
+        payment: { id: `payment-${speed}`, status: 'succeeded' },
+      });
 
       const prepareResponse = { paymentMethod: { tag: 'BitcoinAddress' } };
       const result = await svc.sendOnchainPayment(prepareResponse, speed, 'idem-key');
 
-      expect(result).toEqual({ success: true, paymentId: `payment-${speed}` });
+      expect(result).toEqual({ success: true, paymentId: `payment-${speed}`, status: 'completed' });
       expect(mockSendPayment).toHaveBeenCalledWith({
         prepareResponse,
         idempotencyKey: 'idem-key',
@@ -94,6 +96,19 @@ describe('BreezSparkService.sendOnchainPayment', () => {
     expect(result).toMatchObject({ success: false, error: 'fee estimation unavailable' });
   });
 
+  it.each([
+    ['pending', { success: true, status: 'pending' }],
+    ['failed', { success: false, status: 'failed', error: 'Payment failed — balance restored' }],
+  ])('maps an immediate %s on-chain SDK response', async (sdkStatus, expected) => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockSendPayment.mockResolvedValueOnce({ payment: { id: 'payment-state', status: sdkStatus } });
+
+    const result = await svc.sendOnchainPayment({}, 'medium');
+
+    expect(result).toMatchObject(expected);
+  });
+
   it('returns not initialized error when no sdk instance', async () => {
     const svc = require('../breezSparkService');
     await svc.disconnectSDK();
@@ -102,5 +117,25 @@ describe('BreezSparkService.sendOnchainPayment', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('not initialized');
+  });
+});
+
+describe('BreezSparkService.sendPayment', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it.each([
+    ['succeeded', { success: true, status: 'completed' }],
+    ['pending', { success: true, status: 'pending' }],
+    ['failed', { success: false, status: 'failed', error: 'Payment failed — balance restored' }],
+  ])('maps an immediate %s SDK response instead of assuming success', async (sdkStatus, expected) => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockSendPayment.mockResolvedValueOnce({ payment: { id: 'payment-state', status: sdkStatus } });
+
+    const result = await svc.sendPayment({});
+
+    expect(result).toMatchObject(expected);
   });
 });

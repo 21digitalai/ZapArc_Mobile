@@ -2782,6 +2782,7 @@ export async function sendOnchainPayment(
     });
 
     const paymentId = response.payment?.id;
+    const status = mapPaymentStatus(response.payment?.status);
     if (paymentId) {
       recentlySentPaymentIds.add(paymentId);
       global.setTimeout(() => {
@@ -2789,10 +2790,16 @@ export async function sendOnchainPayment(
       }, SENT_PAYMENT_TRACKING_MS);
     }
 
-    return {
-      success: true,
-      paymentId,
-    };
+    if (status === 'failed') {
+      return {
+        success: false,
+        paymentId,
+        status,
+        error: 'Payment failed — balance restored',
+      };
+    }
+
+    return { success: true, paymentId, status };
   } catch (error) {
     console.error('Failed to send on-chain payment:', error);
     console.error('On-chain payment error details:', extractSdkErrorDetails(error));
@@ -2856,6 +2863,17 @@ export async function sendPayment(
 
     // Track this payment ID so we don't show "Payment Received" notification for it
     const paymentId = response.payment?.id;
+    const status = mapPaymentStatus(response.payment?.status);
+
+    if (status === 'failed') {
+      return {
+        success: false,
+        paymentId,
+        status,
+        error: 'Payment failed — balance restored',
+      };
+    }
+
     if (paymentId) {
       recentlySentPaymentIds.add(paymentId);
       if (__DEV__) {
@@ -2924,10 +2942,7 @@ export async function sendPayment(
       }
     }
 
-    return {
-      success: true,
-      paymentId,
-    };
+    return { success: true, paymentId, status };
   } catch (error) {
     console.error('Failed to send payment:', error);
     console.error('Send payment error details:', extractSdkErrorDetails(error));
