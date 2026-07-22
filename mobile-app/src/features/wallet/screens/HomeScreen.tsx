@@ -130,6 +130,7 @@ export function HomeScreen(): React.JSX.Element {
     title: string;
     subtitle?: string;
     trailing?: string;
+    isPending?: boolean;
     icon?: string;
     tone?: ToastTone;
     position?: 'top' | 'bottom';
@@ -144,7 +145,7 @@ export function HomeScreen(): React.JSX.Element {
     }
   }, []);
   const showToast = useCallback(
-    (next: { title: string; subtitle?: string; trailing?: string; icon?: string; tone?: ToastTone; position?: 'top' | 'bottom' }) => {
+    (next: { title: string; subtitle?: string; trailing?: string; icon?: string; tone?: ToastTone; position?: 'top' | 'bottom'; isPending?: boolean }) => {
       clearPendingTerminalTimer();
       pendingToastRef.current = null;
       toastRevisionRef.current += 1;
@@ -322,7 +323,10 @@ export function HomeScreen(): React.JSX.Element {
     if (notifiedPaymentStatesRef.current.has(key)) return;
     notifiedPaymentStatesRef.current.add(key);
 
-    const amount = payment.amountSat || 0;
+    const hasAmount = typeof payment.amountSat === 'number' && Number.isFinite(payment.amountSat);
+    const amount = typeof payment.amountSat === 'number' && Number.isFinite(payment.amountSat)
+      ? payment.amountSat
+      : 0;
     const asset = payment.asset === 'USDB' ? 'USDB' : 'BTC';
     const formatted = asset === 'USDB'
       ? `${(amount / 1e6).toFixed(2)} USDB`
@@ -337,7 +341,14 @@ export function HomeScreen(): React.JSX.Element {
     };
 
     if (payment.status === 'pending') {
-      showToast({ icon: '⏳', title: 'Payment pending', subtitle: payment.description || 'Funds are temporarily reserved', tone: 'warn' });
+      const pendingAmount = hasAmount ? `${amount.toLocaleString()} sats` : undefined;
+      showToast({
+        icon: '⏳',
+        title: 'Payment pending',
+        subtitle: pendingAmount ? `Payment pending with ${pendingAmount}` : (payment.description || 'Funds are temporarily reserved'),
+        tone: 'warn',
+        isPending: true,
+      });
       if (payment.id) {
         pendingToastRef.current = {
           paymentId: payment.id,
@@ -415,7 +426,7 @@ export function HomeScreen(): React.JSX.Element {
           ? `${(amount / 1e6).toFixed(2)} USDB`
           : `${amount.toLocaleString()} sat`;
 
-        if (payment.type === 'send' && amount > 0) {
+        if (payment.type === 'send' && (amount > 0 || payment.status === 'pending')) {
           showOutgoingPaymentState(payment);
           if (
             trackedPendingPayment &&
@@ -492,9 +503,10 @@ export function HomeScreen(): React.JSX.Element {
 
   useEffect(() => {
     if (params.paymentPending !== 'true') return;
-    const amount = parseInt(params.paymentAmount || '0', 10) || 0;
+    const parsedAmount = params.paymentAmount ? parseInt(params.paymentAmount, 10) : Number.NaN;
+    const amount = Number.isFinite(parsedAmount) ? parsedAmount : undefined;
     if (params.paymentId) {
-      setTrackedPendingPayment({ id: params.paymentId, amountSat: amount });
+      setTrackedPendingPayment({ id: params.paymentId, amountSat: amount ?? 0 });
     }
     showOutgoingPaymentState({ id: params.paymentId, status: 'pending', amountSat: amount });
     router.setParams({ paymentPending: undefined, paymentAmount: undefined, paymentId: undefined });
@@ -1116,6 +1128,7 @@ export function HomeScreen(): React.JSX.Element {
         trailing={toast?.trailing}
         tone={toast?.tone}
         position={toast?.position}
+        isPending={toast?.isPending}
       />
 
       {/* "Save as contact?" prompt after paying an unsaved Lightning Address. */}

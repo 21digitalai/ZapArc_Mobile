@@ -50,4 +50,16 @@ describe('ToastBanner', () => {
     await waitFor(() => expect(getByText('Payment pending')).toBeTruthy());
     expect(loop).not.toHaveBeenCalled();
   });
+
+  it('breathes the full Pending shell only when motion is allowed', async () => {
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+    const loop = jest.spyOn(Animated, 'loop');
+
+    render(
+      <ToastBanner visible onDismiss={jest.fn()} revision={1} title="Payment pending" tone="warn" isPending />,
+    );
+
+    await act(async () => {});
+    expect(loop).toHaveBeenCalledTimes(2);
+  });
 });

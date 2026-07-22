@@ -125,6 +125,7 @@
 ### Transactional toast feedback
 
 `src/features/wallet/components/ToastBanner.tsx`
-- Payment Pending uses the existing amber `warn` icon chip with a subtle scale/opacity pulse only; the toast layout and dismissal timer do not move or restart.
-- The pulse starts only after the device accessibility preference confirms motion is allowed, and stays static when reduced motion is enabled.
+- Payment Pending uses the amber `warn` treatment with a restrained full-shell amber glow breath and icon pulse; the toast layout and dismissal timer do not move or restart.
+- Pending includes its authoritative outgoing amount as a formatted sats subtitle when available; never substitute `0 sats` for an unavailable amount.
+- Motion starts only after the device accessibility preference confirms it is allowed. Reduced-motion devices keep a stable orange Pending shell.
 - Terminal replacements receive a fresh toast revision so their full dismissal duration begins after the pending dwell, not when the payment event arrived.

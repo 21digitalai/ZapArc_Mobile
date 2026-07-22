@@ -179,6 +179,39 @@ describe('HomeScreen quick actions', () => {
     await waitFor(() => expect(screen.queryByLabelText('Pending payment')).toBeNull());
   });
 
+  it('renders the authoritative pending amount in formatted sats', async () => {
+    mockUseLocalSearchParams.mockReturnValue({
+      paymentPending: 'true', paymentId: 'amount-1', paymentAmount: '1250',
+    });
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByText('Payment pending with 1,250 sats')).toBeTruthy());
+  });
+
+  it('keeps Pending copy safe when the outgoing amount is unavailable', async () => {
+    mockUseLocalSearchParams.mockReturnValue({ paymentPending: 'true', paymentId: 'no-amount' });
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
+    expect(screen.queryByText('Payment pending with 0 sats')).toBeNull();
+  });
+
+  it('does not leak a previous payment amount into a later Pending banner', async () => {
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(mockPaymentListener).toBeDefined());
+    await act(async () => {
+      mockPaymentListener?.({ id: 'first-amount', type: 'send', status: 'pending', amountSat: 1250 });
+    });
+    await waitFor(() => expect(screen.getByText('Payment pending with 1,250 sats')).toBeTruthy());
+
+    await act(async () => {
+      mockPaymentListener?.({ id: 'second-amount', type: 'send', status: 'pending' });
+    });
+    await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
+    expect(screen.queryByText('Payment pending with 1,250 sats')).toBeNull();
+  });
+
   it('shows a failed outgoing event as failed, not sent', async () => {
     mockGetActiveAsset.mockResolvedValue('BTC');
     render(<HomeScreen />);

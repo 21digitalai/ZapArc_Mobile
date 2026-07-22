@@ -44,6 +44,8 @@ export interface ToastBannerProps {
    * clipboard, "Saved", etc. — so the eye doesn't have to travel.
    */
   position?: 'top' | 'bottom';
+  /** Enables the calm full-banner breathing treatment for payment Pending. */
+  isPending?: boolean;
 }
 
 const TONE_COLORS: Record<ToastTone, { accent: string; bg: string; border: string }> = {
@@ -65,10 +67,12 @@ export function ToastBanner({
   tone = 'success',
   duration = 3500,
   position = 'top',
+  isPending = false,
 }: ToastBannerProps): React.JSX.Element | null {
   const insets = useSafeAreaInsets();
   const anim = useRef(new Animated.Value(0)).current;
   const warnPulse = useRef(new Animated.Value(1)).current;
+  const pendingShellPulse = useRef(new Animated.Value(1)).current;
   // Wait for the accessibility preference before starting motion so a device
   // that requests reduced motion never gets even a one-frame pulse.
   const [reduceMotion, setReduceMotion] = useState<boolean | null>(null);
@@ -105,6 +109,20 @@ export function ToastBanner({
     animation.start();
     return () => animation.stop();
   }, [reduceMotion, tone, visible, warnPulse]);
+
+  useEffect(() => {
+    if (!visible || !isPending || reduceMotion !== false) {
+      pendingShellPulse.stopAnimation();
+      pendingShellPulse.setValue(1);
+      return;
+    }
+    const animation = Animated.loop(Animated.sequence([
+      Animated.timing(pendingShellPulse, { toValue: 0.78, duration: 1100, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      Animated.timing(pendingShellPulse, { toValue: 1, duration: 1100, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+    ]));
+    animation.start();
+    return () => animation.stop();
+  }, [isPending, pendingShellPulse, reduceMotion, visible]);
 
   useEffect(() => {
     if (firstRun.current && !visible) {
@@ -197,6 +215,12 @@ export function ToastBanner({
     >
       <TouchableWithoutFeedback onPress={onDismiss}>
         <View style={[styles.pill, { borderColor: t.border }]}>
+          {isPending ? (
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.pendingGlow, { backgroundColor: t.bg, opacity: pendingShellPulse }]}
+            />
+          ) : null}
           <Animated.View
             style={[
               styles.iconChip,
@@ -255,6 +279,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
+    overflow: 'hidden',
+  },
+  pendingGlow: {
+    ...StyleSheet.absoluteFillObject,
   },
   iconChip: {
     width: 36,
