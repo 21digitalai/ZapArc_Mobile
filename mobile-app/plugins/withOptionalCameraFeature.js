@@ -25,6 +25,17 @@ module.exports = function withOptionalCameraFeature(config) {
     }
 
     manifest['uses-feature'] = features;
+
+    const application = manifest.application && manifest.application[0];
+    const metadata = application && application['meta-data'];
+    const notificationColor = metadata && metadata.find(
+      (entry) => entry.$ && entry.$['android:name'] === 'com.google.firebase.messaging.default_notification_color',
+    );
+
+    if (notificationColor) {
+      notificationColor.$['tools:replace'] = 'android:resource';
+    }
+
     return mod;
   });
 };
