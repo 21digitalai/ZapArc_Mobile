@@ -1,7 +1,7 @@
 // QR Scanner Screen
 // Camera-based QR scanning for Lightning invoices, LNURL, and addresses
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -15,7 +15,8 @@ import { useKeyboardAwareScroll } from '../../../hooks/useKeyboardAwareScroll';
 import { Text, IconButton, Button, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
-import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
+import { CameraView, useCameraPermissions, BarcodeScanningResult, scanFromURLAsync } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
 import { BreezSparkService } from '../../../services/breezSparkService';
 import { MULTI_ASSET_UI_ENABLED } from '../../../config/features';
@@ -49,6 +50,7 @@ export function QRScannerScreen(): React.JSX.Element {
   const [isProcessing, setIsProcessing] = useState(false);
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [scanned, setScanned] = useState(false);
+  const isGalleryScanningRef = useRef(false);
 
   // ========================================
   // QR Code Parsing
@@ -124,8 +126,8 @@ export function QRScannerScreen(): React.JSX.Element {
   // ========================================
 
   const handleScannedData = useCallback(
-    async (data: string) => {
-      if (isProcessing || scanned) return;
+    async (data: string, allowProcessing = false) => {
+      if (scanned || (isProcessing && !allowProcessing)) return;
 
       setScanned(true);
       setIsProcessing(true);
@@ -243,6 +245,49 @@ export function QRScannerScreen(): React.JSX.Element {
     }
   }, [manualInput, handleScannedData]);
 
+  const handleScanFromGallery = useCallback(async () => {
+    if (isGalleryScanningRef.current || isProcessing || scanned) return;
+
+    isGalleryScanningRef.current = true;
+    setIsProcessing(true);
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        selectionLimit: 1,
+      });
+
+      if (result.canceled) return;
+
+      const asset = result.assets[0];
+      if (!asset || !asset.uri) {
+        Alert.alert('Could not read image', 'Choose a different image and try again.');
+        return;
+      }
+
+      const results = await scanFromURLAsync(asset.uri, ['qr']);
+      const payloads = Array.from(new Set(results.map((scan) => scan.data).filter(Boolean)));
+
+      if (payloads.length === 0) {
+        Alert.alert('No QR code found', 'Choose an image with one payment QR code.');
+        return;
+      }
+
+      if (payloads.length > 1) {
+        Alert.alert('Multiple QR codes found', 'Choose an image with only one payment QR code.');
+        return;
+      }
+
+      await handleScannedData(payloads[0], true);
+    } catch {
+      Alert.alert('Could not scan image', 'Try a clearer image with a payment QR code.');
+    } finally {
+      isGalleryScanningRef.current = false;
+      setIsProcessing(false);
+    }
+  }, [handleScannedData, isProcessing, scanned]);
+
   // ========================================
   // Permission Request
   // ========================================
@@ -255,7 +300,7 @@ export function QRScannerScreen(): React.JSX.Element {
     );
   }
 
-  if (!permission.granted) {
+  if (!permission.granted && scanMode === 'camera') {
     return (
       <SafeAreaView style={styles.permissionContainer}>
         <View style={styles.permissionContent}>
@@ -278,7 +323,17 @@ export function QRScannerScreen(): React.JSX.Element {
           </Button>
           <Button
             mode="text"
+            onPress={handleScanFromGallery}
+            disabled={isProcessing}
+            loading={isProcessing}
+            labelStyle={styles.manualEntryLink}
+          >
+            Scan from gallery
+          </Button>
+          <Button
+            mode="text"
             onPress={() => setScanMode('manual')}
+            disabled={isProcessing}
             labelStyle={styles.manualEntryLink}
           >
             Enter code manually instead
@@ -400,6 +455,7 @@ export function QRScannerScreen(): React.JSX.Element {
             <TouchableOpacity
               style={styles.actionButton}
               onPress={() => setFlashEnabled(!flashEnabled)}
+              disabled={isProcessing}
             >
               <IconButton
                 icon={flashEnabled ? 'flashlight' : 'flashlight-off'}
@@ -413,7 +469,17 @@ export function QRScannerScreen(): React.JSX.Element {
 
             <TouchableOpacity
               style={styles.actionButton}
+              onPress={handleScanFromGallery}
+              disabled={isProcessing}
+            >
+              <IconButton icon="image" iconColor="#FFFFFF" size={24} />
+              <Text style={styles.actionButtonText}>Scan from Gallery</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionButton}
               onPress={() => setScanMode('manual')}
+              disabled={isProcessing}
             >
               <IconButton icon="keyboard" iconColor="#FFFFFF" size={24} />
               <Text style={styles.actionButtonText}>Enter Manually</Text>
@@ -431,13 +497,24 @@ export function QRScannerScreen(): React.JSX.Element {
         )}
 
         {scanMode === 'manual' && (
-          <TouchableOpacity
-            style={styles.switchModeButton}
-            onPress={() => setScanMode('camera')}
-          >
-            <IconButton icon="camera" iconColor={BRAND_COLOR} size={20} />
-            <Text style={styles.switchModeText}>Use Camera Instead</Text>
-          </TouchableOpacity>
+          <View style={styles.manualActions}>
+            <TouchableOpacity
+              style={styles.switchModeButton}
+              onPress={handleScanFromGallery}
+              disabled={isProcessing}
+            >
+              <IconButton icon="image" iconColor={BRAND_COLOR} size={20} />
+              <Text style={styles.switchModeText}>Scan from Gallery</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.switchModeButton}
+              onPress={() => setScanMode('camera')}
+              disabled={isProcessing}
+            >
+              <IconButton icon="camera" iconColor={BRAND_COLOR} size={20} />
+              <Text style={styles.switchModeText}>Use Camera Instead</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </SafeAreaView>
     </View>
@@ -692,6 +769,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 16,
+  },
+  manualActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
   },
   switchModeText: {
     color: BRAND_COLOR,

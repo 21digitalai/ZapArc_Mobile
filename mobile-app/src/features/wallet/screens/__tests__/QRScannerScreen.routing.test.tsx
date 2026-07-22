@@ -7,6 +7,11 @@ import { QRScannerScreen } from '../QRScannerScreen';
 const mockPush = jest.fn();
 const mockParsePaymentRequest = jest.fn();
 const mockUseLocalSearchParams = jest.fn(() => ({}));
+const mockLaunchImageLibraryAsync = jest.fn();
+const mockScanFromURLAsync = jest.fn();
+const mockUseCameraPermissions = jest.fn(() => [{ granted: true }, jest.fn()]);
+const mockReact = jest.requireActual<typeof import('react')>('react');
+const mockReactNative = jest.requireActual<typeof import('react-native')>('react-native');
 
 jest.mock('expo-router', () => ({
   router: {
@@ -18,7 +23,12 @@ jest.mock('expo-router', () => ({
 
 jest.mock('expo-camera', () => ({
   CameraView: () => null,
-  useCameraPermissions: () => [{ granted: true }, jest.fn()],
+  useCameraPermissions: () => mockUseCameraPermissions(),
+  scanFromURLAsync: (...args: unknown[]) => mockScanFromURLAsync(...args),
+}));
+
+jest.mock('expo-image-picker', () => ({
+  launchImageLibraryAsync: (...args: unknown[]) => mockLaunchImageLibraryAsync(...args),
 }));
 
 jest.mock('../../../../services/breezSparkService', () => ({
@@ -28,10 +38,10 @@ jest.mock('../../../../services/breezSparkService', () => ({
 }));
 
 jest.mock('../../../../components', () => {
-  const React = require('react');
-  const { TextInput } = require('react-native');
   return {
-    StyledTextInput: (props: any) => React.createElement(TextInput, props),
+    StyledTextInput: (props: React.ComponentProps<typeof mockReactNative.TextInput>) => (
+      mockReact.createElement(mockReactNative.TextInput, props)
+    ),
   };
 });
 
@@ -39,6 +49,8 @@ describe('QRScannerScreen scan routing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUseLocalSearchParams.mockReturnValue({});
+    mockUseCameraPermissions.mockReturnValue([{ granted: true }, jest.fn()]);
+    mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: true, assets: [] });
   });
 
   const submitManualInput = async (value: string): Promise<void> => {
@@ -100,5 +112,62 @@ describe('QRScannerScreen scan routing', () => {
         paymentInput: 'bc1qexampleaddress',
       },
     });
+  });
+
+  it('routes a gallery QR through the same BTC lightning send flow', async () => {
+    mockParsePaymentRequest.mockResolvedValue({ isValid: true, type: 'bolt11' });
+    mockLaunchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///payment-qr.png' }],
+    });
+    mockScanFromURLAsync.mockResolvedValue([{ data: 'lnbc1galleryinvoice', type: 'qr' }]);
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Scan from Gallery'));
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/wallet/send',
+      params: { asset: 'BTC', tab: 'lightning', paymentInput: 'lnbc1galleryinvoice' },
+    }));
+  });
+
+  it('keeps cancellation quiet and reports ambiguous or empty gallery scans', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Scan from Gallery'));
+    await waitFor(() => expect(mockLaunchImageLibraryAsync).toHaveBeenCalled());
+    expect(alertSpy).not.toHaveBeenCalled();
+
+    mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///ambiguous.png' }] });
+    mockScanFromURLAsync.mockResolvedValue([{ data: 'one' }, { data: 'two' }]);
+    fireEvent.press(screen.getByText('Scan from Gallery'));
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Multiple QR codes found', expect.any(String)));
+    alertSpy.mockRestore();
+  });
+
+  it.each([
+    ['lnurl', 'lnurl1example', { pathname: '/wallet/lnurl', params: { lnurl: 'lnurl1example' } }],
+    ['lightning address', 'alice@example.com', { pathname: '/wallet/send', params: { asset: 'BTC', tab: 'lightning', paymentInput: 'alice@example.com' } }],
+    ['bitcoin address', 'bc1qgalleryaddress', { pathname: '/wallet/send', params: { asset: 'BTC', tab: 'onchain', paymentInput: 'bc1qgalleryaddress' } }],
+  ])('routes gallery %s through the existing parser', async (_kind, payload, expectedRoute) => {
+    mockParsePaymentRequest.mockResolvedValue({
+      isValid: true,
+      type: _kind === 'lnurl' ? 'lnurl' : _kind === 'bitcoin address' ? 'bitcoinAddress' : 'lightningAddress',
+    });
+    mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///payment-qr.png' }] });
+    mockScanFromURLAsync.mockResolvedValue([{ data: payload, type: 'qr' }]);
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Scan from Gallery'));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith(expectedRoute));
+  });
+
+  it('keeps gallery and manual entry available when camera permission is denied', async () => {
+    mockUseCameraPermissions.mockReturnValue([{ granted: false }, jest.fn()]);
+    render(<QRScannerScreen />);
+
+    fireEvent.press(screen.getByText('Enter code manually instead'));
+    expect(screen.getByText('Enter Payment Code')).toBeTruthy();
+    expect(screen.getByText('Scan from Gallery')).toBeTruthy();
   });
 });

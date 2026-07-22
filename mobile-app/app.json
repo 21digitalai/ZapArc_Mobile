@@ -33,6 +33,10 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
     },
     "web": {
@@ -83,6 +87,12 @@
         "expo-camera",
         {
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan QR codes."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access only the image you choose to scan a payment QR code."
         }
       ],
       "expo-secure-store",
