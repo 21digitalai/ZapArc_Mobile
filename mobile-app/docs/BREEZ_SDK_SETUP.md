@@ -83,8 +83,8 @@ Ensure these plugins are in your `app.json`:
         {
           "android": {
             "minSdkVersion": 24,
-            "compileSdkVersion": 34,
-            "targetSdkVersion": 34,
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
             "buildToolsVersion": "34.0.0",
             "kotlinVersion": "1.9.24",
             "enableProguardInReleaseBuilds": false
