@@ -54,6 +54,7 @@
     ],
     "plugins": [
       "expo-router",
+      "./plugins/withOptionalCameraFeature",
       "@breeztech/breez-sdk-spark-react-native",
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",

@@ -11,6 +11,9 @@ build input); both must remain on the same SDK level.
   than relying on opaque system bars.
 - `MainActivity` remains `singleTask` for QR and `mobile-app://` deep-link
   delivery. Its existing resize-related `configChanges` remain intact.
+- Camera scanning is declared as an optional hardware feature. This keeps the
+  app installable on ChromeOS and large-screen devices that do not expose a
+  camera, while the QR scanner can still request camera access where present.
 - Android 16 may ignore app orientation/resizability restrictions on large
   screens. Wallet screens must remain usable in the resulting resized layout;
   device verification is required before release.
