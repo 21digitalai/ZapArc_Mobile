@@ -424,6 +424,35 @@ describe('HomeScreen quick actions', () => {
     jest.useRealTimers();
   });
 
+  it('keeps Pending through its minimum dwell, then gives the terminal banner a full lifetime after exit', async () => {
+    jest.useFakeTimers();
+    mockUseLocalSearchParams.mockReturnValue({
+      paymentPending: 'true', paymentId: 'transition-lifecycle', paymentAmount: '1250',
+    });
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByText('Payment pending with 1,250 sats')).toBeTruthy());
+    await act(async () => {
+      mockPaymentListener?.({ id: 'transition-lifecycle', type: 'send', status: 'completed', amountSat: 1250 });
+      jest.advanceTimersByTime(1999);
+    });
+    expect(screen.getByText('Payment pending')).toBeTruthy();
+    expect(screen.queryByText('Payment sent')).toBeNull();
+
+    await act(async () => { jest.advanceTimersByTime(1); });
+    expect(screen.queryByText('Payment sent')).toBeNull();
+    await act(async () => { jest.advanceTimersByTime(219); });
+    expect(screen.queryByText('Payment sent')).toBeNull();
+    await act(async () => { jest.advanceTimersByTime(1); });
+    await waitFor(() => expect(screen.getByText('Payment sent')).toBeTruthy());
+
+    await act(async () => { jest.advanceTimersByTime(3499); });
+    expect(screen.getByText('Payment sent')).toBeTruthy();
+    await act(async () => { jest.advanceTimersByTime(1); });
+    expect(screen.queryByText('Payment sent')).toBeNull();
+    jest.useRealTimers();
+  });
+
   it('cancels a queued terminal replacement when Home unmounts', async () => {
     jest.useFakeTimers();
     const clearTimeoutSpy = jest.spyOn(global, 'clearTimeout');

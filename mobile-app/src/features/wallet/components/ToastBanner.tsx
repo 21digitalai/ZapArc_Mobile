@@ -189,7 +189,9 @@ export function ToastBanner({
             },
         {
           opacity: anim,
-          transform: [
+          // Reduced-motion users retain a brief opacity handoff without the
+          // positional/scale movement used by the normal Pending exit.
+          transform: reduceMotion === true ? undefined : [
             {
               // Slide in from a few pixels off the docking edge — top
               // toasts drop down, bottom toasts pop up.

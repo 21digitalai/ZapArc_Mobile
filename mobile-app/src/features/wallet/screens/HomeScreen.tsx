@@ -138,6 +138,9 @@ export function HomeScreen(): React.JSX.Element {
   const toastRevisionRef = useRef(0);
   const pendingToastRef = useRef<{ paymentId: string; revision: number; shownAt: number } | null>(null);
   const pendingTerminalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Keep this in sync with ToastBanner's short exit timing. Terminal toast
+  // lifetime begins only after the outgoing Pending shell has left the screen.
+  const PENDING_EXIT_DURATION_MS = 220;
   const clearPendingTerminalTimer = useCallback((): void => {
     if (pendingTerminalTimerRef.current) {
       clearTimeout(pendingTerminalTimerRef.current);
@@ -363,7 +366,7 @@ export function HomeScreen(): React.JSX.Element {
       ? pendingToastRef.current
       : null;
     const remainingDwell = pendingToast ? Math.max(0, 2000 - (Date.now() - pendingToast.shownAt)) : 0;
-    if (remainingDwell === 0 || !pendingToast) {
+    if (!pendingToast) {
       showTerminalToast();
       return;
     }
@@ -375,8 +378,16 @@ export function HomeScreen(): React.JSX.Element {
         pendingToastRef.current?.paymentId !== pendingToast.paymentId ||
         toastRevisionRef.current !== pendingToast.revision
       ) return;
-      pendingTerminalTimerRef.current = null;
-      showTerminalToast();
+      // First dismiss the Pending banner. ToastBanner keeps it mounted for a
+      // visible fade/slide exit; only then mount the terminal banner so it
+      // receives an independent full-duration timer.
+      setToast(null);
+      pendingToastRef.current = null;
+      pendingTerminalTimerRef.current = setTimeout(() => {
+        if (toastRevisionRef.current !== pendingToast.revision) return;
+        pendingTerminalTimerRef.current = null;
+        showTerminalToast();
+      }, PENDING_EXIT_DURATION_MS);
     }, remainingDwell);
   }, [clearPendingTerminalTimer, showToast]);
 
