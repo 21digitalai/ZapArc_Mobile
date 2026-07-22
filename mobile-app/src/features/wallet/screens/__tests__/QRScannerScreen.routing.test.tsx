@@ -145,14 +145,77 @@ describe('QRScannerScreen scan routing', () => {
     alertSpy.mockRestore();
   });
 
+  it('reports when a selected image has no QR code', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
+    mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///no-qr.png' }] });
+    mockScanFromURLAsync.mockResolvedValue([]);
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Scan from Gallery'));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('No QR code found', expect.any(String)));
+    expect(mockPush).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
+  it('reports unsupported gallery content without routing or submitting a payment', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
+    mockParsePaymentRequest.mockResolvedValue({ isValid: false });
+    mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///unsupported.png' }] });
+    mockScanFromURLAsync.mockResolvedValue([{ data: 'not-a-payment-request', type: 'qr' }]);
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Scan from Gallery'));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Unknown QR Code', expect.any(String), expect.any(Array)));
+    expect(mockPush).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
+  it('reports image scan failures without routing', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
+    mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///corrupt.png' }] });
+    mockScanFromURLAsync.mockRejectedValue(new Error('decode failed'));
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Scan from Gallery'));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Could not scan image', expect.any(String)));
+    expect(mockPush).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
+  it('ignores rapid duplicate gallery taps while a picker is pending', async () => {
+    let resolvePicker: ((value: { canceled: boolean; assets: never[] }) => void) | undefined;
+    mockLaunchImageLibraryAsync.mockImplementation(() => new Promise((resolve) => { resolvePicker = resolve; }));
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Scan from Gallery'));
+    fireEvent.press(screen.getByText('Scan from Gallery'));
+
+    expect(mockLaunchImageLibraryAsync).toHaveBeenCalledTimes(1);
+    resolvePicker!({ canceled: true, assets: [] });
+    await waitFor(() => expect(screen.getByText('Scan from Gallery')).toBeTruthy());
+  });
+
   it.each([
     ['lnurl', 'lnurl1example', { pathname: '/wallet/lnurl', params: { lnurl: 'lnurl1example' } }],
     ['lightning address', 'alice@example.com', { pathname: '/wallet/send', params: { asset: 'BTC', tab: 'lightning', paymentInput: 'alice@example.com' } }],
     ['bitcoin address', 'bc1qgalleryaddress', { pathname: '/wallet/send', params: { asset: 'BTC', tab: 'onchain', paymentInput: 'bc1qgalleryaddress' } }],
+    ['spark address', 'sp1gallerysparkaddress', { pathname: '/wallet/send', params: { asset: 'BTC', tab: 'lightning', paymentInput: 'sp1gallerysparkaddress' } }],
+    ['spark invoice', 'spark:galleryinvoice', { pathname: '/wallet/send', params: { asset: 'BTC', tab: 'lightning', paymentInput: 'spark:galleryinvoice' } }],
   ])('routes gallery %s through the existing parser', async (_kind, payload, expectedRoute) => {
     mockParsePaymentRequest.mockResolvedValue({
       isValid: true,
-      type: _kind === 'lnurl' ? 'lnurl' : _kind === 'bitcoin address' ? 'bitcoinAddress' : 'lightningAddress',
+      type: _kind === 'lnurl'
+        ? 'lnurl'
+        : _kind === 'bitcoin address'
+          ? 'bitcoinAddress'
+          : _kind === 'spark address'
+            ? 'sparkAddress'
+            : _kind === 'spark invoice'
+              ? 'unknown'
+              : 'lightningAddress',
     });
     mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///payment-qr.png' }] });
     mockScanFromURLAsync.mockResolvedValue([{ data: payload, type: 'qr' }]);
