@@ -135,12 +135,22 @@ export function HomeScreen(): React.JSX.Element {
     position?: 'top' | 'bottom';
   } | null>(null);
   const toastRevisionRef = useRef(0);
+  const pendingToastRef = useRef<{ paymentId: string; revision: number; shownAt: number } | null>(null);
+  const pendingTerminalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearPendingTerminalTimer = useCallback((): void => {
+    if (pendingTerminalTimerRef.current) {
+      clearTimeout(pendingTerminalTimerRef.current);
+      pendingTerminalTimerRef.current = null;
+    }
+  }, []);
   const showToast = useCallback(
     (next: { title: string; subtitle?: string; trailing?: string; icon?: string; tone?: ToastTone; position?: 'top' | 'bottom' }) => {
+      clearPendingTerminalTimer();
+      pendingToastRef.current = null;
       toastRevisionRef.current += 1;
       setToast({ ...next, revision: toastRevisionRef.current });
     },
-    [],
+    [clearPendingTerminalTimer],
   );
   // Stable dismiss ref so ToastBanner's effect isn't reinvoked on every
   // HomeScreen re-render (which would restart the enter animation).
@@ -153,6 +163,8 @@ export function HomeScreen(): React.JSX.Element {
     id: string;
     amountSat: number;
   } | null>(null);
+
+  useEffect(() => () => clearPendingTerminalTimer(), [clearPendingTerminalTimer]);
 
   const displayBalance = getBalanceForAsset(activeAsset);
   const displayTransactions = getTransactionsForAsset(activeAsset);
@@ -316,14 +328,46 @@ export function HomeScreen(): React.JSX.Element {
       ? `${(amount / 1e6).toFixed(2)} USDB`
       : `${amount.toLocaleString()} sat`;
 
+    const showTerminalToast = (): void => {
+      if (payment.status === 'completed') {
+        showToast({ icon: '↑', title: 'Payment sent', subtitle: payment.description || (asset === 'USDB' ? 'USDB' : 'Lightning'), trailing: `-${formatted}`, tone: 'accent' });
+        return;
+      }
+      showToast({ icon: '✕', title: 'Payment failed — balance restored', subtitle: payment.description || 'Try again or contact support', tone: 'danger' });
+    };
+
     if (payment.status === 'pending') {
       showToast({ icon: '⏳', title: 'Payment pending', subtitle: payment.description || 'Funds are temporarily reserved', tone: 'warn' });
-    } else if (payment.status === 'completed') {
-      showToast({ icon: '↑', title: 'Payment sent', subtitle: payment.description || (asset === 'USDB' ? 'USDB' : 'Lightning'), trailing: `-${formatted}`, tone: 'accent' });
-    } else {
-      showToast({ icon: '✕', title: 'Payment failed — balance restored', subtitle: payment.description || 'Try again or contact support', tone: 'danger' });
+      if (payment.id) {
+        pendingToastRef.current = {
+          paymentId: payment.id,
+          revision: toastRevisionRef.current,
+          shownAt: Date.now(),
+        };
+      }
+      return;
     }
-  }, [showToast]);
+
+    const pendingToast = payment.id && pendingToastRef.current?.paymentId === payment.id
+      ? pendingToastRef.current
+      : null;
+    const remainingDwell = pendingToast ? Math.max(0, 1200 - (Date.now() - pendingToast.shownAt)) : 0;
+    if (remainingDwell === 0 || !pendingToast) {
+      showTerminalToast();
+      return;
+    }
+
+    clearPendingTerminalTimer();
+    pendingTerminalTimerRef.current = setTimeout(() => {
+      // A newer toast, payment, or unmount invalidates this replacement.
+      if (
+        pendingToastRef.current?.paymentId !== pendingToast.paymentId ||
+        toastRevisionRef.current !== pendingToast.revision
+      ) return;
+      pendingTerminalTimerRef.current = null;
+      showTerminalToast();
+    }, remainingDwell);
+  }, [clearPendingTerminalTimer, showToast]);
 
   const reconcileTrackedPayment = useCallback(async (): Promise<void> => {
     if (!trackedPendingPayment) return;

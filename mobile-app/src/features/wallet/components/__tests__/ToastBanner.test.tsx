@@ -1,5 +1,6 @@
 import React from 'react';
-import { render } from '@testing-library/react-native';
+import { act, render, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo, Animated } from 'react-native';
 
 import { ToastBanner } from '../ToastBanner';
 
@@ -14,6 +15,7 @@ describe('ToastBanner', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+    jest.restoreAllMocks();
   });
 
   it.each([
@@ -34,5 +36,18 @@ describe('ToastBanner', () => {
 
     jest.advanceTimersByTime(40);
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the warn icon stable when reduced motion is enabled', async () => {
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
+    const loop = jest.spyOn(Animated, 'loop');
+
+    const { getByText } = render(
+      <ToastBanner visible onDismiss={jest.fn()} revision={1} title="Payment pending" tone="warn" />,
+    );
+
+    await act(async () => {});
+    await waitFor(() => expect(getByText('Payment pending')).toBeTruthy());
+    expect(loop).not.toHaveBeenCalled();
   });
 });

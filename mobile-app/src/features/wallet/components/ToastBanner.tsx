@@ -8,7 +8,7 @@
 // on-screen controls.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, Text, TouchableWithoutFeedback, View } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, StyleSheet, Text, TouchableWithoutFeedback, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export type ToastTone = 'success' | 'accent' | 'warn' | 'danger' | 'info';
@@ -68,6 +68,10 @@ export function ToastBanner({
 }: ToastBannerProps): React.JSX.Element | null {
   const insets = useSafeAreaInsets();
   const anim = useRef(new Animated.Value(0)).current;
+  const warnPulse = useRef(new Animated.Value(1)).current;
+  // Wait for the accessibility preference before starting motion so a device
+  // that requests reduced motion never gets even a one-frame pulse.
+  const [reduceMotion, setReduceMotion] = useState<boolean | null>(null);
   // `mounted` tracks whether we should render — stays true throughout
   // the exit animation so the animated styles can still apply. Starts
   // false; flipped true the first time `visible` goes true.
@@ -75,6 +79,32 @@ export function ToastBanner({
   // Skip the first effect pass when visible=false — otherwise we start
   // a no-op exit timing on mount that can interfere with state.
   const firstRun = useRef(true);
+
+  useEffect(() => {
+    let active = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (active) setReduceMotion(enabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!visible || tone !== 'warn' || reduceMotion !== false) {
+      warnPulse.stopAnimation();
+      warnPulse.setValue(1);
+      return;
+    }
+    const animation = Animated.loop(Animated.sequence([
+      Animated.timing(warnPulse, { toValue: 1.07, duration: 850, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      Animated.timing(warnPulse, { toValue: 1, duration: 850, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+    ]));
+    animation.start();
+    return () => animation.stop();
+  }, [reduceMotion, tone, visible, warnPulse]);
 
   useEffect(() => {
     if (firstRun.current && !visible) {
@@ -167,9 +197,15 @@ export function ToastBanner({
     >
       <TouchableWithoutFeedback onPress={onDismiss}>
         <View style={[styles.pill, { borderColor: t.border }]}>
-          <View style={[styles.iconChip, { backgroundColor: t.bg, borderColor: t.border }]}>
+          <Animated.View
+            style={[
+              styles.iconChip,
+              { backgroundColor: t.bg, borderColor: t.border },
+              tone === 'warn' ? { opacity: warnPulse.interpolate({ inputRange: [1, 1.07], outputRange: [0.82, 1] }), transform: [{ scale: warnPulse }] } : null,
+            ]}
+          >
             <Text style={[styles.iconText, { color: t.accent }]}>{icon}</Text>
-          </View>
+          </Animated.View>
 
           <View style={styles.textCol}>
             <Text numberOfLines={1} style={styles.title}>

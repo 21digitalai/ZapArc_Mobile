@@ -121,3 +121,10 @@
 - The BTC available-balance card shows an amber, tappable pending-payment row only when refreshed authoritative transaction data contains an outgoing payment with `status: 'pending'`.
 - The row must never calculate or present a synthetic locked total; it states that funds are temporarily reserved and routes to history.
 - A Send handoff carries the pending payment ID and amount. Home reconciles that ID through Breez before retaining the pending banner, and a completed/failed result replaces it with the normal terminal banner rather than flashing a stale pending state.
+
+### Transactional toast feedback
+
+`src/features/wallet/components/ToastBanner.tsx`
+- Payment Pending uses the existing amber `warn` icon chip with a subtle scale/opacity pulse only; the toast layout and dismissal timer do not move or restart.
+- The pulse starts only after the device accessibility preference confirms motion is allowed, and stays static when reduced motion is enabled.
+- Terminal replacements receive a fresh toast revision so their full dismissal duration begins after the pending dwell, not when the payment event arrived.

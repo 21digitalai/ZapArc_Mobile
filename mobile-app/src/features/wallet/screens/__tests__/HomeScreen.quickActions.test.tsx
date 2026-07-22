@@ -209,6 +209,7 @@ describe('HomeScreen quick actions', () => {
   });
 
   it('reconciles a completed payment when its event fired before Home mounted', async () => {
+    jest.useFakeTimers();
     mockUseLocalSearchParams.mockReturnValue({
       paymentPending: 'true',
       paymentId: 'fast-success',
@@ -220,13 +221,17 @@ describe('HomeScreen quick actions', () => {
 
     render(<HomeScreen />);
 
+    await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
+    await act(async () => { jest.advanceTimersByTime(1200); });
     await waitFor(() => expect(screen.getByText('Payment sent')).toBeTruthy());
     expect(mockGetPayment).toHaveBeenCalledWith('fast-success');
     expect(mockRefreshBalance).toHaveBeenCalled();
     expect(mockRefreshTransactions).toHaveBeenCalled();
+    jest.useRealTimers();
   });
 
   it('reconciles a failed payment when its event fired before Home mounted', async () => {
+    jest.useFakeTimers();
     mockUseLocalSearchParams.mockReturnValue({
       paymentPending: 'true',
       paymentId: 'fast-failed',
@@ -238,14 +243,18 @@ describe('HomeScreen quick actions', () => {
 
     render(<HomeScreen />);
 
+    await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
+    await act(async () => { jest.advanceTimersByTime(1200); });
     await waitFor(() => expect(screen.getByText('Payment failed — balance restored')).toBeTruthy());
     expect(screen.queryByText('Payment pending')).toBeNull();
     expect(mockGetPayment).toHaveBeenCalledWith('fast-failed');
     expect(mockRefreshBalance).toHaveBeenCalled();
     expect(mockRefreshTransactions).toHaveBeenCalled();
+    jest.useRealTimers();
   });
 
   it('replaces a pending banner once when a tracked payment completes by event', async () => {
+    jest.useFakeTimers();
     mockUseLocalSearchParams.mockReturnValue({
       paymentPending: 'true', paymentId: 'event-success', paymentAmount: '42',
     });
@@ -257,8 +266,11 @@ describe('HomeScreen quick actions', () => {
       mockPaymentListener?.({ id: 'event-success', type: 'send', status: 'completed', amountSat: 42 });
     });
 
+    expect(screen.getByText('Payment pending')).toBeTruthy();
+    await act(async () => { jest.advanceTimersByTime(1200); });
     await waitFor(() => expect(screen.getByText('Payment sent')).toBeTruthy());
     expect(screen.queryByText('Payment pending')).toBeNull();
+    jest.useRealTimers();
   });
 
   it.each([
@@ -278,6 +290,12 @@ describe('HomeScreen quick actions', () => {
       mockPaymentListener?.({ id: `fast-${status}`, type: 'send', status, amountSat: 42 });
     });
 
+    expect(screen.getByText('Payment pending')).toBeTruthy();
+    expect(mockRefreshBalance).toHaveBeenCalled();
+    expect(mockRefreshTransactions).toHaveBeenCalled();
+    await act(async () => { jest.advanceTimersByTime(199); });
+    expect(screen.getByText('Payment pending')).toBeTruthy();
+    await act(async () => { jest.advanceTimersByTime(1); });
     await waitFor(() => expect(screen.getByText(terminalTitle)).toBeTruthy());
     expect(screen.queryAllByText(terminalTitle)).toHaveLength(1);
     expect(screen.queryByText('Payment pending')).toBeNull();
@@ -296,7 +314,29 @@ describe('HomeScreen quick actions', () => {
     jest.useRealTimers();
   });
 
+  it.each([
+    ['completed', 'Payment sent'],
+    ['failed', 'Payment failed — balance restored'],
+  ])('replaces Pending immediately when %s arrives at the minimum dwell', async (status, terminalTitle) => {
+    jest.useFakeTimers();
+    mockUseLocalSearchParams.mockReturnValue({
+      paymentPending: 'true', paymentId: `threshold-${status}`, paymentAmount: '42',
+    });
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
+    await act(async () => {
+      jest.advanceTimersByTime(1200);
+      mockPaymentListener?.({ id: `threshold-${status}`, type: 'send', status, amountSat: 42 });
+    });
+    await waitFor(() => expect(screen.getByText(terminalTitle)).toBeTruthy());
+    expect(mockRefreshBalance).toHaveBeenCalled();
+    expect(mockRefreshTransactions).toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
   it('reconciles a failed tracked payment when Home regains focus', async () => {
+    jest.useFakeTimers();
     mockUseLocalSearchParams.mockReturnValue({
       paymentPending: 'true', paymentId: 'focus-failed', paymentAmount: '42',
     });
@@ -310,8 +350,11 @@ describe('HomeScreen quick actions', () => {
       mockFocusCallback?.();
     });
 
+    await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
+    await act(async () => { jest.advanceTimersByTime(1200); });
     await waitFor(() => expect(screen.getByText('Payment failed — balance restored')).toBeTruthy());
     expect(mockRefreshBalance).toHaveBeenCalled();
     expect(mockRefreshTransactions).toHaveBeenCalled();
+    jest.useRealTimers();
   });
 });
