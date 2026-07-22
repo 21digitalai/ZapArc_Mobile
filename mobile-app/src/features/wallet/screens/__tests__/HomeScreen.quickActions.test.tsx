@@ -135,6 +135,7 @@ describe('HomeScreen quick actions', () => {
     mockWalletTransactions = [];
     mockUseLocalSearchParams.mockReturnValue({});
     mockGetPayment.mockResolvedValue(null);
+    mockGetActiveAsset.mockResolvedValue('BTC');
   });
 
   it('renders BTC quick actions while multi-asset UI is disabled', async () => {
@@ -332,6 +333,70 @@ describe('HomeScreen quick actions', () => {
     await waitFor(() => expect(screen.getByText(terminalTitle)).toBeTruthy());
     expect(mockRefreshBalance).toHaveBeenCalled();
     expect(mockRefreshTransactions).toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
+  it.each([
+    ['completed', 'Payment sent'],
+    ['failed', 'Payment failed — balance restored'],
+  ])('replaces Pending immediately when %s arrives after the minimum dwell', async (status, terminalTitle) => {
+    jest.useFakeTimers();
+    mockUseLocalSearchParams.mockReturnValue({
+      paymentPending: 'true', paymentId: `after-dwell-${status}`, paymentAmount: '42',
+    });
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
+    await act(async () => {
+      jest.advanceTimersByTime(1201);
+      mockPaymentListener?.({ id: `after-dwell-${status}`, type: 'send', status, amountSat: 42 });
+    });
+
+    await waitFor(() => expect(screen.getByText(terminalTitle)).toBeTruthy());
+    expect(screen.queryByText('Payment pending')).toBeNull();
+    expect(mockRefreshBalance).toHaveBeenCalled();
+    expect(mockRefreshTransactions).toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
+  it('cancels a queued terminal replacement when Home unmounts', async () => {
+    jest.useFakeTimers();
+    const clearTimeoutSpy = jest.spyOn(global, 'clearTimeout');
+    mockUseLocalSearchParams.mockReturnValue({
+      paymentPending: 'true', paymentId: 'unmount-queued-terminal', paymentAmount: '42',
+    });
+    const view = render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+      mockPaymentListener?.({ id: 'unmount-queued-terminal', type: 'send', status: 'completed', amountSat: 42 });
+    });
+
+    view.unmount();
+    await act(async () => { jest.advanceTimersByTime(1000); });
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+    clearTimeoutSpy.mockRestore();
+    jest.useRealTimers();
+  });
+
+  it('does not let a queued terminal overwrite a newer payment toast', async () => {
+    jest.useFakeTimers();
+    mockUseLocalSearchParams.mockReturnValue({
+      paymentPending: 'true', paymentId: 'stale-queued-terminal', paymentAmount: '42',
+    });
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+      mockPaymentListener?.({ id: 'stale-queued-terminal', type: 'send', status: 'completed', amountSat: 42 });
+      mockPaymentListener?.({ id: 'newer-receive', type: 'receive', status: 'completed', amountSat: 21 });
+      jest.advanceTimersByTime(1000);
+    });
+
+    await waitFor(() => expect(screen.getByText('Payment received')).toBeTruthy());
+    expect(screen.queryByText('Payment sent')).toBeNull();
     jest.useRealTimers();
   });
 
