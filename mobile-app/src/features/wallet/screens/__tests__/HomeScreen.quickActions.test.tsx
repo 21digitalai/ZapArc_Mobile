@@ -223,7 +223,7 @@ describe('HomeScreen quick actions', () => {
     render(<HomeScreen />);
 
     await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
-    await act(async () => { jest.advanceTimersByTime(1200); });
+    await act(async () => { jest.advanceTimersByTime(2000); });
     await waitFor(() => expect(screen.getByText('Payment sent')).toBeTruthy());
     expect(mockGetPayment).toHaveBeenCalledWith('fast-success');
     expect(mockRefreshBalance).toHaveBeenCalled();
@@ -245,7 +245,7 @@ describe('HomeScreen quick actions', () => {
     render(<HomeScreen />);
 
     await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
-    await act(async () => { jest.advanceTimersByTime(1200); });
+    await act(async () => { jest.advanceTimersByTime(2000); });
     await waitFor(() => expect(screen.getByText('Payment failed — balance restored')).toBeTruthy());
     expect(screen.queryByText('Payment pending')).toBeNull();
     expect(mockGetPayment).toHaveBeenCalledWith('fast-failed');
@@ -268,7 +268,7 @@ describe('HomeScreen quick actions', () => {
     });
 
     expect(screen.getByText('Payment pending')).toBeTruthy();
-    await act(async () => { jest.advanceTimersByTime(1200); });
+    await act(async () => { jest.advanceTimersByTime(2000); });
     await waitFor(() => expect(screen.getByText('Payment sent')).toBeTruthy());
     expect(screen.queryByText('Payment pending')).toBeNull();
     jest.useRealTimers();
@@ -294,7 +294,7 @@ describe('HomeScreen quick actions', () => {
     expect(screen.getByText('Payment pending')).toBeTruthy();
     expect(mockRefreshBalance).toHaveBeenCalled();
     expect(mockRefreshTransactions).toHaveBeenCalled();
-    await act(async () => { jest.advanceTimersByTime(199); });
+    await act(async () => { jest.advanceTimersByTime(999); });
     expect(screen.getByText('Payment pending')).toBeTruthy();
     await act(async () => { jest.advanceTimersByTime(1); });
     await waitFor(() => expect(screen.getByText(terminalTitle)).toBeTruthy());
@@ -330,7 +330,7 @@ describe('HomeScreen quick actions', () => {
     await act(async () => {
       jest.advanceTimersByTime(1000);
       mockPaymentListener?.({ id: paymentId, type: 'send', status, amountSat: 42 });
-      jest.advanceTimersByTime(200);
+      jest.advanceTimersByTime(1000);
     });
     await waitFor(() => expect(screen.getByText(terminalTitle)).toBeTruthy());
 
@@ -359,7 +359,7 @@ describe('HomeScreen quick actions', () => {
 
     await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
     await act(async () => {
-      jest.advanceTimersByTime(1200);
+      jest.advanceTimersByTime(2000);
       mockPaymentListener?.({ id: `threshold-${status}`, type: 'send', status, amountSat: 42 });
     });
     await waitFor(() => expect(screen.getByText(terminalTitle)).toBeTruthy());
@@ -380,7 +380,7 @@ describe('HomeScreen quick actions', () => {
 
     await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
     await act(async () => {
-      jest.advanceTimersByTime(1201);
+      jest.advanceTimersByTime(2001);
       mockPaymentListener?.({ id: `after-dwell-${status}`, type: 'send', status, amountSat: 42 });
     });
 
@@ -401,7 +401,7 @@ describe('HomeScreen quick actions', () => {
 
     await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
     await act(async () => {
-      jest.advanceTimersByTime(1000);
+      jest.advanceTimersByTime(2000);
       mockPaymentListener?.({ id: 'unmount-queued-terminal', type: 'send', status: 'completed', amountSat: 42 });
     });
 
@@ -448,7 +448,7 @@ describe('HomeScreen quick actions', () => {
     });
 
     await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
-    await act(async () => { jest.advanceTimersByTime(1200); });
+    await act(async () => { jest.advanceTimersByTime(2000); });
     await waitFor(() => expect(screen.getByText('Payment failed — balance restored')).toBeTruthy());
     expect(mockRefreshBalance).toHaveBeenCalled();
     expect(mockRefreshTransactions).toHaveBeenCalled();

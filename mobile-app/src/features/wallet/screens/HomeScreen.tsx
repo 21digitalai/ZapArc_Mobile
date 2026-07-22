@@ -351,7 +351,7 @@ export function HomeScreen(): React.JSX.Element {
     const pendingToast = payment.id && pendingToastRef.current?.paymentId === payment.id
       ? pendingToastRef.current
       : null;
-    const remainingDwell = pendingToast ? Math.max(0, 1200 - (Date.now() - pendingToast.shownAt)) : 0;
+    const remainingDwell = pendingToast ? Math.max(0, 2000 - (Date.now() - pendingToast.shownAt)) : 0;
     if (remainingDwell === 0 || !pendingToast) {
       showTerminalToast();
       return;
