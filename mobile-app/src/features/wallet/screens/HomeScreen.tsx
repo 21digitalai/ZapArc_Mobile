@@ -484,6 +484,10 @@ export function HomeScreen(): React.JSX.Element {
       : null;
     const remainingDwell = pendingToast ? Math.max(0, 2000 - (Date.now() - pendingToast.shownAt)) : 0;
     if (!pendingToast) {
+      // The row can be rendered from an authoritative refresh even when Home
+      // did not receive the original Pending event. Give that payment the
+      // same scoped terminal handoff rather than leaving stale row copy.
+      if (payment.id) setPendingRowExitingPaymentId(payment.id);
       showTerminalToast();
       return;
     }

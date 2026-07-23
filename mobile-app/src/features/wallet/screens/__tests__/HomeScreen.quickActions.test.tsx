@@ -195,6 +195,24 @@ describe('HomeScreen quick actions', () => {
     jest.useRealTimers();
   });
 
+  it('collapses an authoritative pending row when its terminal event had no Pending toast', async () => {
+    jest.useFakeTimers();
+    mockWalletTransactions = [{ id: 'silent-pending', type: 'send', status: 'pending', amount: 42 }];
+    const view = render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByLabelText('Pending payment')).toBeTruthy());
+    await act(async () => {
+      mockPaymentListener?.({ id: 'silent-pending', type: 'send', status: 'completed', amountSat: 42 });
+      mockWalletTransactions = [];
+      view.rerender(<HomeScreen />);
+    });
+
+    await waitFor(() => expect(screen.getByText('Payment sent')).toBeTruthy());
+    await act(async () => { jest.advanceTimersByTime(220); });
+    expect(screen.queryByLabelText('Pending payment')).toBeNull();
+    jest.useRealTimers();
+  });
+
   it('expands the inline pending row from collapsed values when a payment arrives', async () => {
     const timing = jest.spyOn(Animated, 'timing');
     const view = render(<HomeScreen />);
