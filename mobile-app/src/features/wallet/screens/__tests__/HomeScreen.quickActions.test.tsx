@@ -1,4 +1,5 @@
 import React from 'react';
+import { AccessibilityInfo, Animated } from 'react-native';
 import { act, render, screen, waitFor } from '@testing-library/react-native';
 
 import { HomeScreen } from '../HomeScreen';
@@ -136,6 +137,11 @@ describe('HomeScreen quick actions', () => {
     mockUseLocalSearchParams.mockReturnValue({});
     mockGetPayment.mockResolvedValue(null);
     mockGetActiveAsset.mockResolvedValue('BTC');
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('renders BTC quick actions while multi-asset UI is disabled', async () => {
@@ -187,6 +193,46 @@ describe('HomeScreen quick actions', () => {
     await waitFor(() => expect(screen.getByText('Payment sent')).toBeTruthy());
     expect(screen.queryByLabelText('Pending payment')).toBeNull();
     jest.useRealTimers();
+  });
+
+  it('expands the inline pending row from collapsed values when a payment arrives', async () => {
+    const timing = jest.spyOn(Animated, 'timing');
+    const view = render(<HomeScreen />);
+
+    await waitFor(() => expect(AccessibilityInfo.isReduceMotionEnabled).toHaveBeenCalled());
+    mockWalletTransactions = [{ id: 'entry-pending', type: 'send', status: 'pending', amount: 42 }];
+    view.rerender(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByLabelText('Pending payment')).toBeTruthy());
+    expect(timing).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ toValue: 1, duration: 220, useNativeDriver: false }),
+    );
+  });
+
+  it('uses the short reduced-motion transition for the inline pending row', async () => {
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
+    const timing = jest.spyOn(Animated, 'timing');
+    mockWalletTransactions = [{ id: 'reduced-pending', type: 'send', status: 'pending', amount: 42 }];
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByLabelText('Pending payment')).toBeTruthy());
+    expect(timing).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ toValue: 1, duration: 100, useNativeDriver: false }),
+    );
+  });
+
+  it('uses safe inline copy when one of multiple pending amounts is unavailable', async () => {
+    mockWalletTransactions = [
+      { id: 'known-pending', type: 'send', status: 'pending', amount: 42 },
+      { id: 'unknown-pending', type: 'send', status: 'pending' },
+    ];
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByText('⏳ 2 payments pending')).toBeTruthy());
+    expect(screen.queryByText('⏳ Pending • 42 sats')).toBeNull();
+    expect(screen.queryByText('⏳ Pending • 0 sats')).toBeNull();
   });
 
   it('keeps the aggregate row interactive when another payment remains pending during a terminal handoff', async () => {

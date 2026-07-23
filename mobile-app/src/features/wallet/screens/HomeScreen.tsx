@@ -98,12 +98,12 @@ function PendingBalanceRow({
   const height = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const spacing = useRef(new Animated.Value(0)).current;
-  const reducedMotionRef = useRef(false);
+  const [motionPreference, setMotionPreference] = useState({ resolved: false, reduced: false });
 
   useEffect(() => {
     let active = true;
     void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
-      if (active) reducedMotionRef.current = enabled;
+      if (active) setMotionPreference({ resolved: true, reduced: enabled });
     });
     return () => { active = false; };
   }, []);
@@ -111,7 +111,7 @@ function PendingBalanceRow({
   const animate = useCallback((toValue: number, done?: () => void): void => {
     const config = {
       toValue,
-      duration: reducedMotionRef.current ? 100 : INLINE_PENDING_MOTION_MS,
+      duration: motionPreference.reduced ? 100 : INLINE_PENDING_MOTION_MS,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     };
@@ -120,15 +120,15 @@ function PendingBalanceRow({
       Animated.timing(opacity, config),
       Animated.timing(spacing, config),
     ]).start(({ finished }) => { if (finished && done) done(); });
-  }, [height, opacity, spacing]);
+  }, [height, motionPreference.reduced, opacity, spacing]);
 
   useEffect(() => {
-    if (!signature || signature === lastSignatureRef.current) return;
+    if (!motionPreference.resolved || !signature || signature === lastSignatureRef.current) return;
     lastSignatureRef.current = signature;
     setMounted(true);
     setInteractive(true);
     animate(1);
-  }, [animate, signature]);
+  }, [animate, motionPreference.resolved, signature]);
 
   useEffect(() => {
     if (!exitingPaymentId || !mounted) return;
