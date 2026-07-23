@@ -89,8 +89,12 @@ function PendingBalanceRow({
   exitingPaymentId: string | null;
   onPress: () => void;
 }): React.JSX.Element | null {
+  const pendingLabel = getPendingLabel(payments);
   const signature = payments.map((payment) => payment.id).sort().join('|');
   const lastSignatureRef = useRef('');
+  // Authoritative payments can be cleared before the visual exit completes.
+  // Keep only their rendered label for that short exit, never the payment data.
+  const lastVisibleLabelRef = useRef<string | null>(payments.length > 0 ? pendingLabel : null);
   const [mounted, setMounted] = useState(payments.length > 0);
   const [interactive, setInteractive] = useState(payments.length > 0);
   // Always mount collapsed. The signature effect expands after mount, so the
@@ -131,6 +135,10 @@ function PendingBalanceRow({
   }, [animate, motionPreference.resolved, signature]);
 
   useEffect(() => {
+    if (payments.length > 0) lastVisibleLabelRef.current = pendingLabel;
+  }, [payments.length, pendingLabel]);
+
+  useEffect(() => {
     if (!exitingPaymentId || !mounted) return;
     // The inline row represents the aggregate pending set. A terminal toast
     // for one payment must not collapse it while another payment is still
@@ -139,11 +147,13 @@ function PendingBalanceRow({
     setInteractive(false);
     animate(0, () => {
       lastSignatureRef.current = '';
+      lastVisibleLabelRef.current = null;
       setMounted(false);
     });
   }, [animate, exitingPaymentId, mounted, payments]);
 
   if (!mounted) return null;
+  const visibleLabel = payments.length > 0 ? pendingLabel : lastVisibleLabelRef.current ?? '⏳ Pending';
   return (
     <Animated.View style={{
       height: height.interpolate({ inputRange: [0, 1], outputRange: [0, INLINE_PENDING_ROW_HEIGHT] }),
@@ -159,7 +169,7 @@ function PendingBalanceRow({
         style={styles.pendingBalanceRow}
         onPress={onPress}
       >
-        <Text style={styles.pendingBalanceTitle}>{getPendingLabel(payments)}</Text>
+        <Text style={styles.pendingBalanceTitle}>{visibleLabel}</Text>
       </TouchableOpacity>
     </Animated.View>
   );

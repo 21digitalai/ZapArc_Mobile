@@ -185,6 +185,8 @@ describe('HomeScreen quick actions', () => {
     mockWalletTransactions = [];
     view.rerender(<HomeScreen />);
     expect(screen.getByLabelText('Pending payment')).toBeTruthy();
+    expect(screen.getByText('⏳ Pending • 42 sats')).toBeTruthy();
+    expect(screen.queryByText('⏳ Pending')).toBeNull();
 
     await act(async () => {
       mockPaymentListener?.({ id: 'pending-1', type: 'send', status: 'completed', amountSat: 42 });
@@ -239,6 +241,25 @@ describe('HomeScreen quick actions', () => {
       expect.anything(),
       expect.objectContaining({ toValue: 1, duration: 100, useNativeDriver: false }),
     );
+  });
+
+  it('keeps the last authoritative label through a reduced-motion exit', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
+    mockWalletTransactions = [{ id: 'reduced-exit', type: 'send', status: 'pending', amount: 42 }];
+    const view = render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByText('⏳ Pending • 42 sats')).toBeTruthy());
+    await act(async () => {
+      mockPaymentListener?.({ id: 'reduced-exit', type: 'send', status: 'completed', amountSat: 42 });
+      mockWalletTransactions = [];
+      view.rerender(<HomeScreen />);
+    });
+
+    expect(screen.getByText('⏳ Pending • 42 sats')).toBeTruthy();
+    await act(async () => { jest.advanceTimersByTime(100); });
+    expect(screen.queryByLabelText('Pending payment')).toBeNull();
+    jest.useRealTimers();
   });
 
   it('uses safe inline copy when one of multiple pending amounts is unavailable', async () => {
