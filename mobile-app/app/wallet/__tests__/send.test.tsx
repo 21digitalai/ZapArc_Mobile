@@ -294,7 +294,7 @@ describe('SendScreen gallery scan', () => {
     renderScreen();
 
     expect(screen.getByText('Scan QR Code')).toBeTruthy();
-    expect(screen.getByText('Scan from Gallery')).toBeTruthy();
+    expect(screen.getByText('Gallery Image')).toBeTruthy();
   });
 
   it('decodes a selected gallery QR through the Send parser without requesting camera access', async () => {
@@ -306,7 +306,7 @@ describe('SendScreen gallery scan', () => {
     mockParsePaymentRequest.mockResolvedValue({ isValid: true, type: 'bolt11' });
 
     renderScreen();
-    fireEvent.press(screen.getByText('Scan from Gallery'));
+    fireEvent.press(screen.getByText('Gallery Image'));
 
     await waitFor(() => {
       expect(mockParsePaymentRequest).toHaveBeenCalledWith('lnbc1galleryinvoice');
@@ -326,7 +326,7 @@ describe('SendScreen gallery scan', () => {
     mockScanFromURLAsync.mockResolvedValue(scanResult);
 
     renderScreen();
-    fireEvent.press(screen.getByText('Scan from Gallery'));
+    fireEvent.press(screen.getByText('Gallery Image'));
 
     await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith('QR scan', message));
     expect(mockParsePaymentRequest).not.toHaveBeenCalled();
@@ -337,8 +337,8 @@ describe('SendScreen gallery scan', () => {
     mockLaunchImageLibraryAsync.mockImplementation(() => new Promise((_, reject) => { rejectPicker = reject; }));
 
     renderScreen();
-    fireEvent.press(screen.getByText('Scan from Gallery'));
-    fireEvent.press(screen.getByText('Scan from Gallery'));
+    fireEvent.press(screen.getByText('Gallery Image'));
+    fireEvent.press(screen.getByText('Gallery Image'));
 
     expect(mockLaunchImageLibraryAsync).toHaveBeenCalledTimes(1);
     rejectPicker!(new Error('picker unavailable'));

@@ -1668,7 +1668,7 @@ export default function SendScreen() {
               {t('send.scanQrCode')}
             </Button>
             <Button mode="outlined" onPress={handleScanFromGallery} icon="image" style={styles.scanActionButton} textColor={BRAND_COLOR}>
-              Scan from Gallery
+              Gallery Image
             </Button>
           </View>
 
