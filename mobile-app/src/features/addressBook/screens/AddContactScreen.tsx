@@ -3,7 +3,7 @@
  * Form for adding a new contact to the address book
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -40,8 +40,12 @@ import {
   validateNotes,
 } from '../services/contactValidator';
 import { ContactValidationError } from '../services/contactService';
+import { createSafeBackHandler } from '../../wallet/utils/safeBack';
 
 export function AddContactScreen(): React.JSX.Element {
+  const safeBack = useMemo(() => createSafeBackHandler({
+    canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route),
+  }, '/wallet/settings/address-book'), []);
   const { themeMode } = useAppTheme();
   const { createContact } = useContacts();
 
@@ -143,7 +147,7 @@ export function AddContactScreen(): React.JSX.Element {
         preferredAsset,
         notes: notes.trim() || undefined,
       });
-      router.back();
+      safeBack();
     } catch (err) {
       setVerifying(false);
       if (err instanceof ContactValidationError) {
@@ -161,7 +165,7 @@ export function AddContactScreen(): React.JSX.Element {
     } finally {
       setSaving(false);
     }
-  }, [validateForm, createContact, name, lightningAddress, sparkAddress, preferredAsset, notes]);
+  }, [validateForm, createContact, name, lightningAddress, sparkAddress, preferredAsset, notes, safeBack]);
 
   return (
     <LinearGradient colors={gradientColors} style={styles.gradient}>
@@ -173,7 +177,7 @@ export function AddContactScreen(): React.JSX.Element {
               icon="close"
               iconColor={primaryTextColor}
               size={24}
-              onPress={() => router.back()}
+              onPress={safeBack}
             />
             <Text style={[styles.headerTitle, { color: primaryTextColor }]}>
               {t('addressBook.addContact')}

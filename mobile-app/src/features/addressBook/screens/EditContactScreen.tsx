@@ -3,7 +3,7 @@
  * Form for editing or deleting an existing contact
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -44,8 +44,12 @@ import {
 import { ContactValidationError } from '../services/contactService';
 import { t } from '../../../services/i18nService';
 import { contactDisplayName } from '../utils/contactDisplay';
+import { createSafeBackHandler } from '../../wallet/utils/safeBack';
 
 export function EditContactScreen(): React.JSX.Element {
+  const safeBack = useMemo(() => createSafeBackHandler({
+    canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route),
+  }, '/wallet/settings/address-book'), []);
   const { id } = useLocalSearchParams<{ id: string }>();
   const { themeMode } = useAppTheme();
   const { updateContact, deleteContact } = useContacts();
@@ -161,7 +165,7 @@ export function EditContactScreen(): React.JSX.Element {
         preferredAsset,
         notes: notes.trim() || undefined,
       });
-      router.back();
+      safeBack();
     } catch (err) {
       if (err instanceof ContactValidationError) {
         const addressErrors = err.validation.errors.filter(
@@ -187,7 +191,7 @@ export function EditContactScreen(): React.JSX.Element {
     setDeleteDialogVisible(false);
     try {
       await deleteContact(contact.id);
-      router.back();
+      safeBack();
     } catch (err) {
       showError('Failed to delete contact. Please try again.');
     } finally {
@@ -204,7 +208,7 @@ export function EditContactScreen(): React.JSX.Element {
               icon="arrow-left"
               iconColor={primaryTextColor}
               size={24}
-              onPress={() => router.back()}
+              onPress={safeBack}
             />
             <Text style={[styles.headerTitle, { color: primaryTextColor }]}>
               Edit Contact
@@ -228,7 +232,7 @@ export function EditContactScreen(): React.JSX.Element {
               icon="arrow-left"
               iconColor={primaryTextColor}
               size={24}
-              onPress={() => router.back()}
+              onPress={safeBack}
             />
             <Text style={[styles.headerTitle, { color: primaryTextColor }]}>
               Edit Contact
@@ -241,7 +245,7 @@ export function EditContactScreen(): React.JSX.Element {
             </Text>
             <Button
               mode="outlined"
-              onPress={() => router.back()}
+              onPress={safeBack}
               textColor={primaryTextColor}
               style={styles.backButton}
             >
@@ -263,7 +267,7 @@ export function EditContactScreen(): React.JSX.Element {
               icon="arrow-left"
               iconColor={primaryTextColor}
               size={24}
-              onPress={() => router.back()}
+              onPress={safeBack}
             />
             <Text style={[styles.headerTitle, { color: primaryTextColor }]}>
               Edit Contact

@@ -3,7 +3,7 @@
  * Main screen for viewing and managing contacts
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { StyleSheet, View, FlatList, RefreshControl } from 'react-native';
 import { Text, IconButton, FAB, Divider, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -24,8 +24,12 @@ import { useLightningAddress } from '../../../hooks/useLightningAddress';
 import { ContactListItem } from '../components/ContactListItem';
 import { ContactSearchBar } from '../components/ContactSearchBar';
 import { EmptyAddressBook } from '../components/EmptyAddressBook';
+import { createSafeBackHandler } from '../../wallet/utils/safeBack';
 
 export function AddressBookScreen(): React.JSX.Element {
+  const safeBack = useMemo(() => createSafeBackHandler({
+    canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route),
+  }, '/wallet/settings'), []);
   const { t } = useLanguage();
   const { themeMode } = useAppTheme();
   const { contacts, loading, refreshContacts } = useContacts();
@@ -108,7 +112,7 @@ export function AddressBookScreen(): React.JSX.Element {
             icon="arrow-left"
             iconColor={primaryTextColor}
             size={24}
-            onPress={() => router.back()}
+            onPress={safeBack}
           />
           <Text style={[styles.headerTitle, { color: primaryTextColor }]}>
             {t('addressBook.title')}
