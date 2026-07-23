@@ -123,6 +123,13 @@
 - `PendingBalanceRow` is a presentation shell: it expands/collapses height, opacity, and spacing, stays interactive until exit begins, and only starts its terminal collapse with the matching Pending toast handoff. It represents the whole authoritative pending set, so a terminal handoff for one payment never collapses the row while another payment remains pending. Reduced-motion uses the same short non-spring transition.
 - A Send handoff carries the pending payment ID and amount. Home reconciles that ID through Breez before retaining the pending banner, and a completed/failed result replaces it with the normal terminal banner rather than flashing a stale pending state.
 
+### Wallet safe-back contract
+
+`mobile-app/src/features/wallet/utils/safeBack.ts`
+- Use `createSafeBackHandler` for wallet leaf-screen back controls and Android back handlers.
+- It pops usable history, otherwise replaces the typed logical parent route, and suppresses repeated transitions.
+- Wallet Home is the intentional root: pass `isRoot: true` there to preserve app-exit/minimize behavior.
+
 ### Transactional toast feedback
 
 `src/features/wallet/components/ToastBanner.tsx`
