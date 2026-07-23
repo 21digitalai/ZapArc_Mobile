@@ -13,8 +13,7 @@ import {
   BRAND_COLOR,
 } from '../../src/utils/theme-helpers';
 import { useAppTheme } from '../../src/contexts/ThemeContext';
-import { CameraView, useCameraPermissions, BarcodeScanningResult, scanFromURLAsync } from 'expo-camera';
-import * as ImagePicker from 'expo-image-picker';
+import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { useWallet } from '../../src/hooks/useWallet';
 import { BreezSparkService } from '../../src/services/breezSparkService';
 import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
@@ -32,6 +31,7 @@ import { normalizeLightningAddress } from '../../src/features/addressBook/servic
 import { contactDisplayName } from '../../src/features/addressBook/utils/contactDisplay';
 import { t } from '../../src/services/i18nService';
 import { createSafeBackHandler } from '../../src/features/wallet/utils/safeBack';
+import { pickSingleGalleryQr } from '../../src/features/wallet/utils/galleryQr';
 
 function isValidBitcoinAddress(address: string): boolean {
   // Bech32 (native segwit): bc1q... or bc1p... (taproot)
@@ -837,14 +837,13 @@ export default function SendScreen() {
     if (isGalleryScanningRef.current) return;
     isGalleryScanningRef.current = true;
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 1 });
-      if (result.canceled || !result.assets[0]?.uri) return;
-      const codes = await scanFromURLAsync(result.assets[0].uri, ['qr']);
-      if (codes.length !== 1) {
-        Alert.alert('QR scan', codes.length ? 'Please select an image with one QR code.' : 'No QR code found in that image.');
+      const result = await pickSingleGalleryQr();
+      if (result.kind === 'cancelled') return;
+      if (result.kind !== 'payload') {
+        Alert.alert('QR scan', result.kind === 'multiple' ? 'Please select an image with one QR code.' : 'No QR code found in that image.');
         return;
       }
-      await handleBarCodeScanned({ data: codes[0].data } as BarcodeScanningResult);
+      await handleBarCodeScanned({ data: result.payload } as BarcodeScanningResult);
     } catch {
       Alert.alert('QR scan', 'Could not read a QR code from that image.');
     } finally {

@@ -16,12 +16,12 @@ import { useKeyboardAwareScroll } from '../../../hooks/useKeyboardAwareScroll';
 import { Text, IconButton, Button, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { CameraView, useCameraPermissions, BarcodeScanningResult, scanFromURLAsync } from 'expo-camera';
-import * as ImagePicker from 'expo-image-picker';
+import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
 import { BreezSparkService } from '../../../services/breezSparkService';
 import { MULTI_ASSET_UI_ENABLED } from '../../../config/features';
 import { createSafeBackHandler } from '../utils/safeBack';
+import { pickSingleGalleryQr } from '../utils/galleryQr';
 
 
 // =============================================================================
@@ -263,34 +263,26 @@ export function QRScannerScreen(): React.JSX.Element {
     setIsProcessing(true);
 
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: false,
-        selectionLimit: 1,
-      });
-
-      if (result.canceled) return;
-
-      const asset = result.assets[0];
-      if (!asset || !asset.uri) {
+      const result = await pickSingleGalleryQr();
+      if (result.kind === 'cancelled') return;
+      if (result.kind === 'missing') {
         Alert.alert('Could not read image', 'Choose a different image and try again.');
         return;
       }
 
-      const results = await scanFromURLAsync(asset.uri, ['qr']);
-      const payloads = Array.from(new Set(results.map((scan) => scan.data).filter(Boolean)));
-
-      if (payloads.length === 0) {
+      if (result.kind === 'empty') {
         Alert.alert('No QR code found', 'Choose an image with one payment QR code.');
         return;
       }
 
-      if (payloads.length > 1) {
+      if (result.kind === 'multiple') {
         Alert.alert('Multiple QR codes found', 'Choose an image with only one payment QR code.');
         return;
       }
 
-      await handleScannedData(payloads[0], true);
+      if (result.kind === 'payload') {
+        await handleScannedData(result.payload, true);
+      }
     } catch {
       Alert.alert('Could not scan image', 'Try a clearer image with a payment QR code.');
     } finally {
