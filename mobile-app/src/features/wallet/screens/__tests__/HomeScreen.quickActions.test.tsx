@@ -298,6 +298,60 @@ describe('HomeScreen quick actions', () => {
     jest.useRealTimers();
   });
 
+  it('supersedes an empty A exit with B before the old collapse completes', async () => {
+    jest.useFakeTimers();
+    mockWalletTransactions = [{ id: 'pending-a', type: 'send', status: 'pending', amount: 42 }];
+    const view = render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByText('⏳ Pending • 42 sats')).toBeTruthy());
+    await act(async () => {
+      mockPaymentListener?.({ id: 'pending-a', type: 'send', status: 'pending', amountSat: 42 });
+      mockPaymentListener?.({ id: 'pending-a', type: 'send', status: 'completed', amountSat: 42 });
+      mockWalletTransactions = [];
+      view.rerender(<HomeScreen />);
+      jest.advanceTimersByTime(2000);
+    });
+
+    await waitFor(() => expect(screen.getByLabelText('Pending payment')).toBeTruthy());
+    await act(async () => {
+      mockWalletTransactions = [{ id: 'pending-b', type: 'send', status: 'pending', amount: 1250 }];
+      view.rerender(<HomeScreen />);
+    });
+
+    expect(screen.getByText('⏳ Pending • 1,250 sats')).toBeTruthy();
+    expect(screen.queryByText('⏳ Pending • 42 sats')).toBeNull();
+    await act(async () => { jest.advanceTimersByTime(220); });
+    expect(screen.getByLabelText('Pending payment')).toBeTruthy();
+    expect(screen.getByText('⏳ Pending • 1,250 sats')).toBeTruthy();
+    jest.useRealTimers();
+  });
+
+  it.each([
+    ['unknown single', [{ id: 'unknown-exit', type: 'send', status: 'pending' }], '⏳ Pending'],
+    ['mixed amounts', [
+      { id: 'known-exit', type: 'send', status: 'pending', amount: 42 },
+      { id: 'unknown-exit', type: 'send', status: 'pending' },
+    ], '⏳ 2 payments pending'],
+  ])('keeps safe %s copy unchanged through terminal exit', async (_name, payments, label) => {
+    jest.useFakeTimers();
+    mockWalletTransactions = payments;
+    const view = render(<HomeScreen />);
+    const exitingPayment = payments[0];
+
+    await waitFor(() => expect(screen.getByText(label)).toBeTruthy());
+    await act(async () => {
+      mockPaymentListener?.({ id: exitingPayment.id, type: 'send', status: 'completed', amountSat: 42 });
+      mockWalletTransactions = [];
+      view.rerender(<HomeScreen />);
+      jest.advanceTimersByTime(2000);
+    });
+
+    expect(screen.getByText(label)).toBeTruthy();
+    await act(async () => { jest.advanceTimersByTime(220); });
+    expect(screen.queryByLabelText('Pending payment')).toBeNull();
+    jest.useRealTimers();
+  });
+
   it('waits for B terminal handoff after stale A handoff is superseded', async () => {
     jest.useFakeTimers();
     mockWalletTransactions = [
