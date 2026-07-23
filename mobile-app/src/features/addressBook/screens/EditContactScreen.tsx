@@ -9,6 +9,7 @@ import {
   View,
   ScrollView,
   Platform,
+  BackHandler,
 } from 'react-native';
 import {
   Text,
@@ -24,7 +25,7 @@ import { useKeyboardAwareScroll } from '../../../hooks/useKeyboardAwareScroll';
 import { useFeedback } from '../../wallet/components/FeedbackComponents';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import {
   getGradientColors,
@@ -50,6 +51,12 @@ export function EditContactScreen(): React.JSX.Element {
   const safeBack = useMemo(() => createSafeBackHandler({
     canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route),
   }, '/wallet/settings/address-book'), []);
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+      return () => subscription.remove();
+    }, [safeBack])
+  );
   const { id } = useLocalSearchParams<{ id: string }>();
   const { themeMode } = useAppTheme();
   const { updateContact, deleteContact } = useContacts();

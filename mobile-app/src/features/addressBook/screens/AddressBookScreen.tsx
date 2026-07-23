@@ -4,7 +4,7 @@
  */
 
 import React, { useCallback, useMemo } from 'react';
-import { StyleSheet, View, FlatList, RefreshControl } from 'react-native';
+import { StyleSheet, View, FlatList, RefreshControl, BackHandler } from 'react-native';
 import { Text, IconButton, FAB, Divider, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -30,6 +30,12 @@ export function AddressBookScreen(): React.JSX.Element {
   const safeBack = useMemo(() => createSafeBackHandler({
     canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route),
   }, '/wallet/settings'), []);
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+      return () => subscription.remove();
+    }, [safeBack])
+  );
   const { t } = useLanguage();
   const { themeMode } = useAppTheme();
   const { contacts, loading, refreshContacts } = useContacts();

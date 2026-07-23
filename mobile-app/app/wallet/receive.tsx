@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { View, StyleSheet, ScrollView, Keyboard, Alert, TouchableOpacity, Modal, Linking, Platform, PermissionsAndroid, type LayoutChangeEvent } from 'react-native';
+import { View, StyleSheet, ScrollView, Keyboard, Alert, TouchableOpacity, Modal, Linking, Platform, PermissionsAndroid, BackHandler, type LayoutChangeEvent } from 'react-native';
 import { Text, Button, IconButton, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -97,6 +97,12 @@ export default function ReceiveScreen() {
       replace: (route) => router.replace(route),
     }, '/wallet/home');
   }
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => safeBackRef.current!());
+      return () => subscription.remove();
+    }, [])
+  );
   const params = useLocalSearchParams<{ asset?: string; tab?: string }>();
   const { themeMode } = useAppTheme();
   const gradientColors = getGradientColors(themeMode);

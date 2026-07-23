@@ -30,6 +30,22 @@ describe('createSafeBackHandler', () => {
     expect(navigation.back).not.toHaveBeenCalled();
   });
 
+  it('returns a non-root wallet menu to Wallet Home when Android history is unavailable', () => {
+    const navigation = router(false);
+    const androidBack = createSafeBackHandler(navigation, '/wallet/home');
+
+    expect(androidBack()).toBe(true);
+    expect(navigation.replace).toHaveBeenCalledWith('/wallet/home');
+  });
+
+  it('returns an address-book child to its list when Android history is unavailable', () => {
+    const navigation = router(false);
+    const androidBack = createSafeBackHandler(navigation, '/wallet/settings/address-book');
+
+    expect(androidBack()).toBe(true);
+    expect(navigation.replace).toHaveBeenCalledWith('/wallet/settings/address-book');
+  });
+
   it('returns a nested payment flow to Send when its stack is unavailable', () => {
     const navigation = router(false);
     const goBack = createSafeBackHandler(navigation, '/wallet/send');

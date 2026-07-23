@@ -2,7 +2,7 @@
 // Main settings hub for wallet configuration
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, BackHandler } from 'react-native';
 import { Text, List, Divider, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -22,6 +22,12 @@ import { createSafeBackHandler } from '../utils/safeBack';
 
 export function WalletSettingsScreen(): React.JSX.Element {
   const safeBack = useMemo(() => createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/home'), []);
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+      return () => subscription.remove();
+    }, [safeBack])
+  );
   const { settings, isLoading: settingsLoading, loadSettings } = useSettings();
   const appVersion = Constants.expoConfig?.version ?? '1.1.2';
   const { currentLanguage, t } = useLanguage();
