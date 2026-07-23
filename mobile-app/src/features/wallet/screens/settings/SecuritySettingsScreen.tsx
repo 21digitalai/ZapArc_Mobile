@@ -2,10 +2,10 @@
 // Configure biometric authentication (fingerprint/Face ID)
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, Platform, BackHandler } from 'react-native';
 import { Text, Switch, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useSettings } from '../../../../hooks/useSettings';
@@ -22,6 +22,10 @@ import { createSafeBackHandler } from '../../utils/safeBack';
 
 export function SecuritySettingsScreen(): React.JSX.Element {
   const safeBack = useMemo(() => createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings'), []);
+  useFocusEffect(React.useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+    return () => subscription.remove();
+  }, [safeBack]));
   const { settings } = useSettings();
   const { enableBiometric, disableBiometric } = useWalletAuth();
   const { t } = useLanguage();

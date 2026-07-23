@@ -12,11 +12,12 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  BackHandler,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Text, Button, IconButton, Switch } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { createSafeBackHandler } from '../../utils/safeBack';
 
 const safeBack = createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings');
@@ -35,6 +36,10 @@ import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_CO
 // =============================================================================
 
 export function BackupScreen(): React.JSX.Element {
+  useFocusEffect(useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+    return () => subscription.remove();
+  }, []));
   const { getMnemonic, activeMasterKey, activeWalletInfo } = useWallet();
   const { settings } = useSettings();
   const { themeMode } = useAppTheme();

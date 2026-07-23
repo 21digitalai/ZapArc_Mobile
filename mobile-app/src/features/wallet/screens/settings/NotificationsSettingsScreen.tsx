@@ -1,11 +1,11 @@
 // Notifications Settings Screen
 // Configure notification preferences with actual push notification integration
 
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Alert, Linking } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, StyleSheet, ScrollView, Alert, Linking, BackHandler } from 'react-native';
 import { Text, List, Switch, IconButton, Button } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { createSafeBackHandler } from '../../utils/safeBack';
 
 const safeBack = createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings');
@@ -31,6 +31,10 @@ interface NotificationSettings {
 // =============================================================================
 
 export function NotificationsSettingsScreen(): React.JSX.Element {
+  useFocusEffect(useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+    return () => subscription.remove();
+  }, []));
   const { settings, updateSettings } = useSettings();
   const { themeMode, theme } = useAppTheme();
   const { t } = useLanguage();

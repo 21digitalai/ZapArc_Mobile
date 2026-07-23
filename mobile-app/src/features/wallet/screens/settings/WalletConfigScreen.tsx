@@ -1,8 +1,8 @@
 // Wallet Configuration Settings Screen
 // Configure built-in wallet vs custom LNURL
 
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, StyleSheet, ScrollView, Alert, BackHandler } from 'react-native';
 import { useKeyboardAwareScroll } from '../../../../hooks/useKeyboardAwareScroll';
 import {
   Text,
@@ -12,7 +12,7 @@ import {
 } from 'react-native-paper';
 import { StyledTextInput } from '../../../../components';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { createSafeBackHandler } from '../../utils/safeBack';
 
 const safeBack = createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings');
@@ -28,6 +28,10 @@ import { isLightningAddress, isValidLnurlFormat } from '../../../../utils/lnurl'
 // =============================================================================
 
 export function WalletConfigScreen(): React.JSX.Element {
+  useFocusEffect(useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+    return () => subscription.remove();
+  }, []));
   const { settings, updateSettings } = useSettings();
   const { t } = useLanguage();
   const { themeMode } = useAppTheme();
@@ -97,7 +101,7 @@ export function WalletConfigScreen(): React.JSX.Element {
       Alert.alert('Saved', 'Wallet configuration updated', [
         { text: 'OK', onPress: safeBack },
       ]);
-    } catch (err) {
+    } catch {
       setError('Failed to save settings');
     } finally {
       setIsSaving(false);

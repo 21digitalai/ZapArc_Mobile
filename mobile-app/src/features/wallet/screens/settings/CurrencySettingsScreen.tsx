@@ -2,10 +2,10 @@
 // Configure display currency preference with split settings
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, BackHandler } from 'react-native';
 import { Text, RadioButton, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSettings } from '../../../../hooks/useSettings';
 import { useLanguage } from '../../../../hooks/useLanguage';
@@ -73,6 +73,10 @@ const FIAT_OPTIONS: FiatOption[] = [
 
 export function CurrencySettingsScreen(): React.JSX.Element {
   const safeBack = useMemo(() => createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings'), []);
+  useFocusEffect(React.useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+    return () => subscription.remove();
+  }, [safeBack]));
   const { settings, updateSettings } = useSettings();
   const { t } = useLanguage();
   const { themeMode } = useAppTheme();
