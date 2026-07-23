@@ -17,7 +17,10 @@ jest.mock('expo-router', () => ({
   router: {
     push: (...args: unknown[]) => mockPush(...args),
     back: jest.fn(),
+    canGoBack: jest.fn(() => false),
+    replace: jest.fn(),
   },
+  useFocusEffect: jest.fn((callback: () => void | (() => void)) => callback()),
   useLocalSearchParams: () => mockUseLocalSearchParams(),
 }));
 
