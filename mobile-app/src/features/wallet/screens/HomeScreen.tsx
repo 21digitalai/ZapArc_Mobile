@@ -82,11 +82,11 @@ function getPendingLabel(payments: PendingOutgoing[]): string {
 
 function PendingBalanceRow({
   payments,
-  exitSignal,
+  exitingPaymentId,
   onPress,
 }: {
   payments: PendingOutgoing[];
-  exitSignal: number;
+  exitingPaymentId: string | null;
   onPress: () => void;
 }): React.JSX.Element | null {
   const signature = payments.map((payment) => payment.id).sort().join('|');
@@ -129,10 +129,17 @@ function PendingBalanceRow({
   }, [animate, signature]);
 
   useEffect(() => {
-    if (!exitSignal || !mounted) return;
+    if (!exitingPaymentId || !mounted) return;
+    // The inline row represents the aggregate pending set. A terminal toast
+    // for one payment must not collapse it while another payment is still
+    // authoritatively pending.
+    if (payments.some((payment) => payment.id !== exitingPaymentId)) return;
     setInteractive(false);
-    animate(0, () => setMounted(false));
-  }, [animate, exitSignal, mounted]);
+    animate(0, () => {
+      lastSignatureRef.current = '';
+      setMounted(false);
+    });
+  }, [animate, exitingPaymentId, mounted, payments]);
 
   if (!mounted) return null;
   return (
@@ -263,7 +270,7 @@ export function HomeScreen(): React.JSX.Element {
     id: string;
     amountSat: number;
   } | null>(null);
-  const [pendingRowExitSignal, setPendingRowExitSignal] = useState(0);
+  const [pendingRowExitingPaymentId, setPendingRowExitingPaymentId] = useState<string | null>(null);
 
   useEffect(() => () => clearPendingTerminalTimer(), [clearPendingTerminalTimer]);
 
@@ -481,7 +488,7 @@ export function HomeScreen(): React.JSX.Element {
       // Keep the inline row until this precise terminal handoff; its own
       // collapse starts alongside the toast exit even if a refresh already
       // removed the authoritative pending transaction from the list.
-      setPendingRowExitSignal((signal) => signal + 1);
+      setPendingRowExitingPaymentId(pendingToast.paymentId);
       setToast(null);
       pendingToastRef.current = null;
       pendingTerminalTimerRef.current = setTimeout(() => {
@@ -1120,7 +1127,7 @@ export function HomeScreen(): React.JSX.Element {
             {activeAsset === 'BTC' && (
               <PendingBalanceRow
                 payments={pendingOutgoing}
-                exitSignal={pendingRowExitSignal}
+                exitingPaymentId={pendingRowExitingPaymentId}
                 onPress={() => router.push('/wallet/history')}
               />
             )}
