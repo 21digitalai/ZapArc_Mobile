@@ -2071,12 +2071,14 @@ const styles = StyleSheet.create({
   },
   scanActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginTop: 10,
     marginBottom: 10,
   },
   scanActionButton: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: 160,
     borderColor: BRAND_COLOR,
   },
   previewButton: {

@@ -48,6 +48,9 @@ const mockParsePaymentRequest = jest.fn();
 const mockPrepareSendPayment = jest.fn();
 const mockSendOnchainPayment = jest.fn();
 const mockSendPayment = jest.fn();
+const mockLaunchImageLibraryAsync = jest.fn();
+const mockScanFromURLAsync = jest.fn();
+const mockRequestCameraPermission = jest.fn();
 
 const mockUseLocalSearchParams = jest.fn(() => ({}));
 
@@ -63,7 +66,12 @@ jest.mock('expo-router', () => ({
 
 jest.mock('expo-camera', () => ({
   CameraView: () => null,
-  useCameraPermissions: () => [{ granted: true }, jest.fn()],
+  useCameraPermissions: () => [{ granted: true }, mockRequestCameraPermission],
+  scanFromURLAsync: (...args: unknown[]) => mockScanFromURLAsync(...args),
+}));
+
+jest.mock('expo-image-picker', () => ({
+  launchImageLibraryAsync: (...args: unknown[]) => mockLaunchImageLibraryAsync(...args),
 }));
 
 jest.mock('expo-linear-gradient', () => ({
@@ -146,6 +154,7 @@ describe('SendScreen on-chain flow', () => {
     jest.useFakeTimers();
     jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
     mockUseLocalSearchParams.mockReturnValue({});
+    mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: true, assets: [] });
 
     mockParsePaymentRequest.mockResolvedValue({ type: 'bitcoinAddress', isValid: true });
     mockPrepareSendPayment.mockResolvedValue({
@@ -268,5 +277,72 @@ describe('SendScreen on-chain flow', () => {
     await waitFor(() => {
       expect(Alert.alert).toHaveBeenCalledWith('Payment Error', 'fee quote unavailable');
     });
+  });
+});
+
+describe('SendScreen gallery scan', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
+    mockUseLocalSearchParams.mockReturnValue({});
+    mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: true, assets: [] });
+  });
+
+  afterEach(() => cleanup());
+
+  it('shows camera and gallery scan actions together', () => {
+    renderScreen();
+
+    expect(screen.getByText('Scan QR Code')).toBeTruthy();
+    expect(screen.getByText('Scan from Gallery')).toBeTruthy();
+  });
+
+  it('decodes a selected gallery QR through the Send parser without requesting camera access', async () => {
+    mockLaunchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///gallery-qr.png' }],
+    });
+    mockScanFromURLAsync.mockResolvedValue([{ data: 'lnbc1galleryinvoice', type: 'qr' }]);
+    mockParsePaymentRequest.mockResolvedValue({ isValid: true, type: 'bolt11' });
+
+    renderScreen();
+    fireEvent.press(screen.getByText('Scan from Gallery'));
+
+    await waitFor(() => {
+      expect(mockParsePaymentRequest).toHaveBeenCalledWith('lnbc1galleryinvoice');
+      expect(screen.getAllByTestId('destination-input')[0].props.value).toBe('lnbc1galleryinvoice');
+    });
+    expect(mockRequestCameraPermission).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['no QR', [], 'No QR code found in that image.'],
+    ['multiple QR codes', [{ data: 'one' }, { data: 'two' }], 'Please select an image with one QR code.'],
+  ])('reports %s gallery results without parsing a payment', async (_label, scanResult, message) => {
+    mockLaunchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///gallery-qr.png' }],
+    });
+    mockScanFromURLAsync.mockResolvedValue(scanResult);
+
+    renderScreen();
+    fireEvent.press(screen.getByText('Scan from Gallery'));
+
+    await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith('QR scan', message));
+    expect(mockParsePaymentRequest).not.toHaveBeenCalled();
+  });
+
+  it('guards rapid duplicate gallery taps and reports picker failures', async () => {
+    let rejectPicker: ((error: Error) => void) | undefined;
+    mockLaunchImageLibraryAsync.mockImplementation(() => new Promise((_, reject) => { rejectPicker = reject; }));
+
+    renderScreen();
+    fireEvent.press(screen.getByText('Scan from Gallery'));
+    fireEvent.press(screen.getByText('Scan from Gallery'));
+
+    expect(mockLaunchImageLibraryAsync).toHaveBeenCalledTimes(1);
+    rejectPicker!(new Error('picker unavailable'));
+
+    await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith('QR scan', 'Could not read a QR code from that image.'));
   });
 });
