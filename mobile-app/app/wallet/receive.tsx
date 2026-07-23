@@ -26,6 +26,7 @@ import { useCurrency } from '../../src/hooks/useCurrency';
 import { useKeyboardAwareScroll } from '../../src/hooks/useKeyboardAwareScroll';
 import { type DisplayCurrency } from '../../src/services/displayCurrencyService';
 import { fiatToUsdb } from '../../src/utils/currency';
+import { createSafeBackHandler } from '../../src/features/wallet/utils/safeBack';
 
 /**
  * Local widening of {@link DisplayCurrency} for the receive screen. The
@@ -88,6 +89,14 @@ const QR_BRAND_PROPS = {
 };
 
 export default function ReceiveScreen() {
+  const safeBackRef = useRef<(() => boolean) | null>(null);
+  if (!safeBackRef.current) {
+    safeBackRef.current = createSafeBackHandler({
+      canGoBack: () => router.canGoBack(),
+      back: () => router.back(),
+      replace: (route) => router.replace(route),
+    }, '/wallet/home');
+  }
   const params = useLocalSearchParams<{ asset?: string; tab?: string }>();
   const { themeMode } = useAppTheme();
   const gradientColors = getGradientColors(themeMode);
@@ -906,7 +915,7 @@ export default function ReceiveScreen() {
     <LinearGradient colors={gradientColors} style={styles.gradient}>
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()}>
+          <TouchableOpacity onPress={() => safeBackRef.current!()}>
             <Text style={styles.backButton}>← {t('common.back')}</Text>
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: primaryTextColor }]}>{t('wallet.receive')}</Text>

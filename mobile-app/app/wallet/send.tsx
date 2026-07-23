@@ -30,6 +30,7 @@ import { Contact } from '../../src/features/addressBook/types';
 import { normalizeLightningAddress } from '../../src/features/addressBook/services/contactValidator';
 import { contactDisplayName } from '../../src/features/addressBook/utils/contactDisplay';
 import { t } from '../../src/services/i18nService';
+import { createSafeBackHandler } from '../../src/features/wallet/utils/safeBack';
 
 function isValidBitcoinAddress(address: string): boolean {
   // Bech32 (native segwit): bc1q... or bc1p... (taproot)
@@ -1197,6 +1198,14 @@ export default function SendScreen() {
     setOnchainFeeQuotes(null);
     setSelectedSpeed('medium');
   }, []);
+  const safeBackRef = useRef<(() => boolean) | null>(null);
+  if (!safeBackRef.current) {
+    safeBackRef.current = createSafeBackHandler({
+      canGoBack: () => router.canGoBack(),
+      back: () => router.back(),
+      replace: (route) => router.replace(route),
+    }, '/wallet/home');
+  }
 
   // System back while in a sub-step of the send flow (inline scanner or
   // payment preview) must step back WITHIN the flow instead of popping the
@@ -1214,7 +1223,7 @@ export default function SendScreen() {
         handleBackToInput();
         return true;
       }
-      return false;
+      return safeBackRef.current!();
     });
     return () => sub.remove();
   }, [step, handleBackToInput]);
@@ -1485,7 +1494,7 @@ export default function SendScreen() {
     <LinearGradient colors={gradientColors} style={styles.gradient}>
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()}>
+          <TouchableOpacity onPress={() => safeBackRef.current!()}>
             <Text style={styles.backButton}>← {t('common.back')}</Text>
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: primaryTextColor }]}>{t('wallet.send')}</Text>
