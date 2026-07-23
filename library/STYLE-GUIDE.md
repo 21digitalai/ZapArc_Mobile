@@ -41,6 +41,12 @@
 
 ## Components
 
+### Receive QR save action
+
+`app/wallet/receive.tsx`
+- Reuse `ReceiveQrSaveButton` for Lightning and on-chain QR cards so both entries retain the same Save label, download affordance, and filename-prefix contract.
+- The button delegates capture/save behavior to its supplied handler; Android filesystem behavior remains in the shared Receive save flow rather than a button-specific implementation.
+
 ### Asset tabs
 
 `AssetTabBar` (`src/features/wallet/components/AssetTabBar.tsx`)

@@ -88,6 +88,69 @@ const QR_BRAND_PROPS = {
   logoBackgroundColor: 'transparent',
 };
 
+type ReceiveQrSaveButtonProps = {
+  cardRef: React.RefObject<View | null>;
+  filenamePrefix: string;
+  onSave: (cardRef: React.RefObject<View | null>, filenamePrefix: string) => void;
+};
+
+export function ReceiveQrSaveButton({ cardRef, filenamePrefix, onSave }: ReceiveQrSaveButtonProps) {
+  return (
+    <Button
+      mode="outlined"
+      onPress={() => onSave(cardRef, filenamePrefix)}
+      compact
+      icon="download"
+      textColor={BRAND_COLOR}
+      style={styles.saveQrButton}
+      contentStyle={styles.saveQrButtonContent}
+      labelStyle={styles.saveQrButtonLabel}
+      testID={`save-qr-${filenamePrefix}`}
+    >
+      {t('common.save') ?? 'Save QR image'}
+    </Button>
+  );
+}
+
+type SaveReceiveQrOptions = {
+  cardRef: React.RefObject<View | null>;
+  filenamePrefix: string;
+  platform: string;
+  capture: typeof captureRef;
+  saveAndroid: typeof saveQrToAndroidDirectory;
+  share: typeof Sharing;
+  showSuccess: (message: string) => void;
+  showError: (message: string) => void;
+};
+
+export async function saveReceiveQr({
+  cardRef, filenamePrefix, platform, capture, saveAndroid, share, showSuccess, showError,
+}: SaveReceiveQrOptions): Promise<void> {
+  if (!cardRef.current) {
+    showError('QR code not ready');
+    return;
+  }
+
+  try {
+    const tmpUri = await capture(cardRef, { format: 'png', quality: 1, result: 'tmpfile' });
+    const fileName = `${filenamePrefix}-${Date.now()}.png`;
+    if (platform === 'android') {
+      const result = await saveAndroid(tmpUri, fileName);
+      if (result.status === 'saved') showSuccess(`QR code saved as ${result.fileName}`);
+      return;
+    }
+
+    if (await share.isAvailableAsync()) {
+      await share.shareAsync(tmpUri, { mimeType: 'image/png', dialogTitle: 'Save QR Code' });
+      return;
+    }
+    showError('Sharing not available on this device');
+  } catch (error) {
+    console.error('Failed to save QR:', error);
+    showError(error instanceof Error ? error.message : 'Failed to save QR code');
+  }
+}
+
 export default function ReceiveScreen() {
   const safeBackRef = useRef<(() => boolean) | null>(null);
   if (!safeBackRef.current) {
@@ -687,40 +750,17 @@ export default function ReceiveScreen() {
     cardRef: React.RefObject<View | null>,
     filenamePrefix: string,
   ) => {
-    if (!cardRef.current) {
-      Alert.alert(t('common.error'), 'QR code not ready');
-      return;
-    }
-    try {
-      const tmpUri = await captureRef(cardRef, {
-        format: 'png',
-        quality: 1,
-        result: 'tmpfile',
-      });
-
-      const fileName = `${filenamePrefix}-${Date.now()}.png`;
-      if (Platform.OS === 'android') {
-        const result = await saveQrToAndroidDirectory(tmpUri, fileName);
-        if (result.status === 'saved') {
-          showSuccess(`QR code saved as ${result.fileName}`);
-        }
-        return;
-      }
-
-      const isAvailable = await Sharing.isAvailableAsync();
-      if (isAvailable) {
-        await Sharing.shareAsync(tmpUri, {
-          mimeType: 'image/png',
-          dialogTitle: 'Save QR Code',
-        });
-        return;
-      }
-      Alert.alert(t('common.error'), 'Sharing not available on this device');
-    } catch (error) {
-      console.error('Failed to save QR:', error);
-      Alert.alert(t('common.error'), error instanceof Error ? error.message : 'Failed to save QR code');
-    }
-  }, []);
+    await saveReceiveQr({
+      cardRef,
+      filenamePrefix,
+      platform: Platform.OS,
+      capture: captureRef,
+      saveAndroid: saveQrToAndroidDirectory,
+      share: Sharing,
+      showSuccess,
+      showError: (message) => Alert.alert(t('common.error'), message),
+    });
+  }, [showSuccess]);
 
   const handleCopyOnchainAddress = useCallback(async () => {
     if (!onchainAddress) return;
@@ -1118,18 +1158,11 @@ export default function ReceiveScreen() {
                       {...QR_BRAND_PROPS}
                     />
                   </View>
-                  <Button
-                    mode="outlined"
-                    onPress={() => handleSaveQR(lightningCardRef, 'zaparc-lightning-qr')}
-                    compact
-                    icon="download"
-                    textColor={BRAND_COLOR}
-                    style={styles.saveQrButton}
-                    contentStyle={styles.saveQrButtonContent}
-                    labelStyle={styles.saveQrButtonLabel}
-                  >
-                    {t('common.save') ?? 'Save QR image'}
-                  </Button>
+                  <ReceiveQrSaveButton
+                    cardRef={lightningCardRef}
+                    filenamePrefix="zaparc-lightning-qr"
+                    onSave={handleSaveQR}
+                  />
 
                   <View style={styles.invoiceContainer}>
                     <Text style={[styles.invoiceLabel, { color: secondaryTextColor }]}>{t('payments.invoice')}</Text>
@@ -1179,18 +1212,11 @@ export default function ReceiveScreen() {
                       {...QR_BRAND_PROPS}
                     />
                   </View>
-                  <Button
-                    mode="outlined"
-                    onPress={() => handleSaveQR(onchainCardRef, 'zaparc-onchain-qr')}
-                    compact
-                    icon="download"
-                    textColor={BRAND_COLOR}
-                    style={styles.saveQrButton}
-                    contentStyle={styles.saveQrButtonContent}
-                    labelStyle={styles.saveQrButtonLabel}
-                  >
-                    {t('common.save') ?? 'Save QR image'}
-                  </Button>
+                  <ReceiveQrSaveButton
+                    cardRef={onchainCardRef}
+                    filenamePrefix="zaparc-onchain-qr"
+                    onSave={handleSaveQR}
+                  />
 
                   <Text style={[styles.invoiceLabel, { color: secondaryTextColor }]}>{t('deposit.bitcoinAddress')}</Text>
                   <Text style={[styles.fullValueText, { color: primaryTextColor }]} selectable>
