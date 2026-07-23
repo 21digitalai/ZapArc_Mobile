@@ -93,9 +93,11 @@ function PendingBalanceRow({
   const lastSignatureRef = useRef('');
   const [mounted, setMounted] = useState(payments.length > 0);
   const [interactive, setInteractive] = useState(payments.length > 0);
-  const height = useRef(new Animated.Value(payments.length > 0 ? 1 : 0)).current;
-  const opacity = useRef(new Animated.Value(payments.length > 0 ? 1 : 0)).current;
-  const spacing = useRef(new Animated.Value(payments.length > 0 ? 1 : 0)).current;
+  // Always mount collapsed. The signature effect expands after mount, so the
+  // first authoritative pending payment has a real visible entry transition.
+  const height = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  const spacing = useRef(new Animated.Value(0)).current;
   const reducedMotionRef = useRef(false);
 
   useEffect(() => {
