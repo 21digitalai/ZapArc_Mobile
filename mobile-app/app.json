@@ -22,6 +22,7 @@
       "googleServicesFile": "./ios/GoogleService-Info.plist"
     },
     "android": {
+      "predictiveBackGestureEnabled": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a1a2e"
@@ -60,6 +61,7 @@
     "plugins": [
       "expo-router",
       "./plugins/withOptionalCameraFeature",
+      "./plugins/withLegacyAndroidBackHandler",
       "./plugins/withQuickCryptoLintCompatibility",
       "@breeztech/breez-sdk-spark-react-native",
       "@react-native-firebase/app",
