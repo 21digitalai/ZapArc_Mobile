@@ -20,6 +20,9 @@ import {
 import { StyledTextInput } from '../../../../components';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { createSafeBackHandler } from '../../utils/safeBack';
+
+const safeBack = createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings');
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSettings } from '../../../../hooks/useSettings';
 import { useAppTheme } from '../../../../contexts/ThemeContext';
@@ -167,7 +170,7 @@ export function DomainManagementScreen(): React.JSX.Element {
             icon="arrow-left"
             iconColor={primaryText}
             size={24}
-            onPress={() => router.back()}
+            onPress={safeBack}
           />
           <Text style={[styles.headerTitle, { color: primaryText }]}>Trusted Domains</Text>
           <View style={styles.headerSpacer} />
