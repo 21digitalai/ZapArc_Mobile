@@ -41,11 +41,12 @@
 
 ## Components
 
-### Receive QR save action
+### Receive QR actions
 
 `app/wallet/receive.tsx`
-- Reuse `ReceiveQrSaveButton` for Lightning and on-chain QR cards so both entries retain the same Save label, download affordance, and filename-prefix contract.
-- The button delegates capture/save behavior to its supplied handler; Android filesystem behavior remains in the shared Receive save flow rather than a button-specific implementation.
+- Reuse `ReceiveQrActions` for Lightning and on-chain QR cards so both entries retain the same Save/Share labels, icons, accessible labels, test IDs, and filename-prefix contract.
+- On Android, Save and Share are equally sized adjacent outlined buttons. Save delegates to the scoped MediaStore-backed ZapArc gallery adapter; Share captures the same branded PNG and opens `expo-sharing` only.
+- iOS retains the legacy single `ReceiveQrSaveButton` behavior.
 
 ### Asset tabs
 

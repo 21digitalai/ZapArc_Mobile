@@ -26,7 +26,7 @@ import { useKeyboardAwareScroll } from '../../src/hooks/useKeyboardAwareScroll';
 import { type DisplayCurrency } from '../../src/services/displayCurrencyService';
 import { fiatToUsdb } from '../../src/utils/currency';
 import { createSafeBackHandler } from '../../src/features/wallet/utils/safeBack';
-import { saveQrToAndroidDirectory } from '../../src/features/wallet/utils/saveQrToDevice';
+import { saveQrToAndroidGallery } from '../../src/features/wallet/utils/saveQrToDevice';
 
 /**
  * Local widening of {@link DisplayCurrency} for the receive screen. The
@@ -112,12 +112,54 @@ export function ReceiveQrSaveButton({ cardRef, filenamePrefix, onSave }: Receive
   );
 }
 
+type ReceiveQrActionsProps = ReceiveQrSaveButtonProps & {
+  onShare: (cardRef: React.RefObject<View | null>, filenamePrefix: string) => void;
+  platform?: string;
+};
+
+export function ReceiveQrActions({ cardRef, filenamePrefix, onSave, onShare, platform = Platform.OS }: ReceiveQrActionsProps) {
+  if (platform !== 'android') {
+    return <ReceiveQrSaveButton cardRef={cardRef} filenamePrefix={filenamePrefix} onSave={onSave} />;
+  }
+
+  return (
+    <View style={styles.qrActions}>
+      <Button
+        mode="outlined"
+        onPress={() => onSave(cardRef, filenamePrefix)}
+        compact
+        icon="download"
+        accessibilityLabel="Save QR image to ZapArc gallery"
+        style={styles.qrActionButton}
+        contentStyle={styles.qrActionButtonContent}
+        labelStyle={styles.qrActionButtonLabel}
+        testID={`save-qr-${filenamePrefix}`}
+      >
+        {t('common.save') ?? 'Save'}
+      </Button>
+      <Button
+        mode="outlined"
+        onPress={() => onShare(cardRef, filenamePrefix)}
+        compact
+        icon="share-variant"
+        accessibilityLabel="Share QR image"
+        style={styles.qrActionButton}
+        contentStyle={styles.qrActionButtonContent}
+        labelStyle={styles.qrActionButtonLabel}
+        testID={`share-qr-${filenamePrefix}`}
+      >
+        {t('common.share') ?? 'Share'}
+      </Button>
+    </View>
+  );
+}
+
 type SaveReceiveQrOptions = {
   cardRef: React.RefObject<View | null>;
   filenamePrefix: string;
   platform: string;
   capture: typeof captureRef;
-  saveAndroid: typeof saveQrToAndroidDirectory;
+  saveAndroid: typeof saveQrToAndroidGallery;
   share: typeof Sharing;
   showSuccess: (message: string) => void;
   showError: (message: string) => void;
@@ -148,6 +190,30 @@ export async function saveReceiveQr({
   } catch (error) {
     console.error('Failed to save QR:', error);
     showError(error instanceof Error ? error.message : 'Failed to save QR code');
+  }
+}
+
+export async function shareReceiveQr({
+  cardRef, filenamePrefix, capture, share, showError,
+}: Omit<SaveReceiveQrOptions, 'platform' | 'saveAndroid' | 'showSuccess'>): Promise<void> {
+  if (!cardRef.current) {
+    showError('QR code not ready');
+    return;
+  }
+
+  try {
+    const tmpUri = await capture(cardRef, { format: 'png', quality: 1, result: 'tmpfile' });
+    const fileName = `${filenamePrefix}-${Date.now()}.png`;
+    if (!await share.isAvailableAsync()) {
+      showError('Sharing not available on this device');
+      return;
+    }
+    await share.shareAsync(tmpUri, { mimeType: 'image/png', dialogTitle: fileName });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to share QR code';
+    if (/cancel/i.test(message)) return;
+    console.error('Failed to share QR:', error);
+    showError(message);
   }
 }
 
@@ -744,8 +810,9 @@ export default function ReceiveScreen() {
     };
   }, [activeTab, onchainAddress, refreshBalance, refreshTransactions, recordFailedClaim]);
 
-  // Capture the whole branded QR card as a PNG. Android uses the scoped
-  // Storage Access Framework picker; iOS keeps its native Save to Files sheet.
+  // Capture the whole branded QR card as a PNG. Android writes directly to
+  // the scoped MediaStore-backed ZapArc gallery album; iOS keeps its native
+  // Save to Files sheet.
   const handleSaveQR = useCallback(async (
     cardRef: React.RefObject<View | null>,
     filenamePrefix: string,
@@ -755,12 +822,25 @@ export default function ReceiveScreen() {
       filenamePrefix,
       platform: Platform.OS,
       capture: captureRef,
-      saveAndroid: saveQrToAndroidDirectory,
+      saveAndroid: saveQrToAndroidGallery,
       share: Sharing,
       showSuccess,
       showError: (message) => Alert.alert(t('common.error'), message),
     });
   }, [showSuccess]);
+
+  const handleShareQR = useCallback(async (
+    cardRef: React.RefObject<View | null>,
+    filenamePrefix: string,
+  ) => {
+    await shareReceiveQr({
+      cardRef,
+      filenamePrefix,
+      capture: captureRef,
+      share: Sharing,
+      showError: (message) => Alert.alert(t('common.error'), message),
+    });
+  }, []);
 
   const handleCopyOnchainAddress = useCallback(async () => {
     if (!onchainAddress) return;
@@ -1158,10 +1238,11 @@ export default function ReceiveScreen() {
                       {...QR_BRAND_PROPS}
                     />
                   </View>
-                  <ReceiveQrSaveButton
+                  <ReceiveQrActions
                     cardRef={lightningCardRef}
                     filenamePrefix="zaparc-lightning-qr"
                     onSave={handleSaveQR}
+                    onShare={handleShareQR}
                   />
 
                   <View style={styles.invoiceContainer}>
@@ -1212,10 +1293,11 @@ export default function ReceiveScreen() {
                       {...QR_BRAND_PROPS}
                     />
                   </View>
-                  <ReceiveQrSaveButton
+                  <ReceiveQrActions
                     cardRef={onchainCardRef}
                     filenamePrefix="zaparc-onchain-qr"
                     onSave={handleSaveQR}
+                    onShare={handleShareQR}
                   />
 
                   <Text style={[styles.invoiceLabel, { color: secondaryTextColor }]}>{t('deposit.bitcoinAddress')}</Text>
@@ -1439,6 +1521,10 @@ const styles = StyleSheet.create({
   // the content padding closes the gap.
   saveQrButtonContent: { paddingHorizontal: 8 },
   saveQrButtonLabel: { marginLeft: 4, marginRight: 8, fontSize: 13 },
+  qrActions: { flexDirection: 'row', gap: 8, alignSelf: 'stretch', marginTop: 4, marginBottom: 8 },
+  qrActionButton: { flex: 1, borderColor: BRAND_COLOR },
+  qrActionButtonContent: { paddingHorizontal: 4 },
+  qrActionButtonLabel: { marginHorizontal: 2, fontSize: 13 },
   invoiceSectionTitle: { marginTop: 20 },
   sectionSubtitle: { fontSize: 13, marginBottom: 14 },
   helperText: { fontSize: 13, marginBottom: 2 },

@@ -1,38 +1,45 @@
-import {
-  EncodingType,
-  readAsStringAsync,
-  StorageAccessFramework,
-} from 'expo-file-system';
+import { cacheDirectory, copyAsync } from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
 
 export const QR_PNG_MIME_TYPE = 'image/png';
+export const QR_GALLERY_ALBUM_NAME = 'ZapArc';
 
-export type AndroidQrSaveResult =
-  | { status: 'saved'; fileName: string; uri: string }
-  | { status: 'cancelled' };
+export type AndroidQrSaveResult = {
+  status: 'saved';
+  fileName: string;
+  uri: string;
+};
 
 /**
- * Saves a captured QR PNG through Android's Storage Access Framework. The
- * platform picker grants access only to the directory selected by the user,
- * so no broad external-storage permission is needed.
+ * Publishes a captured PNG through Android's scoped MediaStore-backed
+ * gallery, without opening the Storage Access Framework directory picker or
+ * asking to read the user's existing photos.
  */
-export async function saveQrToAndroidDirectory(
+export async function saveQrToAndroidGallery(
   sourceUri: string,
   fileName: string,
 ): Promise<AndroidQrSaveResult> {
-  const permission = await StorageAccessFramework.requestDirectoryPermissionsAsync();
-  if (!permission.granted) return { status: 'cancelled' };
+  if (!cacheDirectory) throw new Error('Temporary storage is unavailable');
 
-  const base64Png = await readAsStringAsync(sourceUri, {
-    encoding: EncodingType.Base64,
-  });
-  const destinationUri = await StorageAccessFramework.createFileAsync(
-    permission.directoryUri,
-    fileName,
-    QR_PNG_MIME_TYPE,
+  // `captureRef` creates a temporary filename. Copying it first preserves the
+  // user-visible QR filename when MediaStore creates the gallery asset.
+  const namedPngUri = `${cacheDirectory}${fileName}`;
+  await copyAsync({ from: sourceUri, to: namedPngUri });
+
+  const album = await MediaLibrary.getAlbumAsync(QR_GALLERY_ALBUM_NAME);
+  if (album) {
+    const asset = await MediaLibrary.createAssetAsync(namedPngUri);
+    await MediaLibrary.addAssetsToAlbumAsync(asset, album, false);
+    return { status: 'saved', fileName, uri: asset.uri };
+  }
+
+  // Android cannot create an empty gallery album. Giving MediaStore the
+  // first local PNG creates both the image asset and the ZapArc album.
+  await MediaLibrary.createAlbumAsync(
+    QR_GALLERY_ALBUM_NAME,
+    undefined,
+    false,
+    namedPngUri,
   );
-  await StorageAccessFramework.writeAsStringAsync(destinationUri, base64Png, {
-    encoding: EncodingType.Base64,
-  });
-
-  return { status: 'saved', fileName, uri: destinationUri };
+  return { status: 'saved', fileName, uri: namedPngUri };
 }

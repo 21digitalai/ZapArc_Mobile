@@ -27,7 +27,7 @@ jest.mock('../../../src/hooks/useLightningAddress', () => ({ useLightningAddress
 jest.mock('../../../src/components', () => ({ StyledTextInput: 'TextInput', KeyboardDoneAccessory: 'View', keyboardDoneAccessoryId: 'done' }));
 jest.mock('../../../src/services/i18nService', () => ({ t: jest.fn(() => 'Save') }));
 
-import { ReceiveQrSaveButton, saveReceiveQr } from '../receive';
+import { ReceiveQrActions, ReceiveQrSaveButton, saveReceiveQr, shareReceiveQr } from '../receive';
 
 describe('Receive QR Save buttons', () => {
   beforeEach(() => mockOnSave.mockClear());
@@ -45,7 +45,7 @@ describe('Receive QR Save buttons', () => {
   });
 
   it.each(['zaparc-lightning-qr', 'zaparc-onchain-qr'])(
-    'saves %s through Android SAF without calling expo-sharing',
+    'saves %s through the Android gallery adapter without calling expo-sharing',
     async (filenamePrefix) => {
       const capture = jest.fn().mockResolvedValue('file:///cache/qr.png');
       const saveAndroid = jest.fn().mockResolvedValue({ status: 'saved', fileName: `${filenamePrefix}-123.png` });
@@ -75,24 +75,39 @@ describe('Receive QR Save buttons', () => {
     },
   );
 
-  it('keeps Android picker cancellation quiet and reports write failures', async () => {
+  it('reports gallery write failures without falling back to sharing', async () => {
     const silent = { isAvailableAsync: jest.fn(), shareAsync: jest.fn() };
     const showSuccess = jest.fn();
     const showError = jest.fn();
     const options = {
       cardRef: { current: {} as never }, filenamePrefix: 'zaparc-lightning-qr', platform: 'android',
-      capture: jest.fn().mockResolvedValue('file:///cache/qr.png'), saveAndroid: jest.fn().mockResolvedValue({ status: 'cancelled' as const }),
+      capture: jest.fn().mockResolvedValue('file:///cache/qr.png'), saveAndroid: jest.fn().mockRejectedValue(new Error('write failed')),
       share: silent, showSuccess, showError,
     };
 
     await saveReceiveQr(options);
-    expect(showSuccess).not.toHaveBeenCalled();
-    expect(showError).not.toHaveBeenCalled();
-    expect(silent.shareAsync).not.toHaveBeenCalled();
-
-    const failedSave = jest.fn().mockRejectedValue(new Error('write failed'));
-    await saveReceiveQr({ ...options, saveAndroid: failedSave });
     expect(showError).toHaveBeenCalledWith('write failed');
     expect(silent.shareAsync).not.toHaveBeenCalled();
+  });
+
+  it.each(['zaparc-lightning-qr', 'zaparc-onchain-qr'])('keeps Android Save and Share as independent actions for %s', (filenamePrefix) => {
+    const onSave = jest.fn();
+    const onShare = jest.fn();
+    const cardRef = { current: null };
+    render(<ReceiveQrActions cardRef={cardRef} filenamePrefix={filenamePrefix} onSave={onSave} onShare={onShare} platform="android" />);
+
+    fireEvent.press(screen.getByTestId(`save-qr-${filenamePrefix}`));
+    expect(onSave).toHaveBeenCalledWith(cardRef, filenamePrefix);
+    expect(onShare).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByTestId(`share-qr-${filenamePrefix}`));
+    expect(onShare).toHaveBeenCalledWith(cardRef, filenamePrefix);
+  });
+
+  it('shares a PNG without writing a gallery copy and treats cancellation quietly', async () => {
+    const share = { isAvailableAsync: jest.fn().mockResolvedValue(true), shareAsync: jest.fn().mockRejectedValue(new Error('User cancelled')) };
+    const showError = jest.fn();
+    await shareReceiveQr({ cardRef: { current: {} as never }, filenamePrefix: 'zaparc-lightning-qr', capture: jest.fn().mockResolvedValue('file:///cache/qr.png'), share, showError });
+    expect(share.shareAsync).toHaveBeenCalledWith('file:///cache/qr.png', expect.objectContaining({ mimeType: 'image/png' }));
+    expect(showError).not.toHaveBeenCalled();
   });
 });
