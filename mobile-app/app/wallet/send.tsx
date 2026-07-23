@@ -13,7 +13,8 @@ import {
   BRAND_COLOR,
 } from '../../src/utils/theme-helpers';
 import { useAppTheme } from '../../src/contexts/ThemeContext';
-import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
+import { CameraView, useCameraPermissions, BarcodeScanningResult, scanFromURLAsync } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import { useWallet } from '../../src/hooks/useWallet';
 import { BreezSparkService } from '../../src/services/breezSparkService';
 import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
@@ -212,6 +213,7 @@ export default function SendScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [prepareResponse, setPrepareResponse] = useState<any>(null);
   const [scanned, setScanned] = useState(false);
+  const isGalleryScanningRef = useRef(false);
   const [onchainFeeQuotes, setOnchainFeeQuotes] = useState<
     | { fast: OnchainFeeQuote; medium: OnchainFeeQuote; slow: OnchainFeeQuote }
     | null
@@ -830,6 +832,25 @@ export default function SendScreen() {
     },
     [scanned, applyParsedInvoice]
   );
+
+  const handleScanFromGallery = useCallback(async () => {
+    if (isGalleryScanningRef.current) return;
+    isGalleryScanningRef.current = true;
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 1 });
+      if (result.canceled || !result.assets[0]?.uri) return;
+      const codes = await scanFromURLAsync(result.assets[0].uri, ['qr']);
+      if (codes.length !== 1) {
+        Alert.alert('QR scan', codes.length ? 'Please select an image with one QR code.' : 'No QR code found in that image.');
+        return;
+      }
+      await handleBarCodeScanned({ data: codes[0].data } as BarcodeScanningResult);
+    } catch {
+      Alert.alert('QR scan', 'Could not read a QR code from that image.');
+    } finally {
+      isGalleryScanningRef.current = false;
+    }
+  }, [handleBarCodeScanned]);
 
   const handlePreviewPayment = useCallback(async () => {
     if (!paymentInput.trim()) {
@@ -1643,15 +1664,14 @@ export default function SendScreen() {
             </View>
           )}
 
-          <Button
-            mode="outlined"
-            onPress={handleScanQR}
-            icon="qrcode-scan"
-            style={styles.scanButton}
-            textColor={BRAND_COLOR}
-          >
-            {t('send.scanQrCode')}
-          </Button>
+          <View style={styles.scanActions}>
+            <Button mode="outlined" onPress={handleScanQR} icon="qrcode-scan" style={styles.scanActionButton} textColor={BRAND_COLOR}>
+              {t('send.scanQrCode')}
+            </Button>
+            <Button mode="outlined" onPress={handleScanFromGallery} icon="image" style={styles.scanActionButton} textColor={BRAND_COLOR}>
+              Scan from Gallery
+            </Button>
+          </View>
 
           <ContactSelectionModal
             visible={contactModalVisible}
@@ -2050,10 +2070,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  scanButton: {
-    borderColor: BRAND_COLOR,
+  scanActions: {
+    flexDirection: 'row',
+    gap: 8,
     marginTop: 10,
     marginBottom: 10,
+  },
+  scanActionButton: {
+    flex: 1,
+    borderColor: BRAND_COLOR,
   },
   previewButton: {
     marginTop: 24,
