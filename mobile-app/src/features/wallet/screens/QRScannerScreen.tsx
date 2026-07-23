@@ -9,12 +9,13 @@ import {
   TouchableOpacity,
   Keyboard,
   Alert,
+  BackHandler,
 } from 'react-native';
 import { StyledTextInput } from '../../../components';
 import { useKeyboardAwareScroll } from '../../../hooks/useKeyboardAwareScroll';
 import { Text, IconButton, Button, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { CameraView, useCameraPermissions, BarcodeScanningResult, scanFromURLAsync } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
@@ -45,6 +46,10 @@ export function QRScannerScreen(): React.JSX.Element {
     back: () => router.back(),
     replace: (route) => router.replace(route),
   }, '/wallet/home'), []);
+  useFocusEffect(useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+    return () => subscription.remove();
+  }, [safeBack]));
   const params = useLocalSearchParams<{ asset?: string | string[] }>();
   // State
   const [permission, requestPermission] = useCameraPermissions();

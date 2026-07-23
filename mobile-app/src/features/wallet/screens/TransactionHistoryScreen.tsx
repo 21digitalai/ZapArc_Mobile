@@ -13,6 +13,7 @@ import {
   Linking,
   ToastAndroid,
   Dimensions,
+  BackHandler,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Text, IconButton, Chip, Button, Divider } from 'react-native-paper';
@@ -44,6 +45,10 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     back: () => router.back(),
     replace: (route) => router.replace(route),
   }, '/wallet/home'), []);
+  useFocusEffect(useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+    return () => subscription.remove();
+  }, [safeBack]));
   const { transactions, refreshTransactions, isLoading } = useWallet();
   const { t } = useLanguage();
   const { formatTx, refreshSettings } = useCurrency();

@@ -10,6 +10,7 @@ import {
   TouchableWithoutFeedback,
   Alert,
   Keyboard,
+  BackHandler,
 } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Clipboard from 'expo-clipboard';
@@ -25,7 +26,7 @@ import {
   ActivityIndicator,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, getIconColor, BRAND_COLOR } from '../../../utils/theme-helpers';
@@ -52,6 +53,10 @@ export function WalletManagementScreen(): React.JSX.Element {
     back: () => router.back(),
     replace: (route) => router.replace(route),
   }, '/wallet/home'), []);
+  useFocusEffect(useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+    return () => subscription.remove();
+  }, [safeBack]));
   const {
     masterKeys,
     activeMasterKey,
