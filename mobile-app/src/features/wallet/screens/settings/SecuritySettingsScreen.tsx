@@ -1,7 +1,7 @@
 // Security Settings Screen
 // Configure biometric authentication (fingerprint/Face ID)
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
 import { Text, Switch, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -14,12 +14,14 @@ import { useLanguage } from '../../../../hooks/useLanguage';
 import { useAppTheme } from '../../../../contexts/ThemeContext';
 import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_COLOR } from '../../../../utils/theme-helpers';
 import { PinLockoutBanner } from '../../components/PinLockoutBanner';
+import { createSafeBackHandler } from '../../utils/safeBack';
 
 // =============================================================================
 // Component
 // =============================================================================
 
 export function SecuritySettingsScreen(): React.JSX.Element {
+  const safeBack = useMemo(() => createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings'), []);
   const { settings } = useSettings();
   const { enableBiometric, disableBiometric } = useWalletAuth();
   const { t } = useLanguage();
@@ -153,7 +155,7 @@ export function SecuritySettingsScreen(): React.JSX.Element {
             icon="arrow-left"
             iconColor={primaryText}
             size={24}
-            onPress={() => router.back()}
+            onPress={safeBack}
           />
           <Text style={[styles.headerTitle, { color: primaryText }]}>
             {t('settings.biometricAuth')}

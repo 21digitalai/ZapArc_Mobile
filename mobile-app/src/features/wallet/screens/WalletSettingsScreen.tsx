@@ -1,7 +1,7 @@
 // Wallet Settings Screen
 // Main settings hub for wallet configuration
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { Text, List, Divider, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -14,12 +14,14 @@ import { useLanguage } from '../../../hooks/useLanguage';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_COLOR } from '../../../utils/theme-helpers';
 import { getActiveSecurityReminder } from '../utils/walletSecurityOnboarding';
+import { createSafeBackHandler } from '../utils/safeBack';
 
 // =============================================================================
 // Component
 // =============================================================================
 
 export function WalletSettingsScreen(): React.JSX.Element {
+  const safeBack = useMemo(() => createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/home'), []);
   const { settings, isLoading: settingsLoading, loadSettings } = useSettings();
   const appVersion = Constants.expoConfig?.version ?? '1.1.2';
   const { currentLanguage, t } = useLanguage();
@@ -86,7 +88,7 @@ export function WalletSettingsScreen(): React.JSX.Element {
               icon="arrow-left"
               iconColor={primaryTextColor}
               size={24}
-              onPress={() => router.back()}
+              onPress={safeBack}
             />
             <Text style={[styles.headerTitle, { color: primaryTextColor }]}>{t('settings.title')}</Text>
             <View style={styles.headerSpacer} />
@@ -108,7 +110,7 @@ export function WalletSettingsScreen(): React.JSX.Element {
             icon="arrow-left"
             iconColor={primaryTextColor}
             size={24}
-            onPress={() => router.back()}
+            onPress={safeBack}
           />
           <Text style={[styles.headerTitle, { color: primaryTextColor }]}>{t('settings.title')}</Text>
           <View style={styles.headerSpacer} />
