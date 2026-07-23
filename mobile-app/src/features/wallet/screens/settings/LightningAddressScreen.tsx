@@ -7,6 +7,9 @@ import { useKeyboardAwareScroll } from '../../../../hooks/useKeyboardAwareScroll
 import { Text, Button, IconButton, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
+import { createSafeBackHandler } from '../../utils/safeBack';
+
+const safeBack = createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings');
 import { LinearGradient } from 'expo-linear-gradient';
 import QRCode from 'react-native-qrcode-svg';
 import * as Clipboard from 'expo-clipboard';
@@ -217,7 +220,7 @@ export function LightningAddressScreen(): React.JSX.Element {
               icon="arrow-left"
               iconColor={primaryText}
               size={24}
-              onPress={() => router.back()}
+              onPress={safeBack}
             />
             <Text style={[styles.headerTitle, { color: primaryText }]}>{t('lightningAddressScreen.title')}</Text>
             <View style={styles.headerSpacer} />
@@ -240,7 +243,7 @@ export function LightningAddressScreen(): React.JSX.Element {
             icon="arrow-left"
             iconColor={primaryText}
             size={24}
-            onPress={() => router.back()}
+            onPress={safeBack}
           />
           <Text style={[styles.headerTitle, { color: primaryText }]}>{t('lightningAddressScreen.title')}</Text>
           <View style={styles.headerSpacer} />

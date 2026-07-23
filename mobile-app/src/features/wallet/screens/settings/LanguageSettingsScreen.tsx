@@ -6,6 +6,9 @@ import { View, StyleSheet, ScrollView, Alert } from 'react-native';
 import { Text, RadioButton, Button, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { createSafeBackHandler } from '../../utils/safeBack';
+
+const safeBack = createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings');
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSettings } from '../../../../hooks/useSettings';
 import { useLanguage } from '../../../../hooks/useLanguage';
@@ -62,7 +65,7 @@ export function LanguageSettingsScreen(): React.JSX.Element {
 
       // Navigate back silently (no Alert to prevent app restart)
       console.log('🌐 [LanguageSettings] Navigating back');
-      router.back();
+      safeBack();
     } catch (error) {
       console.error('❌ [LanguageSettings] Save failed:', error);
       console.error('❌ [LanguageSettings] Error details:', JSON.stringify(error));
@@ -86,7 +89,7 @@ export function LanguageSettingsScreen(): React.JSX.Element {
             icon="arrow-left"
             iconColor={primaryText}
             size={24}
-            onPress={() => router.back()}
+            onPress={safeBack}
           />
           <Text style={[styles.headerTitle, { color: primaryText }]}>{t('settings.language')}</Text>
           <View style={styles.headerSpacer} />

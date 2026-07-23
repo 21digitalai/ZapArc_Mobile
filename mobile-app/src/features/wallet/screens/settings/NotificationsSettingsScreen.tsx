@@ -6,6 +6,9 @@ import { View, StyleSheet, ScrollView, Alert, Linking } from 'react-native';
 import { Text, List, Switch, IconButton, Button } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { createSafeBackHandler } from '../../utils/safeBack';
+
+const safeBack = createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings');
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
 import { useSettings } from '../../../../hooks/useSettings';
@@ -183,7 +186,7 @@ export function NotificationsSettingsScreen(): React.JSX.Element {
             icon="arrow-left"
             iconColor={primaryTextColor}
             size={24}
-            onPress={() => router.back()}
+            onPress={safeBack}
           />
           <Text style={[styles.headerTitle, { color: primaryTextColor }]}>
             {t('settings.notifications')}

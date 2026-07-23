@@ -4,6 +4,9 @@ import { useKeyboardAwareScroll } from '../../../../hooks/useKeyboardAwareScroll
 import { Text, IconButton, List, TextInput, Button } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { createSafeBackHandler } from '../../utils/safeBack';
+
+const safeBack = createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings');
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLanguage } from '../../../../hooks/useLanguage';
 import { useAppTheme } from '../../../../contexts/ThemeContext';
@@ -64,7 +67,7 @@ export function SwapSettingsScreen(): React.JSX.Element {
             icon="arrow-left"
             iconColor={primaryTextColor}
             size={24}
-            onPress={() => router.back()}
+            onPress={safeBack}
           />
           <Text style={[styles.headerTitle, { color: primaryTextColor }]}>{t('swap.title')}</Text>
           <View style={styles.headerSpacer} />
