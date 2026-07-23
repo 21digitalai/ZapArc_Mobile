@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert } from 'react-native';
+import { Alert, BackHandler } from 'react-native';
 import { render, fireEvent, waitFor, screen, cleanup } from '@testing-library/react-native';
 import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -57,7 +57,9 @@ const mockUseLocalSearchParams = jest.fn(() => ({}));
 jest.mock('expo-router', () => ({
   router: {
     back: jest.fn(),
+    canGoBack: jest.fn(() => false),
     navigate: jest.fn(),
+    replace: jest.fn(),
     setParams: jest.fn(),
   },
   useLocalSearchParams: () => mockUseLocalSearchParams(),
@@ -344,5 +346,23 @@ describe('SendScreen gallery scan', () => {
     rejectPicker!(new Error('picker unavailable'));
 
     await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith('QR scan', 'Could not read a QR code from that image.'));
+  });
+});
+
+describe('SendScreen Android back handling', () => {
+  it('consumes rapid input-step back events and navigates only once', () => {
+    const subscription = { remove: jest.fn() };
+    const addListener = jest.spyOn(BackHandler, 'addEventListener').mockReturnValue(subscription);
+
+    renderScreen();
+
+    const handler = addListener.mock.calls
+      .find(([eventName]) => eventName === 'hardwareBackPress')?.[1];
+
+    expect(handler).toBeDefined();
+    expect(handler!()).toBe(true);
+    expect(handler!()).toBe(true);
+    expect(require('expo-router').router.replace).toHaveBeenCalledWith('/wallet/home');
+    expect(require('expo-router').router.replace).toHaveBeenCalledTimes(1);
   });
 });

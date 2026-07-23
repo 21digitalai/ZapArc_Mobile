@@ -59,7 +59,7 @@ describe('createSafeBackHandler', () => {
     const goBack = createSafeBackHandler(navigation, '/wallet/home');
 
     goBack();
-    expect(goBack()).toBe(false);
+    expect(goBack()).toBe(true);
     expect(navigation.replace).toHaveBeenCalledTimes(1);
 
     jest.advanceTimersByTime(300);

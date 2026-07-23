@@ -27,7 +27,8 @@ export function createSafeBackHandler(
   const lockMs = options.lockMs ?? 300;
 
   return (): boolean => {
-    if (options.isRoot || transitionPending) return false;
+    if (options.isRoot) return false;
+    if (transitionPending) return true;
 
     transitionPending = true;
     if (router.canGoBack()) {
