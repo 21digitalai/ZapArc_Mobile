@@ -165,7 +165,7 @@ export function BlacklistScreen(): React.JSX.Element {
       await updateSettings({ blacklist });
 
       Alert.alert('Saved', 'Blacklist updated', [
-        { text: 'OK', onPress: () => router.back() },
+        { text: 'OK', onPress: safeBack },
       ]);
     } catch (err) {
       Alert.alert('Error', 'Failed to save settings');

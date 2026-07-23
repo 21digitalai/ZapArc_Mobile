@@ -131,7 +131,7 @@ export function DomainManagementScreen(): React.JSX.Element {
       });
 
       Alert.alert('Saved', 'Domain settings updated', [
-        { text: 'OK', onPress: () => router.back() },
+        { text: 'OK', onPress: safeBack },
       ]);
     } catch (err) {
       Alert.alert('Error', 'Failed to save settings');
