@@ -34,6 +34,7 @@ import { useWalletAuth } from '../../../hooks/useWalletAuth';
 import { securityService, storageService } from '../../../services';
 import { settingsService } from '../../../services/settingsService';
 import type { MasterKeyEntry, SubWalletEntry } from '../types';
+import { createSafeBackHandler } from '../utils/safeBack';
 
 // =============================================================================
 // Types
@@ -46,6 +47,11 @@ type ModalType = 'rename' | 'addSubWallet' | 'confirmDelete' | 'revealPhrase' | 
 // =============================================================================
 
 export function WalletManagementScreen(): React.JSX.Element {
+  const safeBack = useMemo(() => createSafeBackHandler({
+    canGoBack: () => router.canGoBack(),
+    back: () => router.back(),
+    replace: (route) => router.replace(route),
+  }, '/wallet/home'), []);
   const {
     masterKeys,
     activeMasterKey,
@@ -1059,7 +1065,7 @@ export function WalletManagementScreen(): React.JSX.Element {
               icon="arrow-left"
               iconColor={iconColor}
               size={24}
-              onPress={() => router.back()}
+              onPress={safeBack}
             />
             <Text style={[styles.headerTitle, { color: primaryTextColor }]}>Manage Wallets</Text>
             <IconButton

@@ -1,7 +1,7 @@
 // QR Scanner Screen
 // Camera-based QR scanning for Lightning invoices, LNURL, and addresses
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -20,6 +20,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
 import { BreezSparkService } from '../../../services/breezSparkService';
 import { MULTI_ASSET_UI_ENABLED } from '../../../config/features';
+import { createSafeBackHandler } from '../utils/safeBack';
 
 
 // =============================================================================
@@ -39,6 +40,11 @@ interface ParsedQRData {
 // =============================================================================
 
 export function QRScannerScreen(): React.JSX.Element {
+  const safeBack = useMemo(() => createSafeBackHandler({
+    canGoBack: () => router.canGoBack(),
+    back: () => router.back(),
+    replace: (route) => router.replace(route),
+  }, '/wallet/home'), []);
   const params = useLocalSearchParams<{ asset?: string | string[] }>();
   // State
   const [permission, requestPermission] = useCameraPermissions();
@@ -355,7 +361,7 @@ export function QRScannerScreen(): React.JSX.Element {
           icon="close"
           iconColor="#FFFFFF"
           size={24}
-          onPress={() => router.back()}
+          onPress={safeBack}
           style={styles.closeButton}
         />
         <Text style={styles.headerTitle}>Scan QR Code</Text>

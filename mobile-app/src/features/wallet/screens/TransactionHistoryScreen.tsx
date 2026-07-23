@@ -26,6 +26,7 @@ import { useLanguage } from '../../../hooks/useLanguage';
 import { useCurrency } from '../../../hooks/useCurrency';
 import type { Transaction } from '../types';
 import { buildTransactionRows, type TransactionRow, type WalletAsset } from '../utils/transactionRows';
+import { createSafeBackHandler } from '../utils/safeBack';
 
 // =============================================================================
 // Types
@@ -38,6 +39,11 @@ type FilterType = 'all' | 'sent' | 'received';
 // =============================================================================
 
 export function TransactionHistoryScreen(): React.JSX.Element {
+  const safeBack = useMemo(() => createSafeBackHandler({
+    canGoBack: () => router.canGoBack(),
+    back: () => router.back(),
+    replace: (route) => router.replace(route),
+  }, '/wallet/home'), []);
   const { transactions, refreshTransactions, isLoading } = useWallet();
   const { t } = useLanguage();
   const { formatTx, refreshSettings } = useCurrency();
@@ -500,7 +506,7 @@ export function TransactionHistoryScreen(): React.JSX.Element {
             icon="arrow-left"
             iconColor={iconColor}
             size={24}
-            onPress={() => router.back()}
+            onPress={safeBack}
           />
           <Text style={[styles.headerTitle, { color: primaryTextColor }]}>{t('wallet.transactionHistory')}</Text>
           <View style={styles.headerSpacer} />
