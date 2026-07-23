@@ -1,6 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+jest.mock('@expo/config-plugins', () => ({
+  withAndroidManifest: (
+    config: Record<string, unknown>,
+    action: (mod: Record<string, any>) => Record<string, any>,
+  ) => action({
+    ...config,
+    modResults: {
+      manifest: {
+        application: [{ $: {} }],
+      },
+    },
+  }),
+}));
+
 describe('Android back compatibility configuration', () => {
   const appRoot = path.resolve(__dirname, '../../../../..');
 
@@ -15,17 +29,19 @@ describe('Android back compatibility configuration', () => {
         };
       };
     };
-    const plugin = fs.readFileSync(
+    const withLegacyAndroidBackHandler = require(
       path.join(appRoot, 'plugins/withLegacyAndroidBackHandler.js'),
-      'utf8',
     );
+    const pluginResult = withLegacyAndroidBackHandler({});
 
     expect(appConfig.expo?.android?.predictiveBackGestureEnabled).toBe(false);
     expect(appConfig.expo?.plugins).toContain(
       './plugins/withLegacyAndroidBackHandler',
     );
-    expect(plugin).toContain(
-      "application.$['android:enableOnBackInvokedCallback'] = 'false'",
-    );
+    expect(
+      pluginResult.modResults.manifest.application[0].$[
+        'android:enableOnBackInvokedCallback'
+      ],
+    ).toBe('false');
   });
 });
