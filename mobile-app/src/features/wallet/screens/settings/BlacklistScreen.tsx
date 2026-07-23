@@ -8,6 +8,7 @@ import {
   ScrollView,
   Alert,
   FlatList,
+  BackHandler,
 } from 'react-native';
 import { useKeyboardAwareScroll } from '../../../../hooks/useKeyboardAwareScroll';
 import {
@@ -18,7 +19,7 @@ import {
 } from 'react-native-paper';
 import { StyledTextInput } from '../../../../components';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { createSafeBackHandler } from '../../utils/safeBack';
 
 const safeBack = createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings');
@@ -45,6 +46,11 @@ type FilterType = 'all' | 'domain' | 'address';
 // =============================================================================
 
 export function BlacklistScreen(): React.JSX.Element {
+  useFocusEffect(useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+    return () => subscription.remove();
+  }, []));
+
   const { settings, updateSettings } = useSettings();
   const { themeMode } = useAppTheme();
 

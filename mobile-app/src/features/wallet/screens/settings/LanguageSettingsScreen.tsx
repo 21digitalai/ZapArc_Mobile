@@ -1,11 +1,11 @@
 // Language Settings Screen
 // Configure app language and location-based detection
 
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import React, { useCallback, useState, useEffect } from 'react';
+import { View, StyleSheet, ScrollView, Alert, BackHandler } from 'react-native';
 import { Text, RadioButton, Button, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { createSafeBackHandler } from '../../utils/safeBack';
 
 const safeBack = createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings');
@@ -20,6 +20,11 @@ import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_CO
 // =============================================================================
 
 export function LanguageSettingsScreen(): React.JSX.Element {
+  useFocusEffect(useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+    return () => subscription.remove();
+  }, []));
+
   const { settings, updateSettings } = useSettings();
   const { currentLanguage, setLanguage, resetToAuto, t } = useLanguage();
   const { themeMode } = useAppTheme();

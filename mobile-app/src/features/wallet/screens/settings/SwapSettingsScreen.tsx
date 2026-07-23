@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, StyleSheet, ScrollView, Alert, BackHandler } from 'react-native';
 import { useKeyboardAwareScroll } from '../../../../hooks/useKeyboardAwareScroll';
 import { Text, IconButton, List, TextInput, Button } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { createSafeBackHandler } from '../../utils/safeBack';
 
 const safeBack = createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings');
@@ -14,6 +14,11 @@ import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_CO
 import { settingsService } from '../../../../services/settingsService';
 
 export function SwapSettingsScreen(): React.JSX.Element {
+  useFocusEffect(useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+    return () => subscription.remove();
+  }, []));
+
   const { t } = useLanguage();
   const { themeMode } = useAppTheme();
 

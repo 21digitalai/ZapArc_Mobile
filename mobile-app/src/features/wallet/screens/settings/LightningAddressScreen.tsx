@@ -2,7 +2,7 @@
 // Register and manage Lightning Address for receiving payments
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, BackHandler } from 'react-native';
 import { useKeyboardAwareScroll } from '../../../../hooks/useKeyboardAwareScroll';
 import { Text, Button, IconButton, ActivityIndicator } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -45,6 +45,13 @@ export function LightningAddressScreen(): React.JSX.Element {
   const gradientColors = getGradientColors(themeMode);
   const primaryText = getPrimaryTextColor(themeMode);
   const secondaryText = getSecondaryTextColor(themeMode);
+
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+      return () => subscription.remove();
+    }, [])
+  );
 
   // Refresh Lightning Address state when screen comes into focus
   // This ensures the correct address is shown for the current wallet

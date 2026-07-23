@@ -17,6 +17,7 @@ import {
   Animated,
   Easing,
   Dimensions,
+  BackHandler,
 } from 'react-native';
 import {
   Text,
@@ -29,7 +30,7 @@ import { TextInput } from 'react-native-paper'; // Only for TextInput.Icon
 import { StyledTextInput } from '../../../../components/StyledTextInput';
 import { PinSetupKeypad } from '../../../../components/PinSetupKeypad';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { createSafeBackHandler } from '../../utils/safeBack';
 
 const safeBack = createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings');
@@ -71,6 +72,11 @@ import * as FileSystem from 'expo-file-system';
 // =============================================================================
 
 export function GoogleDriveBackupScreen(): React.JSX.Element {
+  useFocusEffect(useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+    return () => subscription.remove();
+  }, []));
+
   const { getMnemonic, activeMasterKey, importMasterKey, masterKeys } = useWallet();
   const { selectWallet, getSessionPin } = useWalletAuth();
   const { themeMode } = useAppTheme();
