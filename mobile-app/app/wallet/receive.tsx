@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { View, StyleSheet, ScrollView, Keyboard, Alert, TouchableOpacity, Modal, Linking, Platform, PermissionsAndroid, BackHandler, type LayoutChangeEvent } from 'react-native';
+import { View, StyleSheet, ScrollView, Keyboard, Alert, TouchableOpacity, Modal, Linking, Platform, BackHandler, type LayoutChangeEvent } from 'react-native';
 import { Text, Button, IconButton, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -8,7 +8,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import RNFS from 'react-native-fs';
 import QRCode from 'react-native-qrcode-svg';
 import { captureRef } from 'react-native-view-shot';
 import { useAppTheme } from '../../src/contexts/ThemeContext';
@@ -27,6 +26,7 @@ import { useKeyboardAwareScroll } from '../../src/hooks/useKeyboardAwareScroll';
 import { type DisplayCurrency } from '../../src/services/displayCurrencyService';
 import { fiatToUsdb } from '../../src/utils/currency';
 import { createSafeBackHandler } from '../../src/features/wallet/utils/safeBack';
+import { saveQrToAndroidDirectory } from '../../src/features/wallet/utils/saveQrToDevice';
 
 /**
  * Local widening of {@link DisplayCurrency} for the receive screen. The
@@ -681,11 +681,8 @@ export default function ReceiveScreen() {
     };
   }, [activeTab, onchainAddress, refreshBalance, refreshTransactions, recordFailedClaim]);
 
-  // Capture the whole QR *card* (QR + centered logo + ZapArc pill) as a PNG
-  // via react-native-view-shot, then open the system share sheet (Save Image
-  // / Save to Files / send-to-app). Falls back to writing into the Downloads
-  // directory on Android when expo-sharing isn't available. Capturing the
-  // card (not just the QR) means the saved/shared image carries the branding.
+  // Capture the whole branded QR card as a PNG. Android uses the scoped
+  // Storage Access Framework picker; iOS keeps its native Save to Files sheet.
   const handleSaveQR = useCallback(async (
     cardRef: React.RefObject<View | null>,
     filenamePrefix: string,
@@ -702,35 +699,23 @@ export default function ReceiveScreen() {
       });
 
       const fileName = `${filenamePrefix}-${Date.now()}.png`;
-      const filePath = `${RNFS.CachesDirectoryPath}/${fileName}`;
-      // captureRef returns a file:// path; normalise for RNFS copy.
-      const srcPath = tmpUri.replace('file://', '');
-      await RNFS.copyFile(srcPath, filePath);
+      if (Platform.OS === 'android') {
+        const result = await saveQrToAndroidDirectory(tmpUri, fileName);
+        if (result.status === 'saved') {
+          showSuccess(`QR code saved as ${result.fileName}`);
+        }
+        return;
+      }
 
       const isAvailable = await Sharing.isAvailableAsync();
       if (isAvailable) {
-        await Sharing.shareAsync(`file://${filePath}`, {
+        await Sharing.shareAsync(tmpUri, {
           mimeType: 'image/png',
           dialogTitle: 'Save QR Code',
         });
         return;
       }
-
-      // No share sheet available — copy into Downloads on Android.
-      if (Platform.OS === 'android') {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
-        );
-        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-          const downloadPath = `${RNFS.DownloadDirectoryPath}/${fileName}`;
-          await RNFS.copyFile(filePath, downloadPath);
-          showSuccess('QR code saved to Downloads');
-        } else {
-          Alert.alert(t('common.error'), 'Storage permission denied');
-        }
-      } else {
-        Alert.alert(t('common.error'), 'Sharing not available on this device');
-      }
+      Alert.alert(t('common.error'), 'Sharing not available on this device');
     } catch (error) {
       console.error('Failed to save QR:', error);
       Alert.alert(t('common.error'), error instanceof Error ? error.message : 'Failed to save QR code');
