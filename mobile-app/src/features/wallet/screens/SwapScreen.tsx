@@ -26,6 +26,7 @@ import {
   getPrimaryTextColor,
   getSecondaryTextColor,
 } from '../../../utils/theme-helpers';
+import { createSafeBackHandler } from '../utils/safeBack';
 
 type SwapScreenProps = {
   initialDirection?: SwapDirection;
@@ -53,6 +54,11 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
   const gradientColors = getGradientColors(themeMode);
   const primaryTextColor = getPrimaryTextColor(themeMode);
   const secondaryTextColor = getSecondaryTextColor(themeMode);
+  const safeBack = useMemo(() => createSafeBackHandler({
+    canGoBack: () => router.canGoBack(),
+    back: () => router.back(),
+    replace: (route) => router.replace(route),
+  }, '/wallet/home'), []);
 
   const swap = useSwap(initialDirection);
   const {
@@ -142,8 +148,8 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
       // Background reconciliation — nudge Breez to sync, then one refresh.
       // Don't await; UI already has correct optimistic state.
       void (async () => {
-        try { await syncWalletSdk(); } catch {}
-        try { await Promise.all([refreshBalance(), refreshTransactions()]); } catch {}
+        try { await syncWalletSdk(); } catch { /* best-effort reconciliation */ }
+        try { await Promise.all([refreshBalance(), refreshTransactions()]); } catch { /* best-effort refresh */ }
       })();
     })();
   }, [swap.state, applySwapResult, refreshBalance, refreshTransactions]);
@@ -451,14 +457,12 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
   }, [isConfirming, navigation]);
 
   useEffect(() => {
-    if (!isConfirming) return;
-
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      return true;
+      return isConfirming ? true : safeBack();
     });
 
     return () => sub.remove();
-  }, [isConfirming]);
+  }, [isConfirming, safeBack]);
 
   const renderResult = () => {
     // Success: no dedicated screen — a useEffect redirects to Home with a
@@ -478,7 +482,7 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
         <SwapResultView
           kind="dustResidual"
           residualUsdb={swap.state.residualUsdbBaseUnits.toString()}
-          onDone={() => router.back()}
+          onDone={safeBack}
         />
       );
     }
@@ -497,7 +501,7 @@ export function SwapScreen({ initialDirection = 'BTC_TO_USDB' }: SwapScreenProps
           <IconButton
             icon="arrow-left"
             onPress={() => {
-              if (!isConfirming) router.back();
+              if (!isConfirming) safeBack();
             }}
             iconColor={secondaryTextColor}
             accessibilityLabel={t('common.back')}

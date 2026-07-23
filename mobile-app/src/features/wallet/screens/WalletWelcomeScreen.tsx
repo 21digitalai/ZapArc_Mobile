@@ -1,7 +1,7 @@
 // Wallet Welcome/Onboarding Screen
 // First launch screen for setting up the Lightning wallet
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { View, StyleSheet, Alert } from 'react-native';
 import { Button, Text, Portal, Dialog } from 'react-native-paper';
 import { StyledTextInput } from '../../../components';
@@ -17,6 +17,7 @@ import {
   getSecondaryTextColor,
   BRAND_COLOR,
 } from '../../../utils/theme-helpers';
+import { createSafeBackHandler } from '../utils/safeBack';
 
 // Lightning bolt icon placeholder - in production, use actual asset
 const LIGHTNING_ICON = '⚡';
@@ -31,6 +32,7 @@ export function WalletWelcomeScreen(): React.JSX.Element {
   const primaryText = getPrimaryTextColor(themeMode);
   const secondaryText = getSecondaryTextColor(themeMode);
   const dialogBg = theme.colors.surface;
+  const safeBack = useMemo(() => createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/home'), []);
 
   // State for Add Sub-Wallet modal
   const [showAddSubWalletModal, setShowAddSubWalletModal] = useState(false);
@@ -176,7 +178,7 @@ export function WalletWelcomeScreen(): React.JSX.Element {
           {activeMasterKey && (
             <Button
               mode="text"
-              onPress={() => router.back()}
+              onPress={safeBack}
               style={styles.backButton}
               labelStyle={[styles.backButtonLabel, { color: secondaryText }]}
             >

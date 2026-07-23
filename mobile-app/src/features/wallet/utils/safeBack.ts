@@ -1,7 +1,8 @@
 export type WalletParentRoute =
   | '/wallet/home'
   | '/wallet/settings'
-  | '/wallet/settings/address-book';
+  | '/wallet/settings/address-book'
+  | '/wallet/send';
 
 export interface SafeBackRouter {
   canGoBack: () => boolean;
@@ -22,7 +23,7 @@ export function createSafeBackHandler(
   options: SafeBackOptions = {},
 ): () => boolean {
   let transitionPending = false;
-  const schedule = options.schedule ?? setTimeout;
+  const schedule = options.schedule ?? globalThis.setTimeout;
   const lockMs = options.lockMs ?? 300;
 
   return (): boolean => {

@@ -1,8 +1,8 @@
 // Payment Confirmation Screen
 // Confirms Lightning payment details before sending
 
-import React, { useState, useCallback, useEffect } from 'react';
-import { View, StyleSheet, ActivityIndicator } from 'react-native';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { View, StyleSheet, ActivityIndicator, BackHandler } from 'react-native';
 import { Text, Button, IconButton, Divider } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -11,6 +11,7 @@ import { useWallet } from '../../../hooks/useWallet';
 import { useCurrency } from '../../../hooks/useCurrency';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_COLOR } from '../../../utils/theme-helpers';
+import { createSafeBackHandler } from '../utils/safeBack';
 
 // =============================================================================
 // Types
@@ -46,6 +47,7 @@ export function PaymentConfirmationScreen(): React.JSX.Element {
   const gradientColors = getGradientColors(themeMode);
   const primaryText = getPrimaryTextColor(themeMode);
   const secondaryText = getSecondaryTextColor(themeMode);
+  const safeBack = useMemo(() => createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/send'), []);
 
   // State
   const [status, setStatus] = useState<PaymentStatus>('confirming');
@@ -98,8 +100,16 @@ export function PaymentConfirmationScreen(): React.JSX.Element {
 
   // Handle cancel
   const handleCancel = useCallback(() => {
-    router.back();
-  }, []);
+    safeBack();
+  }, [safeBack]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (status === 'processing') return true;
+      return safeBack();
+    });
+    return () => subscription.remove();
+  }, [safeBack, status]);
 
   // Handle done (after success/failure)
   const handleDone = useCallback(() => {

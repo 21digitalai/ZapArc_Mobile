@@ -1,7 +1,7 @@
 // Wallet Selection Screen
 // Hierarchical wallet list with master keys and sub-wallets
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -17,12 +17,14 @@ import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, getIconC
 import { useWallet } from '../../../hooks/useWallet';
 import { useWalletAuth } from '../../../hooks/useWalletAuth';
 import type { MasterKeyEntry } from '../types';
+import { createSafeBackHandler } from '../utils/safeBack';
 
 // =============================================================================
 // Component
 // =============================================================================
 
 export function WalletSelectionScreen(): React.JSX.Element {
+  const safeBack = useMemo(() => createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/home'), []);
   const { themeMode } = useAppTheme();
   const gradientColors = getGradientColors(themeMode);
   const primaryTextColor = getPrimaryTextColor(themeMode);
@@ -191,7 +193,7 @@ export function WalletSelectionScreen(): React.JSX.Element {
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => router.back()}
+            onPress={safeBack}
           >
             <IconButton icon="arrow-left" iconColor={primaryTextColor} size={24} />
           </TouchableOpacity>

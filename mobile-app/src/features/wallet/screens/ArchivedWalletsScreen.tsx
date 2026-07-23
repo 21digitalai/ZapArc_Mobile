@@ -1,7 +1,7 @@
 // Archived Wallets Screen
 // View and restore archived sub-wallets
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -22,6 +22,7 @@ import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_CO
 import { useWallet } from '../../../hooks/useWallet';
 import { useLanguage } from '../../../hooks/useLanguage';
 import type { SubWalletEntry } from '../types';
+import { createSafeBackHandler } from '../utils/safeBack';
 
 export function ArchivedWalletsScreen(): React.JSX.Element {
   const { themeMode } = useAppTheme();
@@ -33,6 +34,7 @@ export function ArchivedWalletsScreen(): React.JSX.Element {
   const gradientColors = getGradientColors(themeMode);
   const primaryTextColor = getPrimaryTextColor(themeMode);
   const secondaryTextColor = getSecondaryTextColor(themeMode);
+  const safeBack = useMemo(() => createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/home'), []);
 
   // ========================================
   // Actions
@@ -104,7 +106,7 @@ export function ArchivedWalletsScreen(): React.JSX.Element {
             icon="arrow-left"
             iconColor={primaryTextColor}
             size={24}
-            onPress={() => router.back()}
+            onPress={safeBack}
           />
           <Text style={[styles.headerTitle, { color: primaryTextColor }]}>{t('wallet.archivedWallets')}</Text>
           <View style={styles.headerSpacer} />

@@ -27,6 +27,7 @@ import { useKeyboardAwareScroll } from '../../../hooks/useKeyboardAwareScroll';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import { getGradientColors, BRAND_COLOR } from '../../../utils/theme-helpers';
 import { WALLET_PIN_LENGTH } from '../constants/security';
+import { createSafeBackHandler } from '../utils/safeBack';
 
 // =============================================================================
 // Types
@@ -49,6 +50,7 @@ export function WalletCreationScreen(): React.JSX.Element {
 
   // Theme colors
   const gradientColors = getGradientColors(themeMode);
+  const safeBack = useMemo(() => createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/home'), []);
 
   // State
   const [currentStep, setCurrentStep] = useState<CreationStep>('generate');
@@ -100,18 +102,17 @@ export function WalletCreationScreen(): React.JSX.Element {
         {
           text: 'Cancel',
           style: 'destructive',
-          onPress: () => router.back(),
+          onPress: safeBack,
         },
       ]
     );
-  }, []);
+  }, [safeBack]);
 
   // Handle Android hardware back button
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       if (currentStep === 'complete') {
-        // On complete step, allow normal navigation
-        return false;
+        return safeBack();
       }
       
       if (currentStep === 'generate') {
@@ -126,7 +127,7 @@ export function WalletCreationScreen(): React.JSX.Element {
     });
 
     return () => backHandler.remove();
-  }, [currentStep, handleCancel, handleGoBack]);
+  }, [currentStep, handleCancel, handleGoBack, safeBack]);
 
   // ========================================
   // Step 1: Generate Mnemonic

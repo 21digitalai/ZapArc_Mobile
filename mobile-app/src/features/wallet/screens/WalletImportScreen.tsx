@@ -26,6 +26,7 @@ import { useWallet } from '../../../hooks/useWallet';
 import { useWalletAuth } from '../../../hooks/useWalletAuth';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_COLOR } from '../../../utils/theme-helpers';
+import { createSafeBackHandler } from '../utils/safeBack';
 
 // =============================================================================
 // Types
@@ -38,6 +39,7 @@ type ImportStep = 'input' | 'pin';
 // =============================================================================
 
 export function WalletImportScreen(): React.JSX.Element {
+  const safeBack = useMemo(() => createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/home'), []);
   const { importMasterKey, masterKeys } = useWallet();
   const { selectWallet } = useWalletAuth();
   const { themeMode } = useAppTheme();
@@ -234,7 +236,7 @@ export function WalletImportScreen(): React.JSX.Element {
 
       <TouchableOpacity
         style={styles.cancelButton}
-        onPress={() => router.back()}
+        onPress={safeBack}
       >
         <Text style={styles.cancelButtonText}>Cancel</Text>
       </TouchableOpacity>

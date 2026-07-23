@@ -30,6 +30,14 @@ describe('createSafeBackHandler', () => {
     expect(navigation.back).not.toHaveBeenCalled();
   });
 
+  it('returns a nested payment flow to Send when its stack is unavailable', () => {
+    const navigation = router(false);
+    const goBack = createSafeBackHandler(navigation, '/wallet/send');
+
+    expect(goBack()).toBe(true);
+    expect(navigation.replace).toHaveBeenCalledWith('/wallet/send');
+  });
+
   it('suppresses duplicate back events until the transition settles', () => {
     const navigation = router(false);
     const goBack = createSafeBackHandler(navigation, '/wallet/home');
