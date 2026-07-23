@@ -3,6 +3,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
   View,
   StyleSheet,
   ScrollView,
@@ -59,6 +62,99 @@ interface QuickActionProps {
 }
 
 type WalletAsset = 'BTC' | 'USDB';
+
+type PendingOutgoing = Pick<Transaction, 'id' | 'amount'>;
+
+const INLINE_PENDING_ROW_HEIGHT = 58;
+const INLINE_PENDING_MOTION_MS = 220;
+
+function getPendingLabel(payments: PendingOutgoing[]): string {
+  const amounts = payments.map((payment) => payment.amount);
+  const hasCompleteAmounts = amounts.length > 0 && amounts.every(
+    (amount) => typeof amount === 'number' && Number.isFinite(amount) && amount >= 0,
+  );
+  if (hasCompleteAmounts) {
+    const total = amounts.reduce((sum, amount) => sum + (amount as number), 0);
+    return `⏳ Pending • ${total.toLocaleString()} sats`;
+  }
+  return payments.length > 1 ? `⏳ ${payments.length} payments pending` : '⏳ Pending';
+}
+
+function PendingBalanceRow({
+  payments,
+  exitSignal,
+  onPress,
+}: {
+  payments: PendingOutgoing[];
+  exitSignal: number;
+  onPress: () => void;
+}): React.JSX.Element | null {
+  const signature = payments.map((payment) => payment.id).sort().join('|');
+  const lastSignatureRef = useRef('');
+  const [mounted, setMounted] = useState(payments.length > 0);
+  const [interactive, setInteractive] = useState(payments.length > 0);
+  const height = useRef(new Animated.Value(payments.length > 0 ? 1 : 0)).current;
+  const opacity = useRef(new Animated.Value(payments.length > 0 ? 1 : 0)).current;
+  const spacing = useRef(new Animated.Value(payments.length > 0 ? 1 : 0)).current;
+  const reducedMotionRef = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (active) reducedMotionRef.current = enabled;
+    });
+    return () => { active = false; };
+  }, []);
+
+  const animate = useCallback((toValue: number, done?: () => void): void => {
+    const config = {
+      toValue,
+      duration: reducedMotionRef.current ? 100 : INLINE_PENDING_MOTION_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    };
+    Animated.parallel([
+      Animated.timing(height, config),
+      Animated.timing(opacity, config),
+      Animated.timing(spacing, config),
+    ]).start(({ finished }) => { if (finished && done) done(); });
+  }, [height, opacity, spacing]);
+
+  useEffect(() => {
+    if (!signature || signature === lastSignatureRef.current) return;
+    lastSignatureRef.current = signature;
+    setMounted(true);
+    setInteractive(true);
+    animate(1);
+  }, [animate, signature]);
+
+  useEffect(() => {
+    if (!exitSignal || !mounted) return;
+    setInteractive(false);
+    animate(0, () => setMounted(false));
+  }, [animate, exitSignal, mounted]);
+
+  if (!mounted) return null;
+  return (
+    <Animated.View style={{
+      height: height.interpolate({ inputRange: [0, 1], outputRange: [0, INLINE_PENDING_ROW_HEIGHT] }),
+      opacity,
+      marginTop: spacing.interpolate({ inputRange: [0, 1], outputRange: [0, 14] }),
+      overflow: 'hidden',
+    }}>
+      <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel="Pending payment"
+        accessibilityState={{ disabled: !interactive }}
+        disabled={!interactive}
+        style={styles.pendingBalanceRow}
+        onPress={onPress}
+      >
+        <Text style={styles.pendingBalanceTitle}>{getPendingLabel(payments)}</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
 
 // =============================================================================
 // Component
@@ -167,6 +263,7 @@ export function HomeScreen(): React.JSX.Element {
     id: string;
     amountSat: number;
   } | null>(null);
+  const [pendingRowExitSignal, setPendingRowExitSignal] = useState(0);
 
   useEffect(() => () => clearPendingTerminalTimer(), [clearPendingTerminalTimer]);
 
@@ -381,6 +478,10 @@ export function HomeScreen(): React.JSX.Element {
       // First dismiss the Pending banner. ToastBanner keeps it mounted for a
       // visible fade/slide exit; only then mount the terminal banner so it
       // receives an independent full-duration timer.
+      // Keep the inline row until this precise terminal handoff; its own
+      // collapse starts alongside the toast exit even if a refresh already
+      // removed the authoritative pending transaction from the list.
+      setPendingRowExitSignal((signal) => signal + 1);
       setToast(null);
       pendingToastRef.current = null;
       pendingTerminalTimerRef.current = setTimeout(() => {
@@ -1016,15 +1117,12 @@ export function HomeScreen(): React.JSX.Element {
                 <Text style={styles.tapToReveal}>{t('common.tapToReveal')}</Text>
               </TouchableOpacity>
             )}
-            {activeAsset === 'BTC' && pendingOutgoing.length > 0 && (
-              <TouchableOpacity
-                accessibilityRole="button"
-                accessibilityLabel="Pending payment"
-                style={styles.pendingBalanceRow}
+            {activeAsset === 'BTC' && (
+              <PendingBalanceRow
+                payments={pendingOutgoing}
+                exitSignal={pendingRowExitSignal}
                 onPress={() => router.push('/wallet/history')}
-              >
-                <Text style={styles.pendingBalanceTitle}>⏳ Pending</Text>
-              </TouchableOpacity>
+              />
             )}
           </View>
 

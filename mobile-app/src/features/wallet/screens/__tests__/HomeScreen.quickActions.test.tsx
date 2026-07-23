@@ -159,12 +159,14 @@ describe('HomeScreen quick actions', () => {
     expect(screen.getByText('Scan QR')).toBeTruthy();
   });
 
-  it('shows compact pending UI, refreshes on terminal state, and removes it after settlement', async () => {
-    mockWalletTransactions = [{ id: 'pending-1', type: 'send', status: 'pending', amountSat: 42 }];
+  it('keeps the inline pending row through refresh until the terminal toast handoff', async () => {
+    jest.useFakeTimers();
+    mockWalletTransactions = [{ id: 'pending-1', type: 'send', status: 'pending', amount: 42 }];
     mockGetActiveAsset.mockResolvedValue('BTC');
     const view = render(<HomeScreen />);
 
     await waitFor(() => expect(screen.getByLabelText('Pending payment')).toBeTruthy());
+    expect(screen.getByText('⏳ Pending • 42 sats')).toBeTruthy();
     await act(async () => {
       mockPaymentListener?.({ id: 'pending-1', type: 'send', status: 'pending', amountSat: 42 });
     });
@@ -176,7 +178,15 @@ describe('HomeScreen quick actions', () => {
 
     mockWalletTransactions = [];
     view.rerender(<HomeScreen />);
-    await waitFor(() => expect(screen.queryByLabelText('Pending payment')).toBeNull());
+    expect(screen.getByLabelText('Pending payment')).toBeTruthy();
+
+    await act(async () => {
+      mockPaymentListener?.({ id: 'pending-1', type: 'send', status: 'completed', amountSat: 42 });
+      jest.advanceTimersByTime(2000);
+    });
+    await waitFor(() => expect(screen.getByText('Payment sent')).toBeTruthy());
+    expect(screen.queryByLabelText('Pending payment')).toBeNull();
+    jest.useRealTimers();
   });
 
   it('renders the authoritative pending amount in formatted sats', async () => {

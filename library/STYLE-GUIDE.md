@@ -119,7 +119,8 @@
 
 `src/features/wallet/screens/HomeScreen.tsx`
 - The BTC available-balance card shows an amber, tappable pending-payment row only when refreshed authoritative transaction data contains an outgoing payment with `status: 'pending'`.
-- The row must never calculate or present a synthetic locked total; it states that funds are temporarily reserved and routes to history.
+- The row presents the summed sats total only when every authoritative pending amount is valid; otherwise it uses safe pending/count copy and never invents `0 sats`.
+- `PendingBalanceRow` is a presentation shell: it expands/collapses height, opacity, and spacing, stays interactive until exit begins, and only starts its terminal collapse with the matching Pending toast handoff. Reduced-motion uses the same short non-spring transition.
 - A Send handoff carries the pending payment ID and amount. Home reconciles that ID through Breez before retaining the pending banner, and a completed/failed result replaces it with the normal terminal banner rather than flashing a stale pending state.
 
 ### Transactional toast feedback
