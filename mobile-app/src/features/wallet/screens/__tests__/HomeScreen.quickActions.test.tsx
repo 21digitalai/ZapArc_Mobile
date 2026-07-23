@@ -213,6 +213,39 @@ describe('HomeScreen quick actions', () => {
     jest.useRealTimers();
   });
 
+  it('waits for B terminal handoff after stale A handoff is superseded', async () => {
+    jest.useFakeTimers();
+    mockWalletTransactions = [
+      { id: 'pending-a', type: 'send', status: 'pending', amount: 42 },
+      { id: 'pending-b', type: 'send', status: 'pending', amount: 1250 },
+    ];
+    const view = render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByText('⏳ Pending • 1,292 sats')).toBeTruthy());
+    await act(async () => {
+      mockPaymentListener?.({ id: 'pending-a', type: 'send', status: 'pending', amountSat: 42 });
+      mockPaymentListener?.({ id: 'pending-a', type: 'send', status: 'completed', amountSat: 42 });
+      mockWalletTransactions = [{ id: 'pending-b', type: 'send', status: 'pending', amount: 1250 }];
+      view.rerender(<HomeScreen />);
+      jest.advanceTimersByTime(2000);
+    });
+    await waitFor(() => expect(screen.getByLabelText('Pending payment')).toBeTruthy());
+
+    await act(async () => {
+      mockPaymentListener?.({ id: 'pending-b', type: 'send', status: 'pending', amountSat: 1250 });
+      mockPaymentListener?.({ id: 'pending-b', type: 'send', status: 'completed', amountSat: 1250 });
+      mockWalletTransactions = [];
+      view.rerender(<HomeScreen />);
+    });
+
+    expect(screen.getByLabelText('Pending payment')).toBeTruthy();
+    await act(async () => { jest.advanceTimersByTime(1999); });
+    expect(screen.getByLabelText('Pending payment')).toBeTruthy();
+    await act(async () => { jest.advanceTimersByTime(1); });
+    await waitFor(() => expect(screen.queryByLabelText('Pending payment')).toBeNull());
+    jest.useRealTimers();
+  });
+
   it('renders the authoritative pending amount in formatted sats', async () => {
     mockUseLocalSearchParams.mockReturnValue({
       paymentPending: 'true', paymentId: 'amount-1', paymentAmount: '1250',

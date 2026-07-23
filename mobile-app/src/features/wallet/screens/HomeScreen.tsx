@@ -280,6 +280,17 @@ export function HomeScreen(): React.JSX.Element {
   const pendingOutgoing = transactions.filter(
     (transaction) => transaction.type === 'send' && transaction.status === 'pending'
   );
+
+  // A terminal handoff can arrive after a newer pending payment has already
+  // replaced the aggregate row's contents. Never retain that older handoff:
+  // once another payment remains, the next collapse must belong to that
+  // remaining payment's own terminal toast.
+  useEffect(() => {
+    if (!pendingRowExitingPaymentId) return;
+    if (pendingOutgoing.some((payment) => payment.id !== pendingRowExitingPaymentId)) {
+      setPendingRowExitingPaymentId(null);
+    }
+  }, [pendingOutgoing, pendingRowExitingPaymentId]);
   const showUsdbEmptyState = activeAsset === 'USDB' && usdbBalance <= 0 && transactionRows.length === 0;
 
   // Decide which security banner (if any) to show above the balance.
