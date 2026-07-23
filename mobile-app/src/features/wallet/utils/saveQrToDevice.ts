@@ -1,5 +1,4 @@
-import { cacheDirectory, copyAsync } from 'expo-file-system';
-import * as MediaLibrary from 'expo-media-library';
+import { NativeModules, Platform } from 'react-native';
 
 export const QR_PNG_MIME_TYPE = 'image/png';
 export const QR_GALLERY_ALBUM_NAME = 'ZapArc';
@@ -10,36 +9,29 @@ export type AndroidQrSaveResult = {
   uri: string;
 };
 
+type ZapArcMediaStoreModule = {
+  savePngToZapArcAlbum(sourceUri: string, fileName: string): Promise<string>;
+};
+
+const mediaStoreModule = NativeModules.ZapArcMediaStore as ZapArcMediaStoreModule | undefined;
+
 /**
- * Publishes a captured PNG through Android's scoped MediaStore-backed
- * gallery, without opening the Storage Access Framework directory picker or
- * asking to read the user's existing photos.
+ * Publishes a captured PNG through Android's write-only MediaStore API.
+ * The native module inserts directly into Pictures/ZapArc without querying
+ * the user's library, so it needs no photo-read permission or folder picker.
  */
 export async function saveQrToAndroidGallery(
   sourceUri: string,
   fileName: string,
 ): Promise<AndroidQrSaveResult> {
-  if (!cacheDirectory) throw new Error('Temporary storage is unavailable');
-
-  // `captureRef` creates a temporary filename. Copying it first preserves the
-  // user-visible QR filename when MediaStore creates the gallery asset.
-  const namedPngUri = `${cacheDirectory}${fileName}`;
-  await copyAsync({ from: sourceUri, to: namedPngUri });
-
-  const album = await MediaLibrary.getAlbumAsync(QR_GALLERY_ALBUM_NAME);
-  if (album) {
-    const asset = await MediaLibrary.createAssetAsync(namedPngUri);
-    await MediaLibrary.addAssetsToAlbumAsync(asset, album, false);
-    return { status: 'saved', fileName, uri: asset.uri };
+  if (Platform.OS !== 'android') {
+    throw new Error('Gallery saving is only available on Android');
   }
 
-  // Android cannot create an empty gallery album. Giving MediaStore the
-  // first local PNG creates both the image asset and the ZapArc album.
-  await MediaLibrary.createAlbumAsync(
-    QR_GALLERY_ALBUM_NAME,
-    undefined,
-    false,
-    namedPngUri,
-  );
-  return { status: 'saved', fileName, uri: namedPngUri };
+  if (!mediaStoreModule) {
+    throw new Error('Gallery saving is unavailable in this app build');
+  }
+
+  const uri = await mediaStoreModule.savePngToZapArcAlbum(sourceUri, fileName);
+  return { status: 'saved', fileName, uri };
 }

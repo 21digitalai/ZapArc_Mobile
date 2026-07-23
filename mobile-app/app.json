@@ -62,6 +62,7 @@
       "expo-router",
       "./plugins/withOptionalCameraFeature",
       "./plugins/withLegacyAndroidBackHandler",
+      "./plugins/withZapArcMediaStore",
       "./plugins/withQuickCryptoLintCompatibility",
       "@breeztech/breez-sdk-spark-react-native",
       "@react-native-firebase/app",
