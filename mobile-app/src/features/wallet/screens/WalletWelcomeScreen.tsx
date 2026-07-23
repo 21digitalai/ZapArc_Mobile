@@ -2,11 +2,11 @@
 // First launch screen for setting up the Lightning wallet
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
+import { View, StyleSheet, Alert, BackHandler } from 'react-native';
 import { Button, Text, Portal, Dialog } from 'react-native-paper';
 import { StyledTextInput } from '../../../components';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useWallet } from '../../../hooks/useWallet';
 import { useLanguage } from '../../../hooks/useLanguage';
@@ -33,6 +33,11 @@ export function WalletWelcomeScreen(): React.JSX.Element {
   const secondaryText = getSecondaryTextColor(themeMode);
   const dialogBg = theme.colors.surface;
   const safeBack = useMemo(() => createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/home'), []);
+
+  useFocusEffect(useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+    return () => subscription.remove();
+  }, [safeBack]));
 
   // State for Add Sub-Wallet modal
   const [showAddSubWalletModal, setShowAddSubWalletModal] = useState(false);

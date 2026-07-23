@@ -9,12 +9,13 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   Keyboard,
+  BackHandler,
 } from 'react-native';
 import { useKeyboardAwareScroll } from '../../../hooks/useKeyboardAwareScroll';
 import { Button, Text, ProgressBar } from 'react-native-paper';
 import { StyledTextInput, PinSetupKeypad } from '../../../components';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   validateMnemonicForImport,
@@ -40,6 +41,12 @@ type ImportStep = 'input' | 'pin';
 
 export function WalletImportScreen(): React.JSX.Element {
   const safeBack = useMemo(() => createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/home'), []);
+
+  useFocusEffect(useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+    return () => subscription.remove();
+  }, [safeBack]));
+
   const { importMasterKey, masterKeys } = useWallet();
   const { selectWallet } = useWalletAuth();
   const { themeMode } = useAppTheme();
