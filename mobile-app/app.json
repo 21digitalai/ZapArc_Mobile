@@ -17,7 +17,8 @@
       "bundleIdentifier": "com.zaparc.app",
       "appleTeamId": "JY93CF5N7U",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryAddUsageDescription": "Allow $(PRODUCT_NAME) to save QR code images to your photo library."
       },
       "googleServicesFile": "./ios/GoogleService-Info.plist"
     },

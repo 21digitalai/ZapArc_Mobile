@@ -10,6 +10,7 @@ jest.mock('expo-router', () => ({
 }));
 jest.mock('@react-navigation/native', () => ({ useIsFocused: jest.fn(() => true) }));
 jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn() }));
+jest.mock('expo-media-library', () => ({ requestPermissionsAsync: jest.fn(), saveToLibraryAsync: jest.fn() }));
 jest.mock('expo-sharing', () => ({ isAvailableAsync: jest.fn(), shareAsync: jest.fn() }));
 jest.mock('react-native-view-shot', () => ({ captureRef: jest.fn() }));
 jest.mock('expo-linear-gradient', () => ({ LinearGradient: 'LinearGradient' }));
@@ -49,6 +50,7 @@ describe('Receive QR Save buttons', () => {
     async (filenamePrefix) => {
       const capture = jest.fn().mockResolvedValue('file:///cache/qr.png');
       const saveAndroid = jest.fn().mockResolvedValue({ status: 'saved', fileName: `${filenamePrefix}-123.png` });
+      const saveIos = { requestPermissionsAsync: jest.fn(), saveToLibraryAsync: jest.fn() };
       const share = { isAvailableAsync: jest.fn(), shareAsync: jest.fn() };
       const showSuccess = jest.fn();
       const showError = jest.fn();
@@ -59,6 +61,7 @@ describe('Receive QR Save buttons', () => {
         platform: 'android',
         capture,
         saveAndroid,
+        saveIos,
         share,
         showSuccess,
         showError,
@@ -82,6 +85,7 @@ describe('Receive QR Save buttons', () => {
     const options = {
       cardRef: { current: {} as never }, filenamePrefix: 'zaparc-lightning-qr', platform: 'android',
       capture: jest.fn().mockResolvedValue('file:///cache/qr.png'), saveAndroid: jest.fn().mockRejectedValue(new Error('write failed')),
+      saveIos: { requestPermissionsAsync: jest.fn(), saveToLibraryAsync: jest.fn() },
       share: silent, showSuccess, showError,
     };
 
@@ -101,6 +105,70 @@ describe('Receive QR Save buttons', () => {
     expect(onShare).not.toHaveBeenCalled();
     fireEvent.press(screen.getByTestId(`share-qr-${filenamePrefix}`));
     expect(onShare).toHaveBeenCalledWith(cardRef, filenamePrefix);
+  });
+
+  it.each(['zaparc-lightning-qr', 'zaparc-onchain-qr'])('shows separate iOS Save and Share actions for %s', (filenamePrefix) => {
+    const onSave = jest.fn();
+    const onShare = jest.fn();
+    const cardRef = { current: null };
+    render(<ReceiveQrActions cardRef={cardRef} filenamePrefix={filenamePrefix} onSave={onSave} onShare={onShare} platform="ios" />);
+
+    fireEvent.press(screen.getByTestId(`save-qr-${filenamePrefix}`));
+    expect(onSave).toHaveBeenCalledWith(cardRef, filenamePrefix);
+    expect(onShare).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByTestId(`share-qr-${filenamePrefix}`));
+    expect(onShare).toHaveBeenCalledWith(cardRef, filenamePrefix);
+  });
+
+  it('saves directly to iOS Photos without opening the Share sheet', async () => {
+    const saveIos = {
+      requestPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
+      saveToLibraryAsync: jest.fn().mockResolvedValue(undefined),
+    };
+    const share = { isAvailableAsync: jest.fn(), shareAsync: jest.fn() };
+    const showSuccess = jest.fn();
+    const showError = jest.fn();
+
+    await saveReceiveQr({
+      cardRef: { current: {} as never },
+      filenamePrefix: 'zaparc-lightning-qr',
+      platform: 'ios',
+      capture: jest.fn().mockResolvedValue('file:///cache/qr.png'),
+      saveAndroid: jest.fn(),
+      saveIos,
+      share,
+      showSuccess,
+      showError,
+    });
+
+    expect(saveIos.requestPermissionsAsync).toHaveBeenCalledWith(true);
+    expect(saveIos.saveToLibraryAsync).toHaveBeenCalledWith('file:///cache/qr.png');
+    expect(showSuccess).toHaveBeenCalledWith('QR code saved to Photos');
+    expect(showError).not.toHaveBeenCalled();
+    expect(share.shareAsync).not.toHaveBeenCalled();
+  });
+
+  it('explains when iOS Photos add permission is denied', async () => {
+    const saveIos = {
+      requestPermissionsAsync: jest.fn().mockResolvedValue({ status: 'denied' }),
+      saveToLibraryAsync: jest.fn(),
+    };
+    const showError = jest.fn();
+
+    await saveReceiveQr({
+      cardRef: { current: {} as never },
+      filenamePrefix: 'zaparc-lightning-qr',
+      platform: 'ios',
+      capture: jest.fn().mockResolvedValue('file:///cache/qr.png'),
+      saveAndroid: jest.fn(),
+      saveIos,
+      share: { isAvailableAsync: jest.fn(), shareAsync: jest.fn() },
+      showSuccess: jest.fn(),
+      showError,
+    });
+
+    expect(saveIos.saveToLibraryAsync).not.toHaveBeenCalled();
+    expect(showError).toHaveBeenCalledWith('Allow photo access to save QR images.');
   });
 
   it('shares a PNG without writing a gallery copy and treats cancellation quietly', async () => {

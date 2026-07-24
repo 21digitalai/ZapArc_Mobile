@@ -6,6 +6,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
+import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import QRCode from 'react-native-qrcode-svg';
@@ -118,7 +119,7 @@ type ReceiveQrActionsProps = ReceiveQrSaveButtonProps & {
 };
 
 export function ReceiveQrActions({ cardRef, filenamePrefix, onSave, onShare, platform = Platform.OS }: ReceiveQrActionsProps) {
-  if (platform !== 'android') {
+  if (platform !== 'android' && platform !== 'ios') {
     return <ReceiveQrSaveButton cardRef={cardRef} filenamePrefix={filenamePrefix} onSave={onSave} />;
   }
 
@@ -129,7 +130,7 @@ export function ReceiveQrActions({ cardRef, filenamePrefix, onSave, onShare, pla
         onPress={() => onSave(cardRef, filenamePrefix)}
         compact
         icon="download"
-        accessibilityLabel="Save QR image to ZapArc gallery"
+        accessibilityLabel="Save QR image"
         style={styles.qrActionButton}
         contentStyle={styles.qrActionButtonContent}
         labelStyle={styles.qrActionButtonLabel}
@@ -160,13 +161,14 @@ type SaveReceiveQrOptions = {
   platform: string;
   capture: typeof captureRef;
   saveAndroid: typeof saveQrToAndroidGallery;
+  saveIos: Pick<typeof MediaLibrary, 'requestPermissionsAsync' | 'saveToLibraryAsync'>;
   share: typeof Sharing;
   showSuccess: (message: string) => void;
   showError: (message: string) => void;
 };
 
 export async function saveReceiveQr({
-  cardRef, filenamePrefix, platform, capture, saveAndroid, share, showSuccess, showError,
+  cardRef, filenamePrefix, platform, capture, saveAndroid, saveIos, share, showSuccess, showError,
 }: SaveReceiveQrOptions): Promise<void> {
   if (!cardRef.current) {
     showError('QR code not ready');
@@ -179,6 +181,17 @@ export async function saveReceiveQr({
     if (platform === 'android') {
       const result = await saveAndroid(tmpUri, fileName);
       if (result.status === 'saved') showSuccess(`QR code saved as ${result.fileName}`);
+      return;
+    }
+
+    if (platform === 'ios') {
+      const permission = await saveIos.requestPermissionsAsync(true);
+      if (permission.status !== 'granted') {
+        showError('Allow photo access to save QR images.');
+        return;
+      }
+      await saveIos.saveToLibraryAsync(tmpUri);
+      showSuccess('QR code saved to Photos');
       return;
     }
 
@@ -195,7 +208,7 @@ export async function saveReceiveQr({
 
 export async function shareReceiveQr({
   cardRef, filenamePrefix, capture, share, showError,
-}: Omit<SaveReceiveQrOptions, 'platform' | 'saveAndroid' | 'showSuccess'>): Promise<void> {
+}: Omit<SaveReceiveQrOptions, 'platform' | 'saveAndroid' | 'saveIos' | 'showSuccess'>): Promise<void> {
   if (!cardRef.current) {
     showError('QR code not ready');
     return;
@@ -811,8 +824,8 @@ export default function ReceiveScreen() {
   }, [activeTab, onchainAddress, refreshBalance, refreshTransactions, recordFailedClaim]);
 
   // Capture the whole branded QR card as a PNG. Android writes directly to
-  // the scoped MediaStore-backed ZapArc gallery album; iOS keeps its native
-  // Save to Files sheet.
+  // the scoped MediaStore-backed ZapArc gallery album; iOS uses add-only
+  // Photos permission so Save remains separate from the Share sheet.
   const handleSaveQR = useCallback(async (
     cardRef: React.RefObject<View | null>,
     filenamePrefix: string,
@@ -823,6 +836,7 @@ export default function ReceiveScreen() {
       platform: Platform.OS,
       capture: captureRef,
       saveAndroid: saveQrToAndroidGallery,
+      saveIos: MediaLibrary,
       share: Sharing,
       showSuccess,
       showError: (message) => Alert.alert(t('common.error'), message),
