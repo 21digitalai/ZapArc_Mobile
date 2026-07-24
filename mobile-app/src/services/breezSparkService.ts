@@ -63,6 +63,34 @@ export function extractSdkErrorMessage(error: unknown, fallback = 'Payment faile
 }
 
 /**
+ * Convert native/UniFFI SDK failures into copy that tells the payer what to
+ * do next. Keep the raw error extraction above for logs and service callers;
+ * this is the UI-safe layer used for payment preparation.
+ */
+export function getPaymentErrorMessage(error: unknown, fallback = 'Payment failed'): string {
+  const message = extractSdkErrorMessage(error, fallback);
+  const normalized = message.toLowerCase();
+
+  if (/expired|invoiceexpired|invoice_expired/.test(normalized)) {
+    return 'This Lightning invoice has expired. Ask the recipient for a new invoice, then try again.';
+  }
+  if (/invalid[ _-]?input|invalidinput/.test(normalized)) {
+    return 'We couldn’t read that destination. Make sure it’s a valid Lightning invoice, Lightning Address (name@domain), LNURL, or Bitcoin address.';
+  }
+  if (/already[ _-]?(paid|used)|payment.*exist/.test(normalized)) {
+    return 'This invoice may already be paid. Check with the recipient before trying again.';
+  }
+  if (/insufficient|not enough.*balance/.test(normalized)) {
+    return 'Your balance is not enough to cover this payment and its fee.';
+  }
+  if (/network request failed|failed to resolve|timeout|timed out/.test(normalized)) {
+    return 'Could not reach the payment provider. Check your connection and try again.';
+  }
+
+  return message === '[object Object]' ? fallback : message;
+}
+
+/**
  * Extract full debug details from an SDK error for logging/display.
  */
 function extractSdkErrorDetails(error: unknown): string {
@@ -2466,6 +2494,8 @@ export async function parsePaymentRequest(input: string): Promise<{
   tokenAmount?: number;
   description?: string;
   tokenIdentifier?: string;
+  /** Unix timestamp in milliseconds when a parsed BOLT11 invoice expires. */
+  expiresAt?: number;
 }> {
   const trimmed = input.trim();
   const trimmedLower = trimmed.toLowerCase();
@@ -2520,6 +2550,11 @@ export async function parsePaymentRequest(input: string): Promise<{
       const amountSat = invoiceDetails?.amountMsat
         ? Number(invoiceDetails.amountMsat) / 1000
         : decodeBolt11AmountSats(trimmed);
+      const timestamp = Number(invoiceDetails?.timestamp);
+      const expiry = Number(invoiceDetails?.expiry);
+      const expiresAt = Number.isFinite(timestamp) && timestamp > 0 && Number.isFinite(expiry) && expiry > 0
+        ? (timestamp + expiry) * 1000
+        : undefined;
 
       return {
         type: 'bolt11',
@@ -2527,6 +2562,7 @@ export async function parsePaymentRequest(input: string): Promise<{
         amountSat,
         description: invoiceDetails?.description,
         tokenIdentifier: invoiceDetails?.tokenIdentifier,
+        expiresAt,
       };
     }
 

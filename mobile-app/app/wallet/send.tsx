@@ -15,7 +15,7 @@ import {
 import { useAppTheme } from '../../src/contexts/ThemeContext';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { useWallet } from '../../src/hooks/useWallet';
-import { BreezSparkService } from '../../src/services/breezSparkService';
+import { BreezSparkService, getPaymentErrorMessage } from '../../src/services/breezSparkService';
 import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
 import { useCurrency } from '../../src/hooks/useCurrency';
 import { formatFiat, satsToFiat, usdbToFiat, fiatToUsdb } from '../../src/utils/currency';
@@ -906,6 +906,17 @@ export default function SendScreen() {
         return;
       }
 
+      // The SDK exposes BOLT11 timestamp + expiry metadata. Reject a confirmed
+      // stale invoice before preparing it, but retain paymentInput so the
+      // scanned/pasted value remains visible for retry or replacement.
+      if (parsedRequest.expiresAt !== undefined && parsedRequest.expiresAt <= Date.now()) {
+        Alert.alert(
+          t('send.paymentError'),
+          'This Lightning invoice has expired. Ask the recipient for a new invoice, then try again.'
+        );
+        return;
+      }
+
       if (isOnchainFlow && parsedRequest.type !== 'bitcoinAddress') {
         Alert.alert(t('send.invalidBitcoinAddress'), t('send.invalidOnchainAddress'));
         return;
@@ -1086,21 +1097,7 @@ export default function SendScreen() {
     } catch (error) {
       console.error('Failed to prepare payment:', error);
 
-      let errorMessage = error instanceof Error ? error.message : String(error);
-      // Try to extract from SDK error objects
-      if (errorMessage === '[object Object]' && typeof error === 'object' && error !== null) {
-        const e = error as Record<string, unknown>;
-        errorMessage = (e.message as string) || (e.variant as string) || JSON.stringify(error);
-      }
-
-      if (errorMessage.includes('Network request failed') || errorMessage.includes('Failed to resolve')) {
-        errorMessage = 'Could not reach the Lightning Address provider. Please check the address is correct (e.g., user@wallet.com).';
-      } else if (/invalid\s*input/i.test(errorMessage)) {
-        // The SDK's raw "InvalidInput" is meaningless to users. Map it to a
-        // clear, actionable message — this fires when the destination isn't a
-        // recognisable invoice / Lightning Address / LNURL / Bitcoin address.
-        errorMessage = 'We couldn’t read that destination. Make sure it’s a valid Lightning invoice, Lightning Address (name@domain), LNURL, or Bitcoin address.';
-      }
+      const errorMessage = getPaymentErrorMessage(error);
 
       Alert.alert(t('send.paymentError'), errorMessage);
       // Clear any stale prepare state from previous attempts

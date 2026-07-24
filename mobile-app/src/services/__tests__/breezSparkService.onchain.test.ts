@@ -17,6 +17,7 @@ jest.mock('../notificationTriggerService', () => ({
 }));
 
 const mockSendPayment = jest.fn();
+const mockParse = jest.fn();
 const mockAddEventListener = jest.fn().mockResolvedValue('listener-id');
 const mockRemoveEventListener = jest.fn().mockResolvedValue(undefined);
 
@@ -47,6 +48,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
   defaultConfig: jest.fn(() => ({})),
   connect: jest.fn().mockResolvedValue({
     sendPayment: (...args: unknown[]) => mockSendPayment(...args),
+    parse: (...args: unknown[]) => mockParse(...args),
     addEventListener: (...args: unknown[]) => mockAddEventListener(...args),
     removeEventListener: (...args: unknown[]) => mockRemoveEventListener(...args),
     disconnect: jest.fn().mockResolvedValue(undefined),
@@ -137,5 +139,43 @@ describe('BreezSparkService.sendPayment', () => {
     const result = await svc.sendPayment({});
 
     expect(result).toMatchObject(expected);
+  });
+});
+
+describe('BreezSparkService payment error copy', () => {
+  it('unwraps UniFFI enum errors and returns an actionable expiry message', () => {
+    const svc = require('../breezSparkService');
+
+    expect(svc.getPaymentErrorMessage({ variant: 'SparkError', inner: { message: 'InvoiceExpired' } }))
+      .toBe('This Lightning invoice has expired. Ask the recipient for a new invoice, then try again.');
+  });
+
+  it('maps raw native invalid-input enums without exposing SDK internals', () => {
+    const svc = require('../breezSparkService');
+
+    expect(svc.getPaymentErrorMessage({ variant: 'InvalidInput', code: 'bad_request' }))
+      .toContain('We couldn’t read that destination');
+  });
+});
+
+describe('BreezSparkService invoice metadata', () => {
+  it('exposes an absolute expiry time from parsed BOLT11 metadata', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockParse.mockResolvedValueOnce({
+      tag: 'Bolt11Invoice',
+      inner: {
+        amountMsat: 21000n,
+        description: 'stale test invoice',
+        timestamp: 1_700_000_000n,
+        expiry: 60n,
+      },
+    });
+
+    await expect(svc.parsePaymentRequest('lnbc1testinvoice')).resolves.toMatchObject({
+      type: 'bolt11',
+      amountSat: 21,
+      expiresAt: 1_700_000_060_000,
+    });
   });
 });
