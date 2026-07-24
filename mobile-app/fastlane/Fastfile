@@ -237,7 +237,7 @@ platform :ios do
     deliver(
       api_key: asc_key, app_identifier: ios_identifier, ipa: abs(ios_ipa_path),
       app_version: expo["version"],
-      skip_metadata: true, skip_screenshots: true, skip_binary_upload: false,
+      skip_metadata: true, skip_screenshots: true, skip_binary_upload: true,
       force: true, submit_for_review: true, precheck_include_in_app_purchases: false,
       submission_information: { add_id_info_uses_idfa: false },
     )
