@@ -83,12 +83,12 @@ function getPendingLabel(payments: PendingOutgoing[]): string {
 function PendingBalanceRow({
   payments,
   exitingPaymentId,
-  preserveWhilePending,
+  pendingToastPaymentId,
   onPress,
 }: {
   payments: PendingOutgoing[];
   exitingPaymentId: string | null;
-  preserveWhilePending: boolean;
+  pendingToastPaymentId: string | null;
   onPress: () => void;
 }): React.JSX.Element | null {
   const pendingLabel = getPendingLabel(payments);
@@ -158,14 +158,16 @@ function PendingBalanceRow({
     // A wallet refresh is authoritative even when the SDK's terminal event
     // was missed. Do not retain a stale aggregate row indefinitely just
     // because there is no toast handoff to identify the terminal result.
-    if (payments.length > 0 || exitingPaymentId || preserveWhilePending || !mounted) return;
+    const hasMatchingPendingToast = pendingToastPaymentId !== null
+      && lastSignatureRef.current.split('|').includes(pendingToastPaymentId);
+    if (payments.length > 0 || exitingPaymentId || hasMatchingPendingToast || !mounted) return;
     setInteractive(false);
     animate(0, () => {
       lastSignatureRef.current = '';
       lastVisibleLabelRef.current = null;
       setMounted(false);
     });
-  }, [animate, exitingPaymentId, mounted, payments.length, preserveWhilePending]);
+  }, [animate, exitingPaymentId, mounted, payments.length, pendingToastPaymentId]);
 
   if (!mounted) return null;
   const visibleLabel = payments.length > 0 ? pendingLabel : lastVisibleLabelRef.current ?? '⏳ Pending';
@@ -261,6 +263,7 @@ export function HomeScreen(): React.JSX.Element {
     subtitle?: string;
     trailing?: string;
     isPending?: boolean;
+    pendingPaymentId?: string;
     icon?: string;
     tone?: ToastTone;
     position?: 'top' | 'bottom';
@@ -278,7 +281,7 @@ export function HomeScreen(): React.JSX.Element {
     }
   }, []);
   const showToast = useCallback(
-    (next: { title: string; subtitle?: string; trailing?: string; icon?: string; tone?: ToastTone; position?: 'top' | 'bottom'; isPending?: boolean }) => {
+    (next: { title: string; subtitle?: string; trailing?: string; icon?: string; tone?: ToastTone; position?: 'top' | 'bottom'; isPending?: boolean; pendingPaymentId?: string }) => {
       clearPendingTerminalTimer();
       pendingToastRef.current = null;
       toastRevisionRef.current += 1;
@@ -493,6 +496,7 @@ export function HomeScreen(): React.JSX.Element {
         subtitle: pendingAmount ? `Payment pending with ${pendingAmount}` : (payment.description || 'Funds are temporarily reserved'),
         tone: 'warn',
         isPending: true,
+        pendingPaymentId: payment.id,
       });
       if (payment.id) {
         pendingToastRef.current = {
@@ -1170,7 +1174,7 @@ export function HomeScreen(): React.JSX.Element {
               <PendingBalanceRow
                 payments={pendingOutgoing}
                 exitingPaymentId={pendingRowExitingPaymentId}
-                preserveWhilePending={toast?.isPending === true}
+                pendingToastPaymentId={toast?.isPending === true ? toast.pendingPaymentId ?? null : null}
                 onPress={() => router.push('/wallet/history')}
               />
             )}
