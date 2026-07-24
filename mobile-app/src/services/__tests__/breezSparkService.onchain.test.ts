@@ -29,6 +29,14 @@ jest.mock('react-native-fs', () => ({
 }));
 
 jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
+  PaymentRequest: {
+    Input: {
+      new: ({ input }: { input: string }) => ({
+        tag: 'Input',
+        inner: { input },
+      }),
+    },
+  },
   Seed: {
     Mnemonic: function (params: unknown) {
       return params;
@@ -226,7 +234,7 @@ describe('BreezSparkService BOLT11 native compatibility', () => {
     expect(mockParse).not.toHaveBeenCalled();
   });
 
-  it('prepares BOLT11 directly when the native parse enum is incompatible', async () => {
+  it('prepares BOLT11 with the Breez 0.19 PaymentRequest enum shape', async () => {
     const svc = require('../breezSparkService');
     await svc.initializeSDK('test mnemonic words go here twelve words');
     mockPrepareSendPayment.mockResolvedValueOnce({ paymentMethod: { tag: 'Bolt11' } });
@@ -235,7 +243,10 @@ describe('BreezSparkService BOLT11 native compatibility', () => {
 
     expect(mockParse).not.toHaveBeenCalled();
     expect(mockPrepareSendPayment).toHaveBeenCalledWith({
-      paymentRequest: representativeBolt11,
+      paymentRequest: {
+        tag: 'Input',
+        inner: { input: representativeBolt11 },
+      },
       amount: 250n,
       tokenIdentifier: undefined,
     });

@@ -59,6 +59,14 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => {
   ToBitcoin.new = ({ fromTokenIdentifier }: { fromTokenIdentifier: string }) => ({ tag: 'ToBitcoin', fromTokenIdentifier });
 
   return {
+    PaymentRequest: {
+      Input: {
+        new: ({ input }: { input: string }) => ({
+          tag: 'Input',
+          inner: { input },
+        }),
+      },
+    },
     Seed: { Mnemonic: function (params: unknown) { return params; } },
     Network: { Mainnet: 'mainnet' },
     MaxFee: { NetworkRecommended: function (inner: unknown) { return { ...((inner as object) || {}) }; } },

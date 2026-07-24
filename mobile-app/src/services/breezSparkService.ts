@@ -320,6 +320,15 @@ const RNFS = require('react-native-fs');
 const _isNativeAvailable = true;
 console.log('✅ [BreezSparkService] Native SDK loaded successfully');
 
+/**
+ * Breez Spark 0.19 models payment destinations as a PaymentRequest enum.
+ * Passing a raw string (the pre-0.19 request shape) reaches UniFFI with no
+ * enum tag and throws UnexpectedEnumCase before the native call can run.
+ */
+function toSdkPaymentRequest(input: string): unknown {
+  return BreezSDK.PaymentRequest.Input.new({ input });
+}
+
 // =============================================================================
 // Service State
 // =============================================================================
@@ -848,7 +857,7 @@ export async function prepareSwap(params: PrepareSwapParams): Promise<SwapQuote>
     });
 
     preparedPayment = await sdkInstance.prepareSendPayment?.({
-      paymentRequest,
+      paymentRequest: toSdkPaymentRequest(paymentRequest),
       amount: amountForSdk,
       tokenIdentifier: params.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
       conversionOptions: {
@@ -989,7 +998,7 @@ export async function executeSwap(quote: SwapQuote): Promise<SwapOutcome> {
     //   FromBitcoin: top-level tokenIdentifier = destination token (USDB)
     //   ToBitcoin:   top-level tokenIdentifier = undefined
     const fresh = await sdkInstance.prepareSendPayment?.({
-      paymentRequest,
+      paymentRequest: toSdkPaymentRequest(paymentRequest),
       amount: storedAmount,
       tokenIdentifier: quote.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
       conversionOptions: {
@@ -1739,7 +1748,7 @@ export async function payInvoice(
 
   try {
     const prepareResponse = await sdkInstance.prepareSendPayment({
-      paymentRequest,
+      paymentRequest: toSdkPaymentRequest(paymentRequest),
       amount: _amountSat ? BigInt(_amountSat) : undefined,
     });
 
@@ -2811,7 +2820,9 @@ export async function prepareSendPayment(
   if (!parsedTag && isAtAddress) {
     if (__DEV__) console.log('🔗 [BreezSparkService] Manual LNURL-pay fallback');
     const bolt11 = await lightningAddressToBolt11(trimmed, amountSat || 0);
-    return await sdkInstance.prepareSendPayment({ paymentRequest: bolt11 });
+    return await sdkInstance.prepareSendPayment({
+      paymentRequest: toSdkPaymentRequest(bolt11),
+    });
   }
 
   // 3) Everything else (Bolt11 / Spark / Bitcoin / amountless invoices) →
@@ -2819,7 +2830,7 @@ export async function prepareSendPayment(
   //    clear error, which the caller maps to a friendly message.
   try {
     return await sdkInstance.prepareSendPayment({
-      paymentRequest: trimmed,
+      paymentRequest: toSdkPaymentRequest(trimmed),
       amount: amountSat ? BigInt(amountSat) : undefined,
       tokenIdentifier: options?.tokenIdentifier,
     });
