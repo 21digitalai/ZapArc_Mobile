@@ -15,7 +15,12 @@ import {
 import { useAppTheme } from '../../src/contexts/ThemeContext';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { useWallet } from '../../src/hooks/useWallet';
-import { BreezSparkService, getPaymentErrorMessage } from '../../src/services/breezSparkService';
+import {
+  BreezSparkService,
+  classifyInvoiceError,
+  getPaymentErrorMessage,
+  type InvoiceErrorKind,
+} from '../../src/services/breezSparkService';
 import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
 import { useCurrency } from '../../src/hooks/useCurrency';
 import { formatFiat, satsToFiat, usdbToFiat, fiatToUsdb } from '../../src/utils/currency';
@@ -214,6 +219,7 @@ export default function SendScreen() {
   const [prepareResponse, setPrepareResponse] = useState<any>(null);
   const [scanned, setScanned] = useState(false);
   const isGalleryScanningRef = useRef(false);
+  const lastInvoiceErrorAlertRef = useRef<{ kind: InvoiceErrorKind; at: number } | null>(null);
   const [onchainFeeQuotes, setOnchainFeeQuotes] = useState<
     | { fast: OnchainFeeQuote; medium: OnchainFeeQuote; slow: OnchainFeeQuote }
     | null
@@ -557,6 +563,36 @@ export default function SendScreen() {
     [activeAsset, tickerForTokenIdentifier],
   );
 
+  const showInvoiceError = useCallback((error: unknown): boolean => {
+    const kind = classifyInvoiceError(error);
+    if (!kind) return false;
+
+    // A camera/gallery scan and the debounced input parser can observe the
+    // same failure almost simultaneously. Show one alert, not two.
+    const now = Date.now();
+    const previous = lastInvoiceErrorAlertRef.current;
+    if (!previous || previous.kind !== kind || now - previous.at > 1000) {
+      lastInvoiceErrorAlertRef.current = { kind, at: now };
+      Alert.alert(
+        kind === 'expired' ? t('send.invoiceExpiredTitle') : t('send.invoiceUnreadableTitle'),
+        kind === 'expired' ? t('send.invoiceExpiredMessage') : t('send.invoiceUnreadableMessage'),
+      );
+    }
+
+    setPreview(null);
+    setPrepareResponse(null);
+    return true;
+  }, [t]);
+
+  const showParsedInvoiceExpiry = useCallback(
+    (parsed: { expiresAt?: number }): boolean => (
+      parsed.expiresAt !== undefined &&
+      parsed.expiresAt <= Date.now() &&
+      showInvoiceError(new Error('Invoice has expired'))
+    ),
+    [showInvoiceError],
+  );
+
   useEffect(() => {
     const trimmedInput = paymentInput.trim();
     if (!trimmedInput) return;
@@ -574,10 +610,15 @@ export default function SendScreen() {
           setPaymentInput(bip21.lightning);
           try {
             const parsed = await BreezSparkService.parsePaymentRequest(bip21.lightning);
+            if (showParsedInvoiceExpiry(parsed)) return;
             if (parsed.isValid) {
               applyParsedInvoice(parsed);
             }
-          } catch (e) { /* ignore */ }
+          } catch (error) {
+            if (!showInvoiceError(error)) {
+              console.error('Failed to parse lightning param from BIP21:', error);
+            }
+          }
           return;
         }
 
@@ -608,6 +649,7 @@ export default function SendScreen() {
       // payment field while on on-chain quietly did nothing.
       try {
         const parsed = await BreezSparkService.parsePaymentRequest(trimmedInput);
+        if (showParsedInvoiceExpiry(parsed)) return;
         if (!parsed.isValid) return;
 
         // Tab routing: only `bitcoinAddress` belongs on the on-chain tab.
@@ -628,6 +670,7 @@ export default function SendScreen() {
         }
         applyParsedInvoice(parsed);
       } catch (error) {
+        if (showInvoiceError(error)) return;
         if (trimmedInput.length > 10) {
           console.error('❌ [Send] Failed to parse payment request:', error);
         }
@@ -635,7 +678,7 @@ export default function SendScreen() {
     }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [paymentInput, activeTab, isUsdbAsset, isValidUsdbSparkPayment]);
+  }, [paymentInput, activeTab, isUsdbAsset, isValidUsdbSparkPayment, showInvoiceError, showParsedInvoiceExpiry]);
 
   // Auto-fetch on-chain fee quotes when address + amount are filled
   useEffect(() => {
@@ -774,8 +817,10 @@ export default function SendScreen() {
           setStep('input');
           try {
             const parsed = await BreezSparkService.parsePaymentRequest(bip21.lightning);
+            if (showParsedInvoiceExpiry(parsed)) return;
             if (parsed.isValid) applyParsedInvoice(parsed);
           } catch (error) {
+            if (showInvoiceError(error)) return;
             console.error('Failed to parse lightning param from BIP21:', error);
           }
           return;
@@ -803,8 +848,10 @@ export default function SendScreen() {
         setStep('input');
         try {
           const parsed = await BreezSparkService.parsePaymentRequest(bip21.address);
+          if (showParsedInvoiceExpiry(parsed)) return;
           if (parsed.isValid) applyParsedInvoice(parsed);
         } catch (error) {
+          if (showInvoiceError(error)) return;
           console.error('Failed to parse lightning URI:', error);
         }
         return;
@@ -819,6 +866,7 @@ export default function SendScreen() {
 
       try {
         const parsed = await BreezSparkService.parsePaymentRequest(data);
+        if (showParsedInvoiceExpiry(parsed)) return;
         if (!parsed.isValid) return;
 
         // Tab routing: only `bitcoinAddress` belongs on the on-chain tab.
@@ -833,10 +881,11 @@ export default function SendScreen() {
         setActiveTab('lightning');
         applyParsedInvoice(parsed);
       } catch (error) {
+        if (showInvoiceError(error)) return;
         console.error('Failed to parse scanned QR code:', error);
       }
     },
-    [scanned, applyParsedInvoice]
+    [scanned, applyParsedInvoice, showInvoiceError, showParsedInvoiceExpiry]
   );
 
   const handleScanFromGallery = useCallback(async () => {
@@ -911,9 +960,11 @@ export default function SendScreen() {
       // scanned/pasted value remains visible for retry or replacement.
       if (parsedRequest.expiresAt !== undefined && parsedRequest.expiresAt <= Date.now()) {
         Alert.alert(
-          t('send.paymentError'),
-          'This Lightning invoice has expired. Ask the recipient for a new invoice, then try again.'
+          t('send.invoiceExpiredTitle'),
+          t('send.invoiceExpiredMessage'),
         );
+        setPreview(null);
+        setPrepareResponse(null);
         return;
       }
 
@@ -1097,6 +1148,7 @@ export default function SendScreen() {
     } catch (error) {
       console.error('Failed to prepare payment:', error);
 
+      if (showInvoiceError(error)) return;
       const errorMessage = getPaymentErrorMessage(error);
 
       Alert.alert(t('send.paymentError'), errorMessage);
@@ -1106,7 +1158,7 @@ export default function SendScreen() {
     } finally {
       setIsPreparing(false);
     }
-  }, [paymentInput, amount, comment, balance, inputCurrency, convertToSats, getOnchainFeeQuote, selectedSpeed, activeTab, isUsdbAsset, usdbTokenIdentifier, isValidUsdbSparkPayment, t]);
+  }, [paymentInput, amount, comment, balance, inputCurrency, convertToSats, getOnchainFeeQuote, selectedSpeed, activeTab, isUsdbAsset, usdbTokenIdentifier, isValidUsdbSparkPayment, showInvoiceError, t]);
 
   const handleSendPayment = useCallback(async () => {
     if (!preview || !prepareResponse) {

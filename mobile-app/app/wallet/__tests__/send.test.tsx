@@ -144,6 +144,14 @@ jest.mock('../../../src/components', () => {
 });
 
 jest.mock('../../../src/services/breezSparkService', () => ({
+  classifyInvoiceError: (error: unknown) => {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    if (/invoice.*expired|expired.*invoice/.test(message)) return 'expired';
+    if (/raw enum value|match any cases|unexpected|unknown|invalid enum discriminator|variant index|uniffi/.test(message)) return 'unreadable';
+    return null;
+  },
+  getPaymentErrorMessage: (error: unknown) =>
+    error instanceof Error ? error.message : String(error),
   BreezSparkService: {
     parsePaymentRequest: (...args: unknown[]) => mockParsePaymentRequest(...args),
     prepareSendPayment: (...args: unknown[]) => mockPrepareSendPayment(...args),
@@ -296,6 +304,32 @@ describe('SendScreen on-chain flow', () => {
       expect(Alert.alert).toHaveBeenCalledWith('Payment Error', 'fee quote unavailable');
     });
   });
+
+  it('replaces native enum preparation errors with localized safe invoice copy', async () => {
+    mockParsePaymentRequest.mockResolvedValue({
+      type: 'bolt11',
+      isValid: true,
+      amountSat: 1000,
+    });
+    mockPrepareSendPayment.mockRejectedValueOnce(
+      new Error("Getting raw enum value doesn't match any cases"),
+    );
+
+    renderScreen();
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'lnbc1nativeenum');
+    fireEvent.press(screen.getByText('Preview Payment'));
+
+    await waitFor(() => {
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'Invoice cannot be read',
+        'This Lightning invoice may be expired or created in a format this version cannot read. Ask the sender for a new invoice and try again.',
+      );
+    });
+    expect(Alert.alert).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringMatching(/enum|uniffi|variant/i),
+    );
+  });
 });
 
 describe('SendScreen gallery scan', () => {
@@ -331,6 +365,55 @@ describe('SendScreen gallery scan', () => {
       expect(screen.getAllByTestId('destination-input')[0].props.value).toBe('lnbc1galleryinvoice');
     });
     expect(mockRequestCameraPermission).not.toHaveBeenCalled();
+  });
+
+  it('replaces raw enum failures with a friendly gallery-scan alert and preserves the invoice', async () => {
+    mockLaunchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///unreadable-invoice.png' }],
+    });
+    mockScanFromURLAsync.mockResolvedValue([{ data: 'lnbc1unreadableinvoice', type: 'qr' }]);
+    mockParsePaymentRequest.mockRejectedValue(
+      new Error("Getting raw enum value doesn't match any cases"),
+    );
+
+    renderScreen();
+    fireEvent.press(screen.getByText('Gallery Image'));
+
+    await waitFor(() => {
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'Invoice cannot be read',
+        expect.stringContaining('may be expired or created in a format'),
+      );
+      expect(screen.getAllByTestId('destination-input')[0].props.value)
+        .toBe('lnbc1unreadableinvoice');
+    });
+    expect(JSON.stringify((Alert.alert as jest.Mock).mock.calls)).not.toMatch(/enum|uniffi|variant/i);
+  });
+
+  it('rejects a confirmed expired gallery invoice and preserves it for replacement', async () => {
+    mockLaunchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///expired-invoice.png' }],
+    });
+    mockScanFromURLAsync.mockResolvedValue([{ data: 'lnbc1expiredinvoice', type: 'qr' }]);
+    mockParsePaymentRequest.mockResolvedValue({
+      isValid: true,
+      type: 'bolt11',
+      expiresAt: Date.now() - 1,
+    });
+
+    renderScreen();
+    fireEvent.press(screen.getByText('Gallery Image'));
+
+    await waitFor(() => {
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'Invoice expired',
+        expect.stringContaining('Ask the sender for a new invoice'),
+      );
+      expect(screen.getAllByTestId('destination-input')[0].props.value)
+        .toBe('lnbc1expiredinvoice');
+    });
   });
 
   it('reprocesses the same gallery image and replaces edited input', async () => {

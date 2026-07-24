@@ -71,8 +71,11 @@ export function getPaymentErrorMessage(error: unknown, fallback = 'Payment faile
   const message = extractSdkErrorMessage(error, fallback);
   const normalized = message.toLowerCase();
 
-  if (/expired|invoiceexpired|invoice_expired/.test(normalized)) {
+  if (classifyInvoiceError(error) === 'expired') {
     return 'This Lightning invoice has expired. Ask the recipient for a new invoice, then try again.';
+  }
+  if (classifyInvoiceError(error) === 'unreadable') {
+    return 'This Lightning invoice may be expired or created in a format this version cannot read. Ask the sender for a new invoice and try again.';
   }
   if (/invalid[ _-]?input|invalidinput/.test(normalized)) {
     return 'We couldn’t read that destination. Make sure it’s a valid Lightning invoice, Lightning Address (name@domain), LNURL, or Bitcoin address.';
@@ -88,6 +91,37 @@ export function getPaymentErrorMessage(error: unknown, fallback = 'Payment faile
   }
 
   return message === '[object Object]' ? fallback : message;
+}
+
+export type InvoiceErrorKind = 'expired' | 'unreadable';
+
+/**
+ * Classify only invoice-specific failures that need dedicated UI. Keep
+ * confirmed expiry separate from bridge/enum decoding failures: the latter
+ * can also mean an invoice variant this app version cannot deserialize.
+ */
+export function classifyInvoiceError(error: unknown): InvoiceErrorKind | null {
+  const normalized = extractSdkErrorMessage(error, '').toLowerCase();
+
+  if (
+    /invoice[ _-]?expired|invoice.{0,24}has expired|expired.{0,24}invoice/.test(normalized)
+  ) {
+    return 'expired';
+  }
+
+  if (
+    /raw enum value/.test(normalized) ||
+    /does(?: not|n't) match any cases/.test(normalized) ||
+    /(?:unexpected|unknown|invalid).{0,20}enum(?: value| discriminator)?/.test(normalized) ||
+    /enum.{0,20}(?:unexpected|unknown|invalid|discriminator)/.test(normalized) ||
+    /variant index/.test(normalized) ||
+    /bad[ _-]?variant[ _-]?access/.test(normalized) ||
+    /\buniffi\b/.test(normalized)
+  ) {
+    return 'unreadable';
+  }
+
+  return null;
 }
 
 /**

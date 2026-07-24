@@ -156,6 +156,30 @@ describe('BreezSparkService payment error copy', () => {
     expect(svc.getPaymentErrorMessage({ variant: 'InvalidInput', code: 'bad_request' }))
       .toContain('We couldn’t read that destination');
   });
+
+  it.each([
+    ["Getting raw enum value doesn't match any cases", 'unreadable'],
+    ['Unexpected enum value 9', 'unreadable'],
+    ['Unknown enum value 9', 'unreadable'],
+    ['Invalid enum discriminator: 9', 'unreadable'],
+    ['variant index 7 is out of range', 'unreadable'],
+    ['UniFFI failed to decode InputType', 'unreadable'],
+    ['Invoice has expired', 'expired'],
+  ])('classifies native invoice failure %s', (message, expected) => {
+    const svc = require('../breezSparkService');
+
+    expect(svc.classifyInvoiceError(new Error(message))).toBe(expected);
+  });
+
+  it('replaces a raw enum failure with cautious actionable copy', () => {
+    const svc = require('../breezSparkService');
+
+    const message = svc.getPaymentErrorMessage(
+      new Error("Getting raw enum value doesn't match any cases"),
+    );
+    expect(message).toContain('may be expired or created in a format');
+    expect(message).not.toMatch(/enum|uniffi|variant/i);
+  });
 });
 
 describe('BreezSparkService invoice metadata', () => {
