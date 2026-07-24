@@ -95,8 +95,6 @@ export function getPaymentErrorMessage(error: unknown, fallback = 'Payment faile
 
 export type InvoiceErrorKind = 'expired' | 'unreadable';
 
-const BREEZ_SDK_JS_VERSION = '0.19.0';
-
 function isBolt11Invoice(value: string): boolean {
   return /^(?:lightning:)?ln(?:bc|tb|bcrt)[0-9a-z]+$/i.test(value.trim());
 }
@@ -106,15 +104,12 @@ function isBolt11Invoice(value: string): boolean {
  * writing a payment request, its description, or any other payment data.
  */
 function logInvoiceDecodeDiagnostic(stage: 'parse' | 'prepare', input: string, error: unknown): void {
-  const message = extractSdkErrorMessage(error, 'unknown SDK error');
   console.warn('[BreezSparkService] Lightning invoice SDK diagnostic', {
     stage,
     inputKind: isBolt11Invoice(input) ? 'bolt11' : 'other',
     inputLength: input.length,
-    sdkJsVersion: BREEZ_SDK_JS_VERSION,
     invoiceErrorKind: classifyInvoiceError(error),
     errorName: error instanceof Error ? error.name : undefined,
-    errorMessage: message.slice(0, 180),
   });
 }
 
@@ -2591,11 +2586,10 @@ export async function parsePaymentRequest(input: string): Promise<{
     return { type: 'unknown', isValid: false };
   }
 
-  // Breez 0.19 returns a richer native InputType enum from parse(). A dev
-  // client built with an older native binding cannot decode an unfamiliar enum
-  // value, even for an otherwise ordinary BOLT11 invoice. BOLT11 is already
-  // structurally identifiable and needs no native parse before preparation.
-  // This keeps the invoice path usable while a matching native build rolls out.
+  // Some Breez Spark / UniFFI combinations cannot decode an InputType enum
+  // returned by native parse() for an otherwise ordinary BOLT11 invoice.
+  // BOLT11 is already structurally identifiable and needs no native parse
+  // before preparation, so this is a compatibility workaround.
   if (isBolt11Invoice(trimmed)) {
     return {
       type: 'bolt11',
