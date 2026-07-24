@@ -750,9 +750,15 @@ export default function SendScreen() {
   }, [permission, requestPermission]);
 
   const handleBarCodeScanned = useCallback(
-    async ({ data }: BarcodeScanningResult) => {
-      if (scanned) return;
+    async ({ data }: BarcodeScanningResult, allowRepeat = false) => {
+      // Camera scanning stays one-shot while its view is mounted, but a
+      // completed gallery pick is an explicit new user action. It must be
+      // processed every time, even when the user selects the same image.
+      if (scanned && !allowRepeat) return;
       setScanned(true);
+      setSelectedContact(null);
+      setAddressError(null);
+      setUsdbLightningError(null);
 
       // BIP21 URIs (`bitcoin:…?lightning=…`, `lightning:…`)
       const bip21 = parseBIP21(data);
@@ -843,7 +849,10 @@ export default function SendScreen() {
         Alert.alert('QR scan', result.kind === 'multiple' ? 'Please select an image with one QR code.' : 'No QR code found in that image.');
         return;
       }
-      await handleBarCodeScanned({ data: result.payload } as BarcodeScanningResult);
+      await handleBarCodeScanned(
+        { data: result.payload } as BarcodeScanningResult,
+        true,
+      );
     } catch {
       Alert.alert('QR scan', 'Could not read a QR code from that image.');
     } finally {
@@ -1625,6 +1634,7 @@ export default function SendScreen() {
                 contentStyle={styles.pasteInputContent}
               />
               <TouchableOpacity
+                testID="open-contact-picker"
                 style={styles.addressBookButton}
                 onPress={() => {
                   setContactModalVisible(true);

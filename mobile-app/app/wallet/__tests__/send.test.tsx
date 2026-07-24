@@ -51,6 +51,13 @@ const mockSendPayment = jest.fn();
 const mockLaunchImageLibraryAsync = jest.fn();
 const mockScanFromURLAsync = jest.fn();
 const mockRequestCameraPermission = jest.fn();
+const mockContacts = [{
+  id: 'contact-1',
+  name: 'Alice',
+  lightningAddress: 'alice@example.com',
+  createdAt: 1,
+  updatedAt: 1,
+}];
 
 const mockUseLocalSearchParams = jest.fn(() => ({}));
 
@@ -107,11 +114,20 @@ jest.mock('../../../src/hooks/useLightningAddress', () => ({
 }));
 
 jest.mock('../../../src/features/addressBook/hooks/useContacts', () => ({
-  useContacts: () => ({ contacts: [], refreshContacts: jest.fn() }),
+  useContacts: () => ({ contacts: mockContacts, refreshContacts: jest.fn() }),
 }));
 
 jest.mock('../../../src/features/addressBook/components/ContactSelectionModal', () => ({
-  ContactSelectionModal: () => null,
+  ContactSelectionModal: ({ visible, onSelect, contacts }: any) => {
+    if (!visible) return null;
+    const React = require('react');
+    const { Text, TouchableOpacity } = require('react-native');
+    return React.createElement(
+      TouchableOpacity,
+      { testID: 'select-first-contact', onPress: () => onSelect(contacts[0]) },
+      React.createElement(Text, null, 'Select first contact'),
+    );
+  },
 }));
 
 jest.mock('../../../src/components', () => {
@@ -315,6 +331,56 @@ describe('SendScreen gallery scan', () => {
       expect(screen.getAllByTestId('destination-input')[0].props.value).toBe('lnbc1galleryinvoice');
     });
     expect(mockRequestCameraPermission).not.toHaveBeenCalled();
+  });
+
+  it('reprocesses the same gallery image and replaces edited input', async () => {
+    mockLaunchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///same-gallery-qr.png' }],
+    });
+    mockScanFromURLAsync.mockResolvedValue([{ data: 'lnbc1repeatinvoice', type: 'qr' }]);
+    mockParsePaymentRequest.mockResolvedValue({ isValid: true, type: 'bolt11' });
+
+    renderScreen();
+    fireEvent.press(screen.getByText('Gallery Image'));
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('destination-input')[0].props.value).toBe('lnbc1repeatinvoice');
+    });
+
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'manually edited destination');
+    fireEvent.press(screen.getByText('Gallery Image'));
+
+    await waitFor(() => {
+      expect(mockScanFromURLAsync).toHaveBeenCalledTimes(2);
+      expect(mockParsePaymentRequest).toHaveBeenCalledWith('lnbc1repeatinvoice');
+      expect(screen.getAllByTestId('destination-input')[0].props.value).toBe('lnbc1repeatinvoice');
+    });
+  });
+
+  it('reprocesses the same gallery image and replaces a selected contact', async () => {
+    mockLaunchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///same-gallery-qr.png' }],
+    });
+    mockScanFromURLAsync.mockResolvedValue([{ data: 'lnbc1repeatinvoice', type: 'qr' }]);
+    mockParsePaymentRequest.mockResolvedValue({ isValid: true, type: 'bolt11' });
+
+    renderScreen();
+    fireEvent.press(screen.getByText('Gallery Image'));
+    await waitFor(() => expect(screen.getAllByTestId('destination-input')[0].props.value).toBe('lnbc1repeatinvoice'));
+
+    fireEvent.press(screen.getByTestId('open-contact-picker'));
+    fireEvent.press(screen.getByTestId('select-first-contact'));
+    expect(screen.getByText('Alice')).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Gallery Image'));
+
+    await waitFor(() => {
+      expect(mockScanFromURLAsync).toHaveBeenCalledTimes(2);
+      expect(screen.queryByText('Alice')).toBeNull();
+      expect(screen.getAllByTestId('destination-input')[0].props.value).toBe('lnbc1repeatinvoice');
+    });
   });
 
   it.each([
