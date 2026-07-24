@@ -2336,16 +2336,14 @@ export async function getPayment(paymentId: string): Promise<TransactionInfo | n
     if (response.payment) {
       const p = response.payment;
       // Properly convert BigInt to number for amounts
-      const amountSat = typeof p.amountSat === 'bigint'
-        ? Number(p.amountSat)
-        : p.amountSat;
-      const feeSat = p.feesSat
-        ? (typeof p.feesSat === 'bigint' ? Number(p.feesSat) : p.feesSat)
-        : 0;
+      const amountSat = typeof p.amount === 'bigint'
+        ? Number(p.amount)
+        : Number(p.amount);
+      const feeSat = typeof p.fees === 'bigint' ? Number(p.fees) : Number(p.fees || 0);
       // Convert timestamp from seconds to milliseconds
-      const timestamp = typeof p.createdAt === 'bigint'
-        ? Number(p.createdAt) * 1000
-        : p.createdAt * 1000;
+      const timestamp = typeof p.timestamp === 'bigint'
+        ? Number(p.timestamp) * 1000
+        : Number(p.timestamp) * 1000;
 
       return {
         id: p.id,

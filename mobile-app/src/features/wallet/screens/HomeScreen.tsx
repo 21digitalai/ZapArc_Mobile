@@ -83,10 +83,12 @@ function getPendingLabel(payments: PendingOutgoing[]): string {
 function PendingBalanceRow({
   payments,
   exitingPaymentId,
+  preserveWhilePending,
   onPress,
 }: {
   payments: PendingOutgoing[];
   exitingPaymentId: string | null;
+  preserveWhilePending: boolean;
   onPress: () => void;
 }): React.JSX.Element | null {
   const pendingLabel = getPendingLabel(payments);
@@ -151,6 +153,19 @@ function PendingBalanceRow({
       setMounted(false);
     });
   }, [animate, exitingPaymentId, mounted, payments]);
+
+  useEffect(() => {
+    // A wallet refresh is authoritative even when the SDK's terminal event
+    // was missed. Do not retain a stale aggregate row indefinitely just
+    // because there is no toast handoff to identify the terminal result.
+    if (payments.length > 0 || exitingPaymentId || preserveWhilePending || !mounted) return;
+    setInteractive(false);
+    animate(0, () => {
+      lastSignatureRef.current = '';
+      lastVisibleLabelRef.current = null;
+      setMounted(false);
+    });
+  }, [animate, exitingPaymentId, mounted, payments.length, preserveWhilePending]);
 
   if (!mounted) return null;
   const visibleLabel = payments.length > 0 ? pendingLabel : lastVisibleLabelRef.current ?? '⏳ Pending';
@@ -1155,6 +1170,7 @@ export function HomeScreen(): React.JSX.Element {
               <PendingBalanceRow
                 payments={pendingOutgoing}
                 exitingPaymentId={pendingRowExitingPaymentId}
+                preserveWhilePending={toast?.isPending === true}
                 onPress={() => router.push('/wallet/history')}
               />
             )}

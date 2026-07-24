@@ -197,6 +197,21 @@ describe('HomeScreen quick actions', () => {
     jest.useRealTimers();
   });
 
+  it('collapses a stale pending row after refresh removes it without a terminal event', async () => {
+    jest.useFakeTimers();
+    mockWalletTransactions = [{ id: 'missed-event', type: 'send', status: 'pending', amount: 10 }];
+    const view = render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByText('⏳ Pending • 10 sats')).toBeTruthy());
+    mockWalletTransactions = [];
+    view.rerender(<HomeScreen />);
+
+    expect(screen.getByText('⏳ Pending • 10 sats')).toBeTruthy();
+    await act(async () => { jest.advanceTimersByTime(220); });
+    expect(screen.queryByLabelText('Pending payment')).toBeNull();
+    jest.useRealTimers();
+  });
+
   it('collapses an authoritative pending row when its terminal event had no Pending toast', async () => {
     jest.useFakeTimers();
     mockWalletTransactions = [{ id: 'silent-pending', type: 'send', status: 'pending', amount: 42 }];

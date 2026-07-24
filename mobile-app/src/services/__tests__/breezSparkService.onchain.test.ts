@@ -21,6 +21,7 @@ const mockParse = jest.fn();
 const mockPrepareSendPayment = jest.fn();
 const mockAddEventListener = jest.fn().mockResolvedValue('listener-id');
 const mockRemoveEventListener = jest.fn().mockResolvedValue(undefined);
+const mockGetPayment = jest.fn();
 
 jest.mock('react-native-fs', () => ({
   DocumentDirectoryPath: '/tmp',
@@ -61,6 +62,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
     prepareSendPayment: (...args: unknown[]) => mockPrepareSendPayment(...args),
     addEventListener: (...args: unknown[]) => mockAddEventListener(...args),
     removeEventListener: (...args: unknown[]) => mockRemoveEventListener(...args),
+    getPayment: (...args: unknown[]) => mockGetPayment(...args),
     disconnect: jest.fn().mockResolvedValue(undefined),
     getLightningAddress: jest.fn().mockResolvedValue(null),
     getInfo: jest.fn().mockResolvedValue({ identityPubkey: undefined }),
@@ -149,6 +151,37 @@ describe('BreezSparkService.sendPayment', () => {
     const result = await svc.sendPayment({});
 
     expect(result).toMatchObject(expected);
+  });
+});
+
+describe('BreezSparkService.getPayment', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('maps Breez 0.19 payment amount, fees, and timestamp fields', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockGetPayment.mockResolvedValueOnce({
+      payment: {
+        id: 'payment-019',
+        paymentType: 'Send',
+        status: 'Succeeded',
+        amount: 1250n,
+        fees: 10n,
+        timestamp: 1720000000n,
+        details: undefined,
+      },
+    });
+
+    await expect(svc.getPayment('payment-019')).resolves.toMatchObject({
+      id: 'payment-019',
+      type: 'send',
+      status: 'completed',
+      amountSat: 1250,
+      feeSat: 10,
+      timestamp: 1720000000000,
+    });
   });
 });
 
