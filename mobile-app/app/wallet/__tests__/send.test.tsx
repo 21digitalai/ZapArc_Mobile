@@ -466,6 +466,60 @@ describe('SendScreen gallery scan', () => {
     });
   });
 
+  it('unlocks and clears an invoice-owned amount when the destination is edited', async () => {
+    mockLaunchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///fixed-invoice.png' }],
+    });
+    mockScanFromURLAsync.mockResolvedValue([{ data: 'lnbc1fixedinvoice', type: 'qr' }]);
+    mockParsePaymentRequest.mockResolvedValue({
+      isValid: true,
+      type: 'bolt11',
+      amountSat: 2500,
+    });
+
+    renderScreen();
+    fireEvent.press(screen.getByText('Gallery Image'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('amount-input').props.value).toBe('2500');
+      expect(screen.getByTestId('amount-input').props.editable).toBe(false);
+    });
+
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'alice@example.com');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('amount-input').props.value).toBe('');
+      expect(screen.getByTestId('amount-input').props.editable).toBe(true);
+    });
+  });
+
+  it('unlocks and clears an invoice-owned amount when a contact is selected', async () => {
+    mockLaunchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///fixed-invoice.png' }],
+    });
+    mockScanFromURLAsync.mockResolvedValue([{ data: 'lnbc1fixedinvoice', type: 'qr' }]);
+    mockParsePaymentRequest.mockResolvedValue({
+      isValid: true,
+      type: 'bolt11',
+      amountSat: 2500,
+    });
+
+    renderScreen();
+    fireEvent.press(screen.getByText('Gallery Image'));
+    await waitFor(() => expect(screen.getByTestId('amount-input').props.editable).toBe(false));
+
+    fireEvent.press(screen.getByTestId('open-contact-picker'));
+    fireEvent.press(screen.getByTestId('select-first-contact'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Alice')).toBeTruthy();
+      expect(screen.getByTestId('amount-input').props.value).toBe('');
+      expect(screen.getByTestId('amount-input').props.editable).toBe(true);
+    });
+  });
+
   it.each([
     ['no QR', [], 'No QR code found in that image.'],
     ['multiple QR codes', [{ data: 'one' }, { data: 'two' }], 'Please select an image with one QR code.'],

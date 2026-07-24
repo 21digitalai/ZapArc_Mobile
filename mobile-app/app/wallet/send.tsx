@@ -469,25 +469,43 @@ export default function SendScreen() {
 
   // (cycleCurrency removed — superseded by the bottom-sheet picker)
 
+  const clearDestinationDerivedState = useCallback(() => {
+    setPreview(null);
+    setPrepareResponse(null);
+    setOnchainFeeQuotes(null);
+    setAddressError(null);
+    setUsdbLightningError(null);
+
+    // A fixed invoice owns its amount. Once the user deliberately changes the
+    // destination, that amount no longer applies and must not keep the form
+    // locked. Preserve manually entered amounts for ordinary address edits.
+    if (amountLocked) {
+      setAmount('');
+      setAmountLocked(false);
+    }
+  }, [amountLocked]);
+
   const handleContactSelect = useCallback((contact: Contact) => {
+    clearDestinationDerivedState();
     setSelectedContact(contact);
     const destination = activeAsset === 'USDB' ? contact.sparkAddress : contact.lightningAddress;
     setPaymentInput(destination || '');
     setContactModalVisible(false);
-  }, [activeAsset]);
+  }, [activeAsset, clearDestinationDerivedState]);
 
   const handleClearContact = useCallback(() => {
+    clearDestinationDerivedState();
     setSelectedContact(null);
     setPaymentInput('');
-    setUsdbLightningError(null);
-  }, []);
+  }, [clearDestinationDerivedState]);
 
   const handlePaymentInputChange = useCallback((value: string) => {
-    setPaymentInput(value);
-    if (usdbLightningError) {
-      setUsdbLightningError(null);
+    if (value !== paymentInput) {
+      clearDestinationDerivedState();
+      setSelectedContact(null);
     }
-  }, [usdbLightningError]);
+    setPaymentInput(value);
+  }, [clearDestinationDerivedState, paymentInput]);
 
   const handleSwitchToBtc = useCallback(() => {
     setActiveAsset('BTC');
