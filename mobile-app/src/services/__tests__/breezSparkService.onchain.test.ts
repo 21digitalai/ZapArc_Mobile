@@ -18,6 +18,7 @@ jest.mock('../notificationTriggerService', () => ({
 
 const mockSendPayment = jest.fn();
 const mockParse = jest.fn();
+const mockPrepareSendPayment = jest.fn();
 const mockAddEventListener = jest.fn().mockResolvedValue('listener-id');
 const mockRemoveEventListener = jest.fn().mockResolvedValue(undefined);
 
@@ -49,6 +50,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
   connect: jest.fn().mockResolvedValue({
     sendPayment: (...args: unknown[]) => mockSendPayment(...args),
     parse: (...args: unknown[]) => mockParse(...args),
+    prepareSendPayment: (...args: unknown[]) => mockPrepareSendPayment(...args),
     addEventListener: (...args: unknown[]) => mockAddEventListener(...args),
     removeEventListener: (...args: unknown[]) => mockRemoveEventListener(...args),
     disconnect: jest.fn().mockResolvedValue(undefined),
@@ -196,10 +198,46 @@ describe('BreezSparkService invoice metadata', () => {
       },
     });
 
-    await expect(svc.parsePaymentRequest('lnbc1testinvoice')).resolves.toMatchObject({
+    await expect(svc.parsePaymentRequest('native-parse-fixture')).resolves.toMatchObject({
       type: 'bolt11',
       amountSat: 21,
       expiresAt: 1_700_000_060_000,
+    });
+  });
+});
+
+describe('BreezSparkService BOLT11 native compatibility', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  // Structurally representative only: this fixture is intentionally not a
+  // payable invoice and contains no secret or live payment data.
+  const representativeBolt11 = 'lnbc2500n1pzaparcfixture0qsp5fixtureonlynotapayableinvoice';
+
+  it('does not call native parse for a BOLT11 invoice', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+
+    await expect(svc.parsePaymentRequest(representativeBolt11)).resolves.toMatchObject({
+      type: 'bolt11',
+      isValid: true,
+    });
+    expect(mockParse).not.toHaveBeenCalled();
+  });
+
+  it('prepares BOLT11 directly when the native parse enum is incompatible', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockPrepareSendPayment.mockResolvedValueOnce({ paymentMethod: { tag: 'Bolt11' } });
+
+    await svc.prepareSendPayment(representativeBolt11, 250);
+
+    expect(mockParse).not.toHaveBeenCalled();
+    expect(mockPrepareSendPayment).toHaveBeenCalledWith({
+      paymentRequest: representativeBolt11,
+      amount: 250n,
+      tokenIdentifier: undefined,
     });
   });
 });

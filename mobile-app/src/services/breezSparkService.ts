@@ -95,6 +95,29 @@ export function getPaymentErrorMessage(error: unknown, fallback = 'Payment faile
 
 export type InvoiceErrorKind = 'expired' | 'unreadable';
 
+const BREEZ_SDK_JS_VERSION = '0.19.0';
+
+function isBolt11Invoice(value: string): boolean {
+  return /^(?:lightning:)?ln(?:bc|tb|bcrt)[0-9a-z]+$/i.test(value.trim());
+}
+
+/**
+ * Emit enough information to identify a bridge enum mismatch without ever
+ * writing a payment request, its description, or any other payment data.
+ */
+function logInvoiceDecodeDiagnostic(stage: 'parse' | 'prepare', input: string, error: unknown): void {
+  const message = extractSdkErrorMessage(error, 'unknown SDK error');
+  console.warn('[BreezSparkService] Lightning invoice SDK diagnostic', {
+    stage,
+    inputKind: isBolt11Invoice(input) ? 'bolt11' : 'other',
+    inputLength: input.length,
+    sdkJsVersion: BREEZ_SDK_JS_VERSION,
+    invoiceErrorKind: classifyInvoiceError(error),
+    errorName: error instanceof Error ? error.name : undefined,
+    errorMessage: message.slice(0, 180),
+  });
+}
+
 /**
  * Classify only invoice-specific failures that need dedicated UI. Keep
  * confirmed expiry separate from bridge/enum decoding failures: the latter
@@ -2568,6 +2591,19 @@ export async function parsePaymentRequest(input: string): Promise<{
     return { type: 'unknown', isValid: false };
   }
 
+  // Breez 0.19 returns a richer native InputType enum from parse(). A dev
+  // client built with an older native binding cannot decode an unfamiliar enum
+  // value, even for an otherwise ordinary BOLT11 invoice. BOLT11 is already
+  // structurally identifiable and needs no native parse before preparation.
+  // This keeps the invoice path usable while a matching native build rolls out.
+  if (isBolt11Invoice(trimmed)) {
+    return {
+      type: 'bolt11',
+      isValid: true,
+      amountSat: decodeBolt11AmountSats(trimmed),
+    };
+  }
+
   try {
     // Use SDK to parse for full details including amount
     const parsed = await sdkInstance.parse(trimmed);
@@ -2666,7 +2702,7 @@ export async function parsePaymentRequest(input: string): Promise<{
 
     return { type: 'unknown', isValid: false };
   } catch (error) {
-    console.error('Failed to parse payment request:', error);
+    logInvoiceDecodeDiagnostic('parse', trimmed, error);
     return { type: 'unknown', isValid: false };
   }
 }
@@ -2730,6 +2766,7 @@ export async function prepareSendPayment(
   const trimmed = paymentRequest.trim();
   const lower = trimmed.toLowerCase();
   const isAtAddress = trimmed.includes('@') && !lower.startsWith('lnbc');
+  const bolt11 = isBolt11Invoice(trimmed);
 
   // Let the SDK classify the input — it's the source of truth (Bolt11 invoice,
   // LNURL-pay, Lightning Address, Spark/Bitcoin address, …). Routing off the
@@ -2741,12 +2778,15 @@ export async function prepareSendPayment(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let parsedInner: any;
   try {
-    const parsed = await sdkInstance.parse(trimmed);
-    parsedTag = parsed?.tag;
-    parsedInner = Array.isArray(parsed?.inner) ? parsed.inner[0] : parsed?.inner;
-  } catch {
+    if (!bolt11) {
+      const parsed = await sdkInstance.parse(trimmed);
+      parsedTag = parsed?.tag;
+      parsedInner = Array.isArray(parsed?.inner) ? parsed.inner[0] : parsed?.inner;
+    }
+  } catch (error) {
     // parse() couldn't classify it (e.g. a Lightning Address whose LNURL
     // endpoint didn't resolve just now). We fall back to the manual path below.
+    logInvoiceDecodeDiagnostic('parse', trimmed, error);
     parsedTag = undefined;
   }
 
@@ -2783,11 +2823,16 @@ export async function prepareSendPayment(
   // 3) Everything else (Bolt11 / Spark / Bitcoin / amountless invoices) →
   //    prepare directly. If it's genuinely unrecognisable the SDK throws a
   //    clear error, which the caller maps to a friendly message.
-  return await sdkInstance.prepareSendPayment({
-    paymentRequest: trimmed,
-    amount: amountSat ? BigInt(amountSat) : undefined,
-    tokenIdentifier: options?.tokenIdentifier,
-  });
+  try {
+    return await sdkInstance.prepareSendPayment({
+      paymentRequest: trimmed,
+      amount: amountSat ? BigInt(amountSat) : undefined,
+      tokenIdentifier: options?.tokenIdentifier,
+    });
+  } catch (error) {
+    logInvoiceDecodeDiagnostic('prepare', trimmed, error);
+    throw error;
+  }
 }
 
 /**
