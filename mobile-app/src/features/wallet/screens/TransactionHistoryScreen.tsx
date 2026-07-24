@@ -333,6 +333,14 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                   onShowFull={setDetailPopover}
                 />
               )}
+              {tx.status === 'failed' && tx.failureReason && (
+                <DetailRow
+                  label={t('wallet.failureReason')}
+                  value={tx.failureReason}
+                  fullValue={tx.failureReason}
+                  onShowFull={setDetailPopover}
+                />
+              )}
               {tx.feeSats !== undefined && tx.feeSats > 0 && (
                 <DetailRow
                   label={t('wallet.fee')}

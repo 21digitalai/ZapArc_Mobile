@@ -1118,6 +1118,7 @@ export function useWalletStateInternal(): WalletState & WalletActions {
           description: p.description,
           method: p.method,
           txid: p.txid,
+          failureReason: p.failureReason,
           paymentType: p.paymentType,
           asset: p.asset,
           tokenIdentifier: p.tokenIdentifier,

@@ -1372,6 +1372,14 @@ export function HomeScreen(): React.JSX.Element {
               {tx.description && (
                 <DetailRow label={t('payments.description')} value={tx.description} />
               )}
+              {tx.status === 'failed' && tx.failureReason && (
+                <DetailRow
+                  label={t('wallet.failureReason')}
+                  value={tx.failureReason}
+                  copyable
+                  fullValue={tx.failureReason}
+                />
+              )}
               {tx.feeSats !== undefined && tx.feeSats > 0 && (
                 <DetailRow
                   label={t('wallet.fee')}

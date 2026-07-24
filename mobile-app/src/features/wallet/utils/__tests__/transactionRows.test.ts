@@ -31,4 +31,16 @@ describe('buildTransactionRows', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].isSwap).toBe(false);
   });
+
+  it('preserves an available provider failure reason for transaction details', () => {
+    const rows = buildTransactionRows([
+      base({
+        id: 'failed-send',
+        status: 'failed',
+        failureReason: 'Invoice expired',
+      }),
+    ], 'BTC');
+
+    expect(rows[0].transaction.failureReason).toBe('Invoice expired');
+  });
 });

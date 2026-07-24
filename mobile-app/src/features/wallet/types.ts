@@ -138,6 +138,8 @@ export interface Transaction {
   destination?: string;
   method?: 'lightning' | 'onchain';
   txid?: string;
+  /** Provider-supplied reason for a failed payment, when available. */
+  failureReason?: string;
   paymentType?: string;
   asset?: 'BTC' | 'USDB';
   tokenIdentifier?: string;
