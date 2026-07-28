@@ -30,6 +30,7 @@ import type {
   ActiveWalletInfo,
   Transaction,
 } from '../features/wallet/types';
+import { mergeOnchainClaimTransactions } from '../features/wallet/utils/onchainClaimTransactions';
 
 // =============================================================================
 // Types
@@ -1105,7 +1106,10 @@ export function useWalletStateInternal(): WalletState & WalletActions {
           return;
         }
 
-        const payments = await BreezSparkService.listPayments();
+        const [payments, deposits] = await Promise.all([
+          BreezSparkService.listPayments(),
+          BreezSparkService.listDeposits(),
+        ]);
 
         // Map TransactionInfo to Transaction type
         const txs: Transaction[] = payments.map((p) => ({
@@ -1118,6 +1122,7 @@ export function useWalletStateInternal(): WalletState & WalletActions {
           description: p.description,
           method: p.method,
           txid: p.txid,
+          onchainVout: p.onchainVout,
           failureReason: p.failureReason,
           paymentType: p.paymentType,
           asset: p.asset,
@@ -1125,23 +1130,28 @@ export function useWalletStateInternal(): WalletState & WalletActions {
           kind: p.kind,
           swap: p.swap,
         }));
+        const reconciledTransactions = mergeOnchainClaimTransactions(
+          txs,
+          deposits,
+          cached?.transactions ?? transactionsRef.current,
+        );
 
         if (activeWalletKeyRef.current !== walletKey) {
           return;
         }
 
-        setTransactions(txs);
+        setTransactions(reconciledTransactions);
         setIsRefreshing(false);
 
         // Update cache with fresh data
         await WalletCache.cacheTransactions(
           walletInfo.masterKeyId,
           walletInfo.subWalletIndex,
-          txs
+          reconciledTransactions
         );
 
         // Update activity flag
-        const hasActivity = txs.length > 0 || balanceRef.current > 0;
+        const hasActivity = reconciledTransactions.length > 0 || balanceRef.current > 0;
         storageService.updateSubWalletActivity(
           walletInfo.masterKeyId,
           walletInfo.subWalletIndex,

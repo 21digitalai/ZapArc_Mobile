@@ -138,6 +138,14 @@ export interface Transaction {
   destination?: string;
   method?: 'lightning' | 'onchain';
   txid?: string;
+  /** Output index for a Breez on-chain deposit, when available. */
+  onchainVout?: number;
+  /** Live state for a provisional deposit that has not become a Payment yet. */
+  onchainClaimState?: 'confirming' | 'claiming' | 'retrying' | 'too-small';
+  /** True only for the local row synthesized from listUnclaimedDeposits. */
+  isProvisionalClaim?: boolean;
+  /** Last SDK observation; used to bridge deposit→Payment reconciliation. */
+  claimLastSeenAt?: number;
   /** Provider-supplied reason for a failed payment, when available. */
   failureReason?: string;
   paymentType?: string;

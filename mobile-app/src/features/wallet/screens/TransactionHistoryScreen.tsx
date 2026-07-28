@@ -178,6 +178,15 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     const formattedAmount = formatTx(row.displayAmount ?? 0, isReceived, {
       asset: rowAsset,
     });
+    const claimStatusLabel = tx.onchainClaimState === 'confirming'
+      ? t('deposit.statusConfirming')
+      : tx.onchainClaimState === 'claiming'
+        ? t('deposit.statusClaiming')
+        : tx.onchainClaimState === 'retrying'
+          ? t('deposit.statusRetrying')
+          : tx.onchainClaimState === 'too-small'
+            ? t('deposit.statusTooSmall')
+            : null;
 
     return (
       <TouchableOpacity
@@ -200,9 +209,20 @@ export function TransactionHistoryScreen(): React.JSX.Element {
 
         <View style={styles.transactionInfo}>
           <Text style={[styles.transactionDescription, { color: primaryTextColor }]} numberOfLines={1}>
-            {row.displayDescription || tx.description || (isReceived ? t('wallet.receivedPayment') : t('wallet.sentPayment'))}
+            {row.displayDescription
+              || (tx.isProvisionalClaim ? t('deposit.onchainDeposit') : tx.description)
+              || (isReceived ? t('wallet.receivedPayment') : t('wallet.sentPayment'))}
           </Text>
           <Text style={[styles.transactionTime, { color: secondaryTextColor }]}>{formatTime(tx.timestamp)}</Text>
+          {(tx.status !== 'completed' || claimStatusLabel) && (
+            <Text style={[styles.transactionTime, { color: tx.status === 'failed' ? '#FF6B6B' : '#FBBF24' }]}>
+              {claimStatusLabel
+                ? `${tx.onchainClaimState === 'too-small' ? '⚠' : '⏳'} ${claimStatusLabel}`
+                : tx.status === 'failed'
+                  ? `✕ ${t('wallet.statusFailed')}`
+                  : `⏳ ${t('wallet.statusPending')}`}
+            </Text>
+          )}
         </View>
 
         <View style={styles.transactionAmountContainer}>
@@ -239,6 +259,15 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     const isReceived = tx.type === 'receive';
     const method = tx.method || (tx.txid ? 'onchain' : 'lightning');
     const date = new Date(tx.timestamp);
+    const claimStatusLabel = tx.onchainClaimState === 'confirming'
+      ? t('deposit.statusConfirming')
+      : tx.onchainClaimState === 'claiming'
+        ? t('deposit.statusClaiming')
+        : tx.onchainClaimState === 'retrying'
+          ? t('deposit.statusRetrying')
+          : tx.onchainClaimState === 'too-small'
+            ? t('deposit.statusTooSmall')
+            : null;
 
     return (
       <>
@@ -287,7 +316,9 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                 </Text>
               )}
               <Text style={styles.modalStatus}>
-                {tx.status === 'completed'
+                {claimStatusLabel
+                  ? `${tx.onchainClaimState === 'too-small' ? '\u26A0' : '\u23F3'} ${claimStatusLabel}`
+                  : tx.status === 'completed'
                   ? `\u2713 ${t('wallet.statusCompleted')}`
                   : tx.status === 'failed'
                     ? `✕ ${t('wallet.statusFailed')}`
@@ -333,9 +364,9 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                   onShowFull={setDetailPopover}
                 />
               )}
-              {tx.status === 'failed' && tx.failureReason && (
+              {tx.failureReason && (tx.status === 'failed' || !!claimStatusLabel) && (
                 <DetailRow
-                  label={t('wallet.failureReason')}
+                  label={claimStatusLabel ? t('deposit.statusDetails') : t('wallet.failureReason')}
                   value={tx.failureReason}
                   fullValue={tx.failureReason}
                   onShowFull={setDetailPopover}

@@ -24,6 +24,7 @@ const mockRemoveEventListener = jest.fn().mockResolvedValue(undefined);
 const mockGetPayment = jest.fn();
 const mockListUnclaimedDeposits = jest.fn();
 const mockClaimDeposit = jest.fn();
+const mockListPayments = jest.fn().mockResolvedValue({ payments: [] });
 
 jest.mock('react-native-fs', () => ({
   DocumentDirectoryPath: '/tmp',
@@ -67,6 +68,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
     getPayment: (...args: unknown[]) => mockGetPayment(...args),
     listUnclaimedDeposits: (...args: unknown[]) => mockListUnclaimedDeposits(...args),
     claimDeposit: (...args: unknown[]) => mockClaimDeposit(...args),
+    listPayments: (...args: unknown[]) => mockListPayments(...args),
     disconnect: jest.fn().mockResolvedValue(undefined),
     getLightningAddress: jest.fn().mockResolvedValue(null),
     getInfo: jest.fn().mockResolvedValue({ identityPubkey: undefined }),
@@ -300,6 +302,37 @@ describe('BreezSparkService deposit claim handling', () => {
       claimError: undefined,
       requiredFeeSats: undefined,
     }]);
+  });
+
+  it('preserves deposit vout on the completed Breez payment', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockListPayments.mockResolvedValueOnce({
+      payments: [{
+        id: 'completed-deposit',
+        paymentType: 'Receive',
+        method: 3,
+        amount: 24_200n,
+        fees: 800n,
+        status: 'Succeeded',
+        timestamp: 1_700_000_000n,
+        details: {
+          tag: 'Deposit',
+          inner: { txId: 'deposit-tx', vout: 1 },
+        },
+      }],
+    });
+
+    await expect(svc.listPayments()).resolves.toEqual([
+      expect.objectContaining({
+        id: 'completed-deposit',
+        type: 'receive',
+        method: 'onchain',
+        txid: 'deposit-tx',
+        onchainVout: 1,
+        status: 'completed',
+      }),
+    ]);
   });
 });
 

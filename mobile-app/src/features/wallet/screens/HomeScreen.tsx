@@ -865,6 +865,15 @@ export function HomeScreen(): React.JSX.Element {
       minute: '2-digit',
     });
     const formattedTx = formatTx(amount, isReceived, { asset: rowAsset });
+    const claimStatusLabel = tx.onchainClaimState === 'confirming'
+      ? t('deposit.statusConfirming')
+      : tx.onchainClaimState === 'claiming'
+        ? t('deposit.statusClaiming')
+        : tx.onchainClaimState === 'retrying'
+          ? t('deposit.statusRetrying')
+          : tx.onchainClaimState === 'too-small'
+            ? t('deposit.statusTooSmall')
+            : null;
 
     return (
       <TouchableOpacity
@@ -882,12 +891,18 @@ export function HomeScreen(): React.JSX.Element {
         </View>
         <View style={styles.transactionInfo}>
           <Text style={[styles.transactionDescription, { color: primaryTextColor }]} numberOfLines={1}>
-            {row.displayDescription || tx.description || (isReceived ? t('wallet.received') : t('wallet.sent'))}
+            {row.displayDescription
+              || (tx.isProvisionalClaim ? t('deposit.onchainDeposit') : tx.description)
+              || (isReceived ? t('wallet.received') : t('wallet.sent'))}
           </Text>
           <Text style={[styles.transactionDate, { color: secondaryTextColor }]}>{`${date} · ${time}`}</Text>
-          {tx.status !== 'completed' && (
+          {(tx.status !== 'completed' || claimStatusLabel) && (
             <Text style={[styles.transactionDate, { color: tx.status === 'failed' ? '#FF6B6B' : '#FBBF24' }]}>
-              {tx.status === 'failed' ? `✕ ${t('wallet.statusFailed')}` : `⏳ ${t('wallet.statusPending')}`}
+              {claimStatusLabel
+                ? `${tx.onchainClaimState === 'too-small' ? '⚠' : '⏳'} ${claimStatusLabel}`
+                : tx.status === 'failed'
+                  ? `✕ ${t('wallet.statusFailed')}`
+                  : `⏳ ${t('wallet.statusPending')}`}
             </Text>
           )}
         </View>
@@ -1320,6 +1335,15 @@ export function HomeScreen(): React.JSX.Element {
     const isReceived = tx.type === 'receive';
     const method = tx.method || (tx.txid ? 'onchain' : 'lightning');
     const date = new Date(tx.timestamp);
+    const claimStatusLabel = tx.onchainClaimState === 'confirming'
+      ? t('deposit.statusConfirming')
+      : tx.onchainClaimState === 'claiming'
+        ? t('deposit.statusClaiming')
+        : tx.onchainClaimState === 'retrying'
+          ? t('deposit.statusRetrying')
+          : tx.onchainClaimState === 'too-small'
+            ? t('deposit.statusTooSmall')
+            : null;
 
     return (
       <Modal
@@ -1364,13 +1388,17 @@ export function HomeScreen(): React.JSX.Element {
               <Text style={[
                 styles.modalStatus,
                 { color: secondaryTextColor },
-                (tx.status === 'completed' || (tx.status === 'pending' && method === 'onchain' && tx.txid)) && styles.statusCompleted,
-                (tx.status === 'pending' && !(method === 'onchain' && tx.txid)) && styles.statusPending,
+                (tx.status === 'completed' || (tx.status === 'pending' && method === 'onchain' && tx.txid && !claimStatusLabel)) && styles.statusCompleted,
+                (tx.status === 'pending' && (!(method === 'onchain' && tx.txid) || !!claimStatusLabel)) && styles.statusPending,
                 tx.status === 'failed' && styles.statusFailed,
               ]}>
-                {tx.status === 'failed' ? `\u2715 ${t('wallet.statusFailed')}` :
-                 (tx.status === 'pending' && !(method === 'onchain' && tx.txid)) ? `\u23F3 ${t('wallet.statusPending')}` :
-                 `\u2713 ${t('wallet.statusCompleted')}`}
+                {claimStatusLabel
+                  ? `${tx.onchainClaimState === 'too-small' ? '\u26A0' : '\u23F3'} ${claimStatusLabel}`
+                  : tx.status === 'failed'
+                    ? `\u2715 ${t('wallet.statusFailed')}`
+                    : (tx.status === 'pending' && !(method === 'onchain' && tx.txid))
+                      ? `\u23F3 ${t('wallet.statusPending')}`
+                      : `\u2713 ${t('wallet.statusCompleted')}`}
               </Text>
             </View>
 
@@ -1392,9 +1420,9 @@ export function HomeScreen(): React.JSX.Element {
               {tx.description && (
                 <DetailRow label={t('payments.description')} value={tx.description} />
               )}
-              {tx.status === 'failed' && tx.failureReason && (
+              {tx.failureReason && (tx.status === 'failed' || !!claimStatusLabel) && (
                 <DetailRow
-                  label={t('wallet.failureReason')}
+                  label={claimStatusLabel ? t('deposit.statusDetails') : t('wallet.failureReason')}
                   value={tx.failureReason}
                   copyable
                   fullValue={tx.failureReason}

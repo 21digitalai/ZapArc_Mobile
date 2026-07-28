@@ -302,6 +302,7 @@ export interface TransactionInfo {
   paymentRequest?: string;
   method?: 'lightning' | 'onchain';
   txid?: string;
+  onchainVout?: number;
   failureReason?: string;
   paymentType?: string;
   asset?: 'BTC' | 'USDB';
@@ -2310,6 +2311,13 @@ export async function listPayments(): Promise<TransactionInfo[]> {
       const method: 'lightning' | 'onchain' = isOnchain ? 'onchain' : 'lightning';
 
       const txid = payment.details?.inner?.txId || payment.details?.txId || payment.details?.txid || payment.txid;
+      const voutRaw =
+        payment.details?.inner?.vout
+        ?? payment.details?.vout
+        ?? payment.vout;
+      const onchainVout = voutRaw === undefined || voutRaw === null
+        ? undefined
+        : Number(voutRaw);
 
       const mappedStatus = mapPaymentStatus(payment.status);
       const failureReasonRaw =
@@ -2404,6 +2412,9 @@ export async function listPayments(): Promise<TransactionInfo[]> {
         description,
         method,
         txid: txid ? String(txid) : undefined,
+        onchainVout: Number.isInteger(onchainVout) && (onchainVout as number) >= 0
+          ? onchainVout
+          : undefined,
         failureReason,
         paymentType: normalizedPaymentType,
         asset,
