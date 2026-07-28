@@ -49,6 +49,11 @@ function isValidBitcoinAddress(address: string): boolean {
   return false;
 }
 
+function supportsRecipientComment(destination: string): boolean {
+  const trimmed = destination.trim().toLowerCase();
+  return trimmed.includes('@') || trimmed.startsWith('lnurl');
+}
+
 /**
  * Parse BIP21 bitcoin: URIs and lightning: URIs
  * Examples:
@@ -1589,6 +1594,8 @@ export default function SendScreen() {
   }
 
   const isLightningTab = activeTab === 'lightning';
+  const recipientCommentSupported = isLightningTab && !isUsdbAsset &&
+    (!paymentInput.trim() || supportsRecipientComment(paymentInput));
 
   return (
     <LinearGradient colors={gradientColors} style={styles.gradient}>
@@ -1803,18 +1810,24 @@ export default function SendScreen() {
                   to on-chain sends, where dust-limit + fee economics make
                   very small sends impractical for the receiving wallet. */}
 
-              <Text style={[styles.label, { color: primaryTextColor }]}>{t('send.commentLabel')}</Text>
+              {recipientCommentSupported ? (
+                <>
+                  <Text style={[styles.label, { color: primaryTextColor }]}>{t('send.commentLabel')}</Text>
 
-              <StyledTextInput
-                placeholder={t('send.paymentDescriptionPlaceholder')}
-                value={comment}
-                onChangeText={setComment}
-                onFocus={scrollFieldIntoView}
-                inputAccessoryViewID={kbAccessoryId}
-                returnKeyType="done"
-                onSubmitEditing={() => Keyboard.dismiss()}
-                style={styles.input}
-              />
+                  <StyledTextInput
+                    placeholder={t('send.paymentDescriptionPlaceholder')}
+                    value={comment}
+                    onChangeText={setComment}
+                    onFocus={scrollFieldIntoView}
+                    inputAccessoryViewID={kbAccessoryId}
+                    returnKeyType="done"
+                    onSubmitEditing={() => Keyboard.dismiss()}
+                    style={styles.input}
+                  />
+                </>
+              ) : (
+                <Text testID="recipient-comment-unsupported" style={[styles.conversionFiat, { marginTop: 8 }]}>{t('send.recipientCommentUnsupported')}</Text>
+              )}
             </>
           ) : (
             <>

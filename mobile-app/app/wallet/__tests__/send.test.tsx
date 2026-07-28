@@ -244,11 +244,11 @@ describe('SendScreen on-chain flow', () => {
   });
 
   it('labels the entered preview value as Comment, not Description', async () => {
-    mockParsePaymentRequest.mockResolvedValue({ type: 'bolt11', isValid: true });
+    mockParsePaymentRequest.mockResolvedValue({ type: 'lightningAddress', isValid: true });
     mockPrepareSendPayment.mockResolvedValue({ paymentMethod: { tag: 'Bolt11' } });
     renderScreen();
 
-    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'lnbc1commentpreview');
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'alice@example.com');
     fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
     fireEvent.changeText(screen.getByPlaceholderText('Add a comment'), 'Lunch reimbursement');
     fireEvent.press(screen.getByText('Preview Payment'));
@@ -346,6 +346,25 @@ describe('SendScreen on-chain flow', () => {
       expect.anything(),
       expect.stringMatching(/enum|uniffi|variant/i),
     );
+  });
+});
+
+describe('SendScreen recipient comments', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUseLocalSearchParams.mockReturnValue({});
+  });
+
+  afterEach(cleanup);
+
+  it('does not present a recipient Comment input for a raw BOLT11 destination', async () => {
+    renderScreen();
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'lnbc1rawinvoice');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('recipient-comment-unsupported')).toBeTruthy();
+    });
+    expect(screen.queryByPlaceholderText('Add a comment')).toBeNull();
   });
 });
 

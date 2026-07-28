@@ -2580,9 +2580,17 @@ export async function getSparkAddress(): Promise<string> {
 export async function payLightningAddress(
   address: string,
   amountSat: number,
-  _comment?: string
+  comment?: string
 ): Promise<PaymentResult> {
-  return await payInvoice(address, amountSat);
+  try {
+    const prepareResponse = await prepareSendPayment(address, amountSat, { comment });
+    return await sendPayment(prepareResponse, address, amountSat);
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Lightning Address payment failed',
+    };
+  }
 }
 
 // =============================================================================
