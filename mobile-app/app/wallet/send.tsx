@@ -37,6 +37,7 @@ import { contactDisplayName } from '../../src/features/addressBook/utils/contact
 import { t } from '../../src/services/i18nService';
 import { createSafeBackHandler } from '../../src/features/wallet/utils/safeBack';
 import { pickSingleGalleryQr } from '../../src/features/wallet/utils/galleryQr';
+import { savePaymentComment } from '../../src/features/wallet/utils/paymentComment';
 
 function isValidBitcoinAddress(address: string): boolean {
   // Bech32 (native segwit): bc1q... or bc1p... (taproot)
@@ -176,7 +177,7 @@ export default function SendScreen() {
   const primaryTextColor = getPrimaryTextColor(themeMode);
   const secondaryTextColor = getSecondaryTextColor(themeMode);
 
-  const { balance, refreshBalance, refreshTransactions, getBalanceForAsset } = useWallet();
+  const { balance, refreshBalance, refreshTransactions, getBalanceForAsset, activeWalletInfo } = useWallet();
   const {
     displayCurrency,
     setDisplayCurrency,
@@ -1158,7 +1159,7 @@ export default function SendScreen() {
         amount: paymentAmount,
         fee: feeAmount,
         total: totalAmount,
-        description: parsedRequest.description || comment || undefined,
+        description: comment.trim() || undefined,
       };
 
       setPreview(paymentPreview);
@@ -1202,7 +1203,7 @@ export default function SendScreen() {
       if (result.success) {
         if (result.paymentId && comment.trim()) {
           try {
-            await AsyncStorage.setItem(`payment_note_${result.paymentId}`, comment.trim());
+            await savePaymentComment(activeWalletInfo, result.paymentId, comment);
           } catch {
             // Non-critical — ignore storage errors
           }
@@ -1549,7 +1550,7 @@ export default function SendScreen() {
 
               {preview.description && (
                 <View style={styles.previewRow}>
-                  <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>{t('payments.description')}:</Text>
+                  <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>{t('wallet.comment')}:</Text>
                   <Text style={[styles.previewValue, { color: primaryTextColor }]}>{preview.description}</Text>
                 </View>
               )}

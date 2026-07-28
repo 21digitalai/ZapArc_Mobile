@@ -40,6 +40,7 @@ import { AssetPickerSheet } from '../components/AssetPickerSheet';
 import { getAssetMeta } from '../registry/assetRegistry';
 import type { Transaction } from '../types';
 import { buildTransactionRows, type TransactionRow } from '../utils/transactionRows';
+import { loadPaymentComment, shouldShowPaymentComment } from '../utils/paymentComment';
 import {
   enableNotificationsIfNeeded,
   getActiveSecurityReminder,
@@ -252,6 +253,7 @@ export function HomeScreen(): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false);
   const [showBalance, setShowBalance] = useState(true);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [selectedTxComment, setSelectedTxComment] = useState<string | null>(null);
   // When the tapped row is a swap pair, keep both sides so the detail modal
   // can show "paid X sats, received Y USDB" rather than just one leg.
   const [selectedSwapRow, setSelectedSwapRow] = useState<import('../utils/transactionRows').TransactionRow | null>(null);
@@ -303,6 +305,16 @@ export function HomeScreen(): React.JSX.Element {
   const [pendingRowExitingPaymentId, setPendingRowExitingPaymentId] = useState<string | null>(null);
 
   useEffect(() => () => clearPendingTerminalTimer(), [clearPendingTerminalTimer]);
+
+  useEffect(() => {
+    if (!selectedTransaction?.id) {
+      setSelectedTxComment(null);
+      return;
+    }
+    loadPaymentComment(activeWalletInfo, selectedTransaction.id)
+      .then(setSelectedTxComment)
+      .catch(() => setSelectedTxComment(null));
+  }, [selectedTransaction, activeWalletInfo]);
 
   const displayBalance = getBalanceForAsset(activeAsset);
   const displayTransactions = getTransactionsForAsset(activeAsset);
@@ -1429,6 +1441,9 @@ export function HomeScreen(): React.JSX.Element {
               <DetailRow label={t('wallet.time')} value={formatTime(tx.timestamp)} />
               {tx.description && (
                 <DetailRow label={t('payments.description')} value={tx.description} />
+              )}
+              {shouldShowPaymentComment(tx.description, selectedTxComment) && (
+                <DetailRow label={t('wallet.comment')} value={selectedTxComment || ''} />
               )}
               {tx.failureReason && (tx.status === 'failed' || !!claimStatusLabel) && (
                 <DetailRow

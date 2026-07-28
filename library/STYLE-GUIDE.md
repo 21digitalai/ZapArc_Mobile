@@ -119,8 +119,8 @@
 ### Transaction detail custom note row
 
 `src/features/wallet/screens/TransactionHistoryScreen.tsx`
-- Sender-authored comments saved after send are loaded from `AsyncStorage` with the `payment_note_<paymentId>` key when a transaction detail modal opens.
-- Transaction detail modals must render invoice `Description` and user `Note` as separate rows when both exist.
+- Sender-authored comments use a wallet-scoped `payment_comment_<masterKeyId>_<subWalletIndex>_<paymentId>` key, so a refreshed SDK payment resolves only its own wallet's comment.
+- Transaction detail modals must render provider `Description` and user `Comment` as separate rows when both exist; suppress the Comment row only when it duplicates Description.
 
 ### Pending outgoing payment treatment
 

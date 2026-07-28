@@ -28,6 +28,7 @@ import { useCurrency } from '../../../hooks/useCurrency';
 import type { Transaction } from '../types';
 import { buildTransactionRows, type TransactionRow, type WalletAsset } from '../utils/transactionRows';
 import { createSafeBackHandler } from '../utils/safeBack';
+import { loadPaymentComment, shouldShowPaymentComment } from '../utils/paymentComment';
 
 // =============================================================================
 // Types
@@ -49,7 +50,7 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
     return () => subscription.remove();
   }, [safeBack]));
-  const { transactions, refreshTransactions, isLoading } = useWallet();
+  const { transactions, refreshTransactions, isLoading, activeWalletInfo } = useWallet();
   const { t } = useLanguage();
   const { formatTx, refreshSettings } = useCurrency();
 
@@ -87,13 +88,13 @@ export function TransactionHistoryScreen(): React.JSX.Element {
       return;
     }
     const id = selectedTransaction.id;
-    AsyncStorage.getItem(`payment_note_${id}`)
+    loadPaymentComment(activeWalletInfo, id)
       .then((note) => setSelectedTxNote(note))
       .catch(() => setSelectedTxNote(null));
     AsyncStorage.getItem(`payment_recipient_${id}`)
       .then((r) => setSelectedTxRecipient(r))
       .catch(() => setSelectedTxRecipient(null));
-  }, [selectedTransaction]);
+  }, [selectedTransaction, activeWalletInfo]);
 
   // Dismiss the popover whenever the detail modal closes.
   useEffect(() => {
@@ -367,10 +368,10 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                   onShowFull={setDetailPopover}
                 />
               )}
-              {selectedTxNote && (
+              {shouldShowPaymentComment(tx.description, selectedTxNote) && (
                 <DetailRow
-                  label={t('wallet.yourMessage')}
-                  value={selectedTxNote}
+                  label={t('wallet.comment')}
+                  value={selectedTxNote || ''}
                   onShowFull={setDetailPopover}
                 />
               )}
