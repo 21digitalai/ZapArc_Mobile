@@ -24,42 +24,141 @@ import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
 export function extractSdkErrorMessage(error: unknown, fallback = 'Payment failed'): string {
   if (!error) return fallback;
 
-  // Standard Error
-  if (error instanceof Error) {
-    return error.message || fallback;
-  }
-
-  // SDK error objects with various shapes
-  if (typeof error === 'object') {
-    const e = error as Record<string, unknown>;
-
-    // Try common properties
-    const message = e.message || e.msg || e.description;
-    if (typeof message === 'string' && message.length > 0) return message;
-
-    // uniffi enum errors: { variant: 'SparkError', inner: { message: '...' } }
-    if (e.inner && typeof e.inner === 'object') {
-      const inner = e.inner as Record<string, unknown>;
-      if (typeof inner.message === 'string') {
-        const variant = typeof e.variant === 'string' ? `${e.variant}: ` : '';
-        return `${variant}${inner.message}`;
-      }
-    }
-
-    // { variant: 'SparkError' } without inner
-    if (typeof e.variant === 'string') {
-      const code = typeof e.code === 'string' ? ` (${e.code})` : '';
-      return `${e.variant}${code}`;
-    }
-
-    // toString fallback
-    const str = String(error);
-    if (str !== '[object Object]') return str;
-  }
-
   if (typeof error === 'string') return error;
 
-  return fallback;
+  if (typeof error !== 'object') return fallback;
+
+  const seen = new Set<object>();
+  const readMessage = (value: unknown, depth = 0): string | null => {
+    if (typeof value === 'string') return value.trim() || null;
+    if (!value || typeof value !== 'object' || depth > 5 || seen.has(value)) return null;
+    seen.add(value);
+
+    const candidate = value as Record<string, unknown>;
+    const direct = [candidate.message, candidate.msg, candidate.description]
+      .find((item): item is string => typeof item === 'string' && item.trim().length > 0);
+    const inner = candidate.inner;
+    let nested: string | null = null;
+    if (Array.isArray(inner)) {
+      for (const item of inner) {
+        nested = readMessage(item, depth + 1);
+        if (nested) break;
+      }
+    } else {
+      nested = readMessage(inner, depth + 1);
+    }
+
+    // UniFFI errors extend Error, but their Error.message is often only the
+    // wrapper (for example "SdkError.SparkError"). Prefer the useful payload
+    // stored in `inner`, including the tuple-shaped `inner: [string]` used by
+    // Breez Spark 0.19.
+    const wrapperOnly = !!direct && /^(?:sdk|depositclaim)?error[.: _-]|sparkerror$/i.test(direct);
+    if (nested && (!direct || wrapperOnly)) return nested;
+    if (direct) return direct;
+    if (nested) return nested;
+
+    const tag = candidate.tag ?? candidate.variant;
+    if (typeof tag === 'string' && tag.length > 0) {
+      const code = typeof candidate.code === 'string' ? ` (${candidate.code})` : '';
+      return `${tag}${code}`;
+    }
+
+    const rendered = String(value);
+    return rendered !== '[object Object]' ? rendered : null;
+  };
+
+  return readMessage(error) || fallback;
+}
+
+export type DepositClaimErrorInfo =
+  | { terminal: true; status: 'too-small'; message: string }
+  | { terminal: false; status: 'retrying'; message: string };
+
+function getSdkErrorTag(error: unknown): string {
+  if (!error || typeof error !== 'object') return '';
+  const candidate = error as Record<string, unknown>;
+  const tag = candidate.tag ?? candidate.variant;
+  return typeof tag === 'string' ? tag : '';
+}
+
+function getRequiredClaimFeeSats(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const candidate = error as Record<string, unknown>;
+  const inner = candidate.inner;
+  const innerObject = inner && typeof inner === 'object' && !Array.isArray(inner)
+    ? inner as Record<string, unknown>
+    : undefined;
+  const raw = innerObject?.requiredFeeSats ?? candidate.requiredFeeSats;
+  if (raw === undefined || raw === null) return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/**
+ * Classify a failed on-chain claim without turning temporary chain/Spark
+ * conditions into a terminal loss state. Unknown SDK failures intentionally
+ * remain retryable: an unclaimed deposit stays discoverable by the SDK and a
+ * later sync/claim attempt can recover it.
+ */
+export function getDepositClaimErrorInfo(
+  error: unknown,
+  amountSats?: number,
+): DepositClaimErrorInfo {
+  const rawMessage = extractSdkErrorMessage(error, 'Claim temporarily unavailable');
+  const normalized = `${getSdkErrorTag(error)} ${rawMessage}`.toLowerCase();
+  const requiredFeeSats = getRequiredClaimFeeSats(error);
+  const isFeeError = /maxdepositclaimfeeexceeded|max.*claim.*fee|fee.*exceed/.test(normalized);
+  const isUneconomical = /dust|less than.*(?:fee|minimum)|amount.*too small|below.*minimum/.test(normalized)
+    || (requiredFeeSats !== undefined
+      && amountSats !== undefined
+      && amountSats <= requiredFeeSats + 546);
+
+  if (isUneconomical) {
+    const feeDetail = requiredFeeSats !== undefined
+      ? ` The current claim fee is ${requiredFeeSats.toLocaleString()} sats.`
+      : '';
+    return {
+      terminal: true,
+      status: 'too-small',
+      message: `This deposit is too small to claim economically.${feeDetail}`,
+    };
+  }
+
+  if (isFeeError) {
+    const feeDetail = requiredFeeSats !== undefined
+      ? ` (currently ${requiredFeeSats.toLocaleString()} sats)`
+      : '';
+    return {
+      terminal: false,
+      status: 'retrying',
+      message: `Waiting for a lower Bitcoin network fee${feeDetail}. ZapArc will retry automatically.`,
+    };
+  }
+
+  if (/missingutxo|missing utxo|not.*mature|confirm|not found.*utxo/.test(normalized)) {
+    return {
+      terminal: false,
+      status: 'retrying',
+      message: 'Waiting for Bitcoin network confirmations. ZapArc will retry automatically.',
+    };
+  }
+
+  if (/network|timeout|timed out|temporar|unavailable|connection/.test(normalized)) {
+    return {
+      terminal: false,
+      status: 'retrying',
+      message: 'The claim service is temporarily unavailable. Your deposit is safe and ZapArc will retry automatically.',
+    };
+  }
+
+  const detail = rawMessage && !/^(?:sdkerror[.: _-]?)?sparkerror$/i.test(rawMessage)
+    ? ` (${rawMessage})`
+    : '';
+  return {
+    terminal: false,
+    status: 'retrying',
+    message: `Claim pending${detail}. Your deposit is safe and ZapArc will retry automatically.`,
+  };
 }
 
 /**
@@ -225,6 +324,8 @@ export interface DepositInfo {
   txid: string;
   vout: number;
   amountSats: number;
+  /** False until the deposit UTXO has enough Bitcoin confirmations to claim. */
+  isMature: boolean;
   claimError?: unknown;
   /** When the claim failed because the fee exceeds the deposit, the exact
    *  fee the SDK said was required (sats). Lets the UI show a precise
@@ -1587,23 +1688,27 @@ async function setupEventListeners(): Promise<void> {
             eventTag === 'claimDepositsFailed' ||
             eventTag === 'ClaimDepositsFailed'
           ) {
-            const unclaimedDeposits = (
-              evt?.inner?.unclaimedDeposits ||
-              (event as Record<string, unknown>)?.unclaimedDeposits ||
-              []
-            ) as Array<Record<string, unknown>>;
-
-            for (const dep of unclaimedDeposits) {
-              const txid = String(dep?.txid || '');
-              const vout = Number(dep?.vout || 0);
-              if (!txid) continue;
-
+            // A failed event is not a terminal outcome. Do not immediately
+            // call claimDeposit from inside its own failure callback (that can
+            // create a tight failure loop). Notify listeners so the receive
+            // screen can show Pending/Retrying; the next sync or its bounded
+            // poll will retry after re-checking maturity.
+            const syncEvent: TransactionInfo = {
+              id: 'sync-claim-pending-' + Date.now(),
+              type: 'receive',
+              amountSat: 0,
+              feeSat: 0,
+              status: 'pending',
+              timestamp: Date.now(),
+              description: '__SYNC_EVENT__',
+            };
+            paymentEventListeners.forEach((listener) => {
               try {
-                await claimDeposit(txid, vout);
-              } catch (claimErr) {
-                console.warn('⚠️ [BreezSparkService] Auto-retry claimDeposit failed:', claimErr);
+                listener(syncEvent);
+              } catch (err) {
+                console.error('❌ [BreezSparkService] Claim pending listener error:', err);
               }
-            }
+            });
           }
 
           // Handle Synced event - trigger refresh for all listeners
@@ -1631,7 +1736,10 @@ async function setupEventListeners(): Promise<void> {
             try {
               const deposits = await listDeposits();
               for (const dep of deposits) {
-                if (!dep.claimError) {
+                const claimInfo = dep.claimError
+                  ? getDepositClaimErrorInfo(dep.claimError, dep.amountSats)
+                  : null;
+                if (dep.isMature && !claimInfo?.terminal) {
                   await claimDeposit(dep.txid, dep.vout);
                 }
               }
@@ -1985,6 +2093,7 @@ export async function listDeposits(): Promise<DepositInfo[]> {
         txid: String(deposit?.txid || ''),
         vout: Number(deposit?.vout || 0),
         amountSats: Number(deposit?.amountSats || deposit?.amountSat || 0),
+        isMature: deposit?.isMature === true,
         claimError: deposit?.claimError,
         requiredFeeSats,
       };

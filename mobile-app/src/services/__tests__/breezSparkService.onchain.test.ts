@@ -22,6 +22,8 @@ const mockPrepareSendPayment = jest.fn();
 const mockAddEventListener = jest.fn().mockResolvedValue('listener-id');
 const mockRemoveEventListener = jest.fn().mockResolvedValue(undefined);
 const mockGetPayment = jest.fn();
+const mockListUnclaimedDeposits = jest.fn();
+const mockClaimDeposit = jest.fn();
 
 jest.mock('react-native-fs', () => ({
   DocumentDirectoryPath: '/tmp',
@@ -63,6 +65,8 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
     addEventListener: (...args: unknown[]) => mockAddEventListener(...args),
     removeEventListener: (...args: unknown[]) => mockRemoveEventListener(...args),
     getPayment: (...args: unknown[]) => mockGetPayment(...args),
+    listUnclaimedDeposits: (...args: unknown[]) => mockListUnclaimedDeposits(...args),
+    claimDeposit: (...args: unknown[]) => mockClaimDeposit(...args),
     disconnect: jest.fn().mockResolvedValue(undefined),
     getLightningAddress: jest.fn().mockResolvedValue(null),
     getInfo: jest.fn().mockResolvedValue({ identityPubkey: undefined }),
@@ -193,6 +197,16 @@ describe('BreezSparkService payment error copy', () => {
       .toBe('This Lightning invoice has expired. Ask the recipient for a new invoice, then try again.');
   });
 
+  it('unwraps tuple-shaped SparkError payloads instead of showing the SDK wrapper', () => {
+    const svc = require('../breezSparkService');
+    const error = Object.assign(new Error('SdkError.SparkError'), {
+      tag: 'SparkError',
+      inner: ['deposit is not mature'],
+    });
+
+    expect(svc.extractSdkErrorMessage(error)).toBe('deposit is not mature');
+  });
+
   it('maps raw native invalid-input enums without exposing SDK internals', () => {
     const svc = require('../breezSparkService');
 
@@ -222,6 +236,70 @@ describe('BreezSparkService payment error copy', () => {
     );
     expect(message).toContain('may be expired or created in a format');
     expect(message).not.toMatch(/enum|uniffi|variant/i);
+  });
+});
+
+describe('BreezSparkService deposit claim handling', () => {
+  it('keeps confirmation and Spark failures retryable with safe user copy', () => {
+    const svc = require('../breezSparkService');
+
+    expect(svc.getDepositClaimErrorInfo(
+      { tag: 'MissingUtxo', inner: { tx: 'tx', vout: 0 } },
+      10_000,
+    )).toEqual({
+      terminal: false,
+      status: 'retrying',
+      message: 'Waiting for Bitcoin network confirmations. ZapArc will retry automatically.',
+    });
+
+    const sparkError = Object.assign(new Error('SdkError.SparkError'), {
+      tag: 'SparkError',
+      inner: ['service temporarily unavailable'],
+    });
+    expect(svc.getDepositClaimErrorInfo(sparkError, 10_000)).toMatchObject({
+      terminal: false,
+      status: 'retrying',
+    });
+  });
+
+  it('marks only an uneconomical fee failure as too small', () => {
+    const svc = require('../breezSparkService');
+    const error = {
+      tag: 'MaxDepositClaimFeeExceeded',
+      inner: { requiredFeeSats: 800n },
+    };
+
+    expect(svc.getDepositClaimErrorInfo(error, 1_000)).toMatchObject({
+      terminal: true,
+      status: 'too-small',
+    });
+    expect(svc.getDepositClaimErrorInfo(error, 10_000)).toMatchObject({
+      terminal: false,
+      status: 'retrying',
+    });
+  });
+
+  it('preserves SDK maturity state when listing deposits', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockListUnclaimedDeposits.mockResolvedValueOnce({
+      deposits: [{
+        txid: 'deposit-tx',
+        vout: 1,
+        amountSats: 25_000n,
+        isMature: false,
+        claimError: undefined,
+      }],
+    });
+
+    await expect(svc.listDeposits()).resolves.toEqual([{
+      txid: 'deposit-tx',
+      vout: 1,
+      amountSats: 25_000,
+      isMature: false,
+      claimError: undefined,
+      requiredFeeSats: undefined,
+    }]);
   });
 });
 

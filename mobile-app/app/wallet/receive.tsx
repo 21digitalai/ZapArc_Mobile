@@ -19,7 +19,11 @@ import {
   getInputBackgroundColor,
   BRAND_COLOR,
 } from '../../src/utils/theme-helpers';
-import { BreezSparkService, onPaymentReceived, extractSdkErrorMessage } from '../../src/services/breezSparkService';
+import {
+  BreezSparkService,
+  onPaymentReceived,
+  getDepositClaimErrorInfo,
+} from '../../src/services/breezSparkService';
 import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
 import { useWallet } from '../../src/hooks/useWallet';
 import { useCurrency } from '../../src/hooks/useCurrency';
@@ -51,7 +55,7 @@ import {
 
 type ReceiveTab = 'lightning' | 'onchain';
 
-type PendingDepositStatus = 'claiming' | RecentOnchainReceive['status'];
+type PendingDepositStatus = 'confirming' | 'claiming' | 'retrying' | RecentOnchainReceive['status'];
 
 interface PendingDepositItem {
   key: string;
@@ -746,6 +750,7 @@ export default function ReceiveScreen() {
     let isCancelled = false;
 
     const claimedKeys = new Set<string>();
+    const claimAttemptsInFlight = new Set<string>();
 
     const checkDeposits = async (): Promise<void> => {
       try {
@@ -756,20 +761,36 @@ export default function ReceiveScreen() {
           const key = `${deposit.txid}:${deposit.vout}`;
           if (claimedKeys.has(key)) continue;
 
-          // Show as claiming
-          setPendingDeposits(prev => {
+          const updatePendingDeposit = (
+            status: PendingDepositStatus,
+            statusDetails?: string,
+          ) => setPendingDeposits(prev => {
             const existing = prev.find(d => d.key === key);
-            if (existing) return prev;
-            return [...prev, {
+            const next: PendingDepositItem = {
               key,
               txid: deposit.txid,
               vout: deposit.vout,
               amountSats: deposit.amountSats,
-              status: 'claiming',
-              timestamp: Date.now(),
-              failureReason: deposit.claimError ? extractSdkErrorMessage(deposit.claimError, 'Claim failed') : undefined,
-            }];
+              status,
+              timestamp: existing?.timestamp ?? Date.now(),
+              failureReason: statusDetails,
+            };
+            return existing
+              ? prev.map(item => item.key === key ? next : item)
+              : [...prev, next];
           });
+
+          if (!deposit.isMature) {
+            updatePendingDeposit(
+              'confirming',
+              'Waiting for Bitcoin network confirmations. Claiming will start automatically.',
+            );
+            continue;
+          }
+
+          if (claimAttemptsInFlight.has(key)) continue;
+          claimAttemptsInFlight.add(key);
+          updatePendingDeposit('claiming', 'Claiming this confirmed deposit now.');
 
           try {
             await BreezSparkService.claimDeposit(deposit.txid, deposit.vout);
@@ -789,24 +810,27 @@ export default function ReceiveScreen() {
             await refreshBalance();
             await refreshTransactions();
           } catch (claimError) {
-            claimedKeys.add(key);
             if (isCancelled) return;
-            const errMsg = extractSdkErrorMessage(claimError, 'Claim failed');
-            const isDust = errMsg.includes('dust') || errMsg.includes('less than');
-            const failedItem: RecentOnchainReceive = {
-              key,
-              txid: deposit.txid,
-              vout: deposit.vout,
-              amountSats: deposit.amountSats,
-              status: isDust ? 'too-small' : 'failed',
-              timestamp: Date.now(),
-              failureReason: errMsg,
-            };
-            // Persist into the always-shown terminal history and drop it
-            // from the transient in-progress list (avoids a duplicate row).
-            recordTerminalOnchainReceive(failedItem);
-            setPendingDeposits(prev => prev.filter(d => d.key !== key));
-            console.warn(`⚠️ [ReceiveScreen] Failed to claim ${key}:`, claimError);
+            const claimInfo = getDepositClaimErrorInfo(claimError, deposit.amountSats);
+            if (claimInfo.terminal) {
+              claimedKeys.add(key);
+              const failedItem: RecentOnchainReceive = {
+                key,
+                txid: deposit.txid,
+                vout: deposit.vout,
+                amountSats: deposit.amountSats,
+                status: claimInfo.status,
+                timestamp: Date.now(),
+                failureReason: claimInfo.message,
+              };
+              recordTerminalOnchainReceive(failedItem);
+              setPendingDeposits(prev => prev.filter(d => d.key !== key));
+            } else {
+              updatePendingDeposit('retrying', claimInfo.message);
+            }
+            console.warn(`⚠️ [ReceiveScreen] Claim pending for ${key}:`, claimError);
+          } finally {
+            claimAttemptsInFlight.delete(key);
           }
         }
       } catch (error) {
@@ -926,8 +950,12 @@ export default function ReceiveScreen() {
 
   const getPendingDepositStatusConfig = useCallback((status: PendingDepositStatus) => {
     switch (status) {
+      case 'confirming':
+        return { icon: '\u23F3', label: t('deposit.statusConfirming'), color: '#ffc107' };
       case 'claiming':
-        return { icon: '\u23F3', label: t('wallet.statusPending'), color: '#ffc107' };
+        return { icon: '\u21BB', label: t('deposit.statusClaiming'), color: '#ffc107' };
+      case 'retrying':
+        return { icon: '\u21BB', label: t('deposit.statusRetrying'), color: '#ffc107' };
       case 'claimed':
         return { icon: '\u2713', label: t('wallet.statusCompleted'), color: '#4caf50' };
       case 'too-small':
@@ -1019,7 +1047,16 @@ export default function ReceiveScreen() {
                 />
                 <DetailRow label="Vout" value={String(deposit.vout)} />
                 {deposit.failureReason && (
-                  <DetailRow label="Failure reason" value={deposit.failureReason} />
+                  <DetailRow
+                    label={
+                      deposit.status === 'confirming'
+                      || deposit.status === 'claiming'
+                      || deposit.status === 'retrying'
+                        ? t('deposit.statusDetails')
+                        : t('wallet.failureReason')
+                    }
+                    value={deposit.failureReason}
+                  />
                 )}
                 <TouchableOpacity onPress={() => Linking.openURL(`https://mempool.space/tx/${deposit.txid}`)}>
                   <Text style={styles.mempoolLink}>{t('wallet.viewOnMempool')}</Text>
