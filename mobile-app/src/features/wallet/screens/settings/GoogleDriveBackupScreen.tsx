@@ -68,6 +68,15 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 
+export function getContactSyncErrorMessage(
+  error: string | undefined,
+  t: (key: string) => string,
+): string {
+  if (error === 'contacts_wrong_password') return t('cloudBackup.contactsSyncWrongPassword');
+  if (error === 'contacts_corrupt') return t('cloudBackup.contactsSyncCorrupt');
+  return error || t('cloudBackup.contactsSyncFailed');
+}
+
 // =============================================================================
 // Component
 // =============================================================================
@@ -613,11 +622,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     try {
       const result = await googleDriveBackupService.restoreContacts(selectedBackup.id, password);
       if (!result.success) {
-        const syncError = result.error === 'contacts_wrong_password'
-          ? t('cloudBackup.contactsSyncWrongPassword')
-          : result.error === 'contacts_corrupt'
-            ? t('cloudBackup.contactsSyncCorrupt')
-            : result.error || t('cloudBackup.contactsSyncFailed');
+        const syncError = getContactSyncErrorMessage(result.error, t);
         Alert.alert(t('common.error'), syncError);
         return;
       }
