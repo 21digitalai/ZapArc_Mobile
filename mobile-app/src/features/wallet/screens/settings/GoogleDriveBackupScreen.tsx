@@ -613,7 +613,12 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     try {
       const result = await googleDriveBackupService.restoreContacts(selectedBackup.id, password);
       if (!result.success) {
-        Alert.alert(t('common.error'), result.error || t('cloudBackup.contactsSyncFailed'));
+        const syncError = result.error === 'contacts_wrong_password'
+          ? t('cloudBackup.contactsSyncWrongPassword')
+          : result.error === 'contacts_corrupt'
+            ? t('cloudBackup.contactsSyncCorrupt')
+            : result.error || t('cloudBackup.contactsSyncFailed');
+        Alert.alert(t('common.error'), syncError);
         return;
       }
       setShowPasswordModal(false);

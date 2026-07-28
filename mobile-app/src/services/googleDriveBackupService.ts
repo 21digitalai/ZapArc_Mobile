@@ -652,15 +652,28 @@ class GoogleDriveBackupService {
       const backupData = await response.json();
       if (!validateBackupStructure(backupData)) return { success: false, error: 'Invalid backup file format' };
       if (!backupData.contacts) return { success: true, contacts: [] };
+      let decryptedContacts: string;
       try {
-        const parsed = JSON.parse(await decryptStringBlob(backupData.contacts, password));
-        if (!Array.isArray(parsed)) return { success: true, contacts: [], contactsRestoreWarning: true };
+        // AES-GCM authentication failure is the only password-specific result.
+        decryptedContacts = await decryptStringBlob(backupData.contacts, password);
+      } catch {
+        return { success: false, error: 'contacts_wrong_password' };
+      }
+
+      try {
+        const parsed = JSON.parse(decryptedContacts);
+        if (!Array.isArray(parsed)) {
+          return { success: false, error: 'contacts_corrupt' };
+        }
         const contacts = parsed.map(sanitizeImportedContact)
           .filter((contact): contact is NonNullable<typeof contact> => contact !== null)
           .map((contact, index) => ({ ...contact, id: `backup-${index}`, updatedAt: contact.createdAt }));
-        return { success: true, contacts, contactsRestoreWarning: contacts.length !== parsed.length };
+        if (contacts.length !== parsed.length) {
+          return { success: false, error: 'contacts_corrupt' };
+        }
+        return { success: true, contacts };
       } catch {
-        return { success: false, error: 'Incorrect password or unreadable contacts section' };
+        return { success: false, error: 'contacts_corrupt' };
       }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to download contacts' };
