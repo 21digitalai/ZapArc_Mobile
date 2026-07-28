@@ -41,10 +41,17 @@ import { useFeedback } from '../../src/features/wallet/components/FeedbackCompon
 import { useLightningAddress } from '../../src/hooks/useLightningAddress';
 import { StyledTextInput, KeyboardDoneAccessory, keyboardDoneAccessoryId } from '../../src/components';
 import { t } from '../../src/services/i18nService';
+import {
+  LEGACY_FAILED_CLAIMS_KEY,
+  normalizeRecentOnchainReceives,
+  RecentOnchainReceive,
+  RECENT_ONCHAIN_RECEIVES_KEY,
+  upsertRecentOnchainReceive,
+} from '../../src/features/wallet/utils/recentOnchainReceives';
 
 type ReceiveTab = 'lightning' | 'onchain';
 
-type PendingDepositStatus = 'claiming' | 'claimed' | 'too-small' | 'failed';
+type PendingDepositStatus = 'claiming' | RecentOnchainReceive['status'];
 
 interface PendingDepositItem {
   key: string;
@@ -62,14 +69,6 @@ const currencyLabels: Record<InvoiceCurrency, string> = {
   eur: 'EUR',
   usdb: 'USDB',
 };
-
-// Persisted list of the most recent on-chain claims that failed (dust /
-// too-small / error). Unlike the in-progress `pendingDeposits` (which is
-// transient session state), these survive navigation + app restarts so the
-// user can always see why a recent on-chain receive didn't land. Capped at
-// the 5 newest; no time-based expiry.
-const FAILED_CLAIMS_KEY = '@zap_arc/recent_failed_onchain_claims_v1';
-const MAX_FAILED_CLAIMS = 5;
 
 // Centered brand logo for QR codes (Wallet-of-Satoshi style). A single
 // pre-composited asset — bolt icon + the "ZapArc" wordmark (white "Zap" +
@@ -322,29 +321,33 @@ export default function ReceiveScreen() {
   const [onchainClaimFeeSats, setOnchainClaimFeeSats] = useState<number | null>(null);
   const [pendingDeposits, setPendingDeposits] = useState<PendingDepositItem[]>([]);
   const [selectedPendingDeposit, setSelectedPendingDeposit] = useState<PendingDepositItem | null>(null);
-  // Persisted, always-shown list of the 5 most recent failed on-chain claims.
-  const [recentFailedClaims, setRecentFailedClaims] = useState<PendingDepositItem[]>([]);
+  // Persisted terminal on-chain receives survive navigation and app restarts.
+  const [recentOnchainReceives, setRecentOnchainReceives] = useState<RecentOnchainReceive[]>([]);
 
-  // Load the persisted failed claims once on mount.
+  // Migrate failed-claim history into the terminal receive history when v2
+  // does not exist. This preserves existing users' stored failure entries.
   useEffect(() => {
     let cancelled = false;
-    AsyncStorage.getItem(FAILED_CLAIMS_KEY)
-      .then((raw) => {
-        if (cancelled || !raw) return;
-        const parsed = JSON.parse(raw) as PendingDepositItem[];
-        if (Array.isArray(parsed)) setRecentFailedClaims(parsed.slice(0, MAX_FAILED_CLAIMS));
+    AsyncStorage.multiGet([RECENT_ONCHAIN_RECEIVES_KEY, LEGACY_FAILED_CLAIMS_KEY])
+      .then((entries) => {
+        if (cancelled) return;
+        const currentRaw = entries[0][1];
+        const legacyRaw = entries[1][1];
+        const parsed = JSON.parse(currentRaw || legacyRaw || '[]');
+        const history = normalizeRecentOnchainReceives(parsed);
+        setRecentOnchainReceives(history);
+        if (!currentRaw && legacyRaw) {
+          void AsyncStorage.setItem(RECENT_ONCHAIN_RECEIVES_KEY, JSON.stringify(history)).catch(() => {});
+        }
       })
       .catch(() => {/* ignore corrupt/missing */});
     return () => { cancelled = true; };
   }, []);
 
-  // Upsert a failed claim into the persisted list (newest first, deduped by
-  // key, capped at MAX_FAILED_CLAIMS). No time-based expiry — they stay
-  // until pushed out by 5 newer failures.
-  const recordFailedClaim = useCallback((item: PendingDepositItem) => {
-    setRecentFailedClaims((prev) => {
-      const next = [item, ...prev.filter((d) => d.key !== item.key)].slice(0, MAX_FAILED_CLAIMS);
-      void AsyncStorage.setItem(FAILED_CLAIMS_KEY, JSON.stringify(next)).catch(() => {});
+  const recordTerminalOnchainReceive = useCallback((item: RecentOnchainReceive) => {
+    setRecentOnchainReceives((prev) => {
+      const next = upsertRecentOnchainReceive(prev, item);
+      void AsyncStorage.setItem(RECENT_ONCHAIN_RECEIVES_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
   }, []);
@@ -773,22 +776,24 @@ export default function ReceiveScreen() {
             claimedKeys.add(key);
             if (isCancelled) return;
 
-            setPendingDeposits(prev => prev.map(d => d.key === key ? { ...d, status: 'claimed', failureReason: undefined } : d));
+            const claimedItem: RecentOnchainReceive = {
+              key,
+              txid: deposit.txid,
+              vout: deposit.vout,
+              amountSats: deposit.amountSats,
+              status: 'claimed',
+              timestamp: Date.now(),
+            };
+            recordTerminalOnchainReceive(claimedItem);
+            setPendingDeposits(prev => prev.filter(d => d.key !== key));
             await refreshBalance();
             await refreshTransactions();
-
-            // Remove claimed after 5s
-            setTimeout(() => {
-              if (!isCancelled) {
-                setPendingDeposits(prev => prev.filter(d => d.key !== key));
-              }
-            }, 5000);
           } catch (claimError) {
             claimedKeys.add(key);
             if (isCancelled) return;
             const errMsg = extractSdkErrorMessage(claimError, 'Claim failed');
             const isDust = errMsg.includes('dust') || errMsg.includes('less than');
-            const failedItem: PendingDepositItem = {
+            const failedItem: RecentOnchainReceive = {
               key,
               txid: deposit.txid,
               vout: deposit.vout,
@@ -797,9 +802,9 @@ export default function ReceiveScreen() {
               timestamp: Date.now(),
               failureReason: errMsg,
             };
-            // Persist into the always-shown "recent failed" list and drop it
+            // Persist into the always-shown terminal history and drop it
             // from the transient in-progress list (avoids a duplicate row).
-            recordFailedClaim(failedItem);
+            recordTerminalOnchainReceive(failedItem);
             setPendingDeposits(prev => prev.filter(d => d.key !== key));
             console.warn(`⚠️ [ReceiveScreen] Failed to claim ${key}:`, claimError);
           }
@@ -821,7 +826,7 @@ export default function ReceiveScreen() {
       clearInterval(interval);
       setOnchainClaimStatus(null);
     };
-  }, [activeTab, onchainAddress, refreshBalance, refreshTransactions, recordFailedClaim]);
+  }, [activeTab, onchainAddress, refreshBalance, refreshTransactions, recordTerminalOnchainReceive]);
 
   // Capture the whole branded QR card as a PNG. Android writes directly to
   // the scoped MediaStore-backed ZapArc gallery album; iOS uses add-only
@@ -1343,13 +1348,11 @@ export default function ReceiveScreen() {
                   <Text style={[styles.onchainNote, { color: secondaryTextColor }]}>{t('deposit.onchainNote')}</Text>
 
                   {(() => {
-                    // Combine the transient in-progress deposits with the
-                    // persisted "recent failed" list (deduped by key — a key
-                    // moves from one to the other, never both). In-progress
-                    // first, then the last 5 failures, newest first.
+                    // Combine transient claims with persisted terminal history,
+                    // deduping by txid:vout while terminal entries remain newest first.
                     const combined = [
                       ...pendingDeposits,
-                      ...recentFailedClaims.filter(
+                      ...recentOnchainReceives.filter(
                         (f) => !pendingDeposits.some((p) => p.key === f.key)
                       ),
                     ];
