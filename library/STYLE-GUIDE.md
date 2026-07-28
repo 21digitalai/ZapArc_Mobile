@@ -121,6 +121,7 @@
 `src/features/wallet/screens/TransactionHistoryScreen.tsx`
 - Sender-authored comments use a wallet-scoped `payment_comment_<masterKeyId>_<subWalletIndex>_<paymentId>` key, so a refreshed SDK payment resolves only its own wallet's comment.
 - Transaction detail modals must render provider `Description` and user `Comment` as separate rows when both exist; suppress the Comment row only when it duplicates Description.
+- On Lightning Address/LNURL-pay sends, the composer passes a non-empty Comment through `prepareSendPayment` so the recipient receives the LUD-12 message. The service rejects comments before payment when `commentAllowed` is zero or the character limit is exceeded; raw invoices, on-chain, and Spark destinations cannot present a comment as recipient-visible.
 
 ### Pending outgoing payment treatment
 

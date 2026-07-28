@@ -19,6 +19,7 @@ jest.mock('../notificationTriggerService', () => ({
 const mockSendPayment = jest.fn();
 const mockParse = jest.fn();
 const mockPrepareSendPayment = jest.fn();
+const mockPrepareLnurlPay = jest.fn();
 const mockAddEventListener = jest.fn().mockResolvedValue('listener-id');
 const mockRemoveEventListener = jest.fn().mockResolvedValue(undefined);
 const mockGetPayment = jest.fn();
@@ -63,6 +64,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
     sendPayment: (...args: unknown[]) => mockSendPayment(...args),
     parse: (...args: unknown[]) => mockParse(...args),
     prepareSendPayment: (...args: unknown[]) => mockPrepareSendPayment(...args),
+    prepareLnurlPay: (...args: unknown[]) => mockPrepareLnurlPay(...args),
     addEventListener: (...args: unknown[]) => mockAddEventListener(...args),
     removeEventListener: (...args: unknown[]) => mockRemoveEventListener(...args),
     getPayment: (...args: unknown[]) => mockGetPayment(...args),
@@ -157,6 +159,78 @@ describe('BreezSparkService.sendPayment', () => {
     const result = await svc.sendPayment({});
 
     expect(result).toMatchObject(expected);
+  });
+});
+
+describe('BreezSparkService LNURL comments', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('passes a valid recipient comment to native prepareLnurlPay', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    const payRequest = { commentAllowed: 40 };
+    mockParse.mockResolvedValueOnce({ tag: 'LightningAddress', inner: { payRequest } });
+    mockPrepareLnurlPay.mockResolvedValueOnce({ feeSats: 2n, amountSats: 1000n });
+
+    await expect(svc.prepareSendPayment('alice@example.com', 1000, { comment: 'Thanks!' }))
+      .resolves.toMatchObject({ __lnurlPay: true });
+
+    expect(mockPrepareLnurlPay).toHaveBeenCalledWith(expect.objectContaining({
+      amount: 1000n,
+      payRequest,
+      comment: 'Thanks!',
+    }));
+  });
+
+  it.each([
+    [0, 'Hello', 'does not accept comments'],
+    [3, 'Toolong', 'up to 3 characters'],
+  ])('rejects an unsupported or over-limit native comment before payment', async (commentAllowed, comment, message) => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockParse.mockResolvedValueOnce({ tag: 'LnurlPay', inner: { commentAllowed } });
+
+    await expect(svc.prepareSendPayment('lnurl1example', 1000, { comment }))
+      .rejects.toThrow(message);
+    expect(mockPrepareLnurlPay).not.toHaveBeenCalled();
+  });
+
+  it('adds a valid comment to the manual Lightning Address callback only when supported', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockParse.mockRejectedValueOnce(new Error('temporary resolution failure'));
+    const originalFetch = global.fetch;
+    const fetchMock = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({
+        tag: 'payRequest', minSendable: 1000, maxSendable: 2_000_000,
+        commentAllowed: 20, callback: 'https://pay.example/callback',
+      }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ pr: 'lnbc1fallback' }) });
+    global.fetch = fetchMock as typeof fetch;
+    mockPrepareSendPayment.mockResolvedValueOnce({ paymentMethod: { tag: 'Bolt11Invoice' } });
+
+    await svc.prepareSendPayment('alice@example.com', 1000, { comment: 'For coffee' });
+
+    expect(fetchMock.mock.calls[1][0]).toContain('amount=1000000');
+    expect(fetchMock.mock.calls[1][0]).toContain('comment=For+coffee');
+    expect(mockPrepareSendPayment).toHaveBeenCalledWith(expect.objectContaining({
+      paymentRequest: expect.objectContaining({ inner: { input: 'lnbc1fallback' } }),
+    }));
+    global.fetch = originalFetch;
+  });
+
+  it('omits empty comments and refuses comments for non-LNURL destinations', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockPrepareSendPayment.mockResolvedValueOnce({ paymentMethod: { tag: 'Bolt11Invoice' } });
+
+    await svc.prepareSendPayment('lnbc1invoice', 1000, { comment: '   ' });
+    expect(mockPrepareSendPayment).toHaveBeenCalled();
+
+    await expect(svc.prepareSendPayment('lnbc1invoice', 1000, { comment: 'Private?' }))
+      .rejects.toThrow('Comments can only be sent');
   });
 });
 

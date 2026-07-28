@@ -1080,7 +1080,10 @@ export default function SendScreen() {
       const prepared = await BreezSparkService.prepareSendPayment(
         resolvedInput,
         paymentAmount,
-        isUsdbAsset ? { tokenIdentifier: usdbTokenIdentifier || undefined } : undefined
+        {
+          tokenIdentifier: isUsdbAsset ? usdbTokenIdentifier || undefined : undefined,
+          comment: comment.trim() || undefined,
+        }
       );
       console.log('🔍 [Send] prepared response:', JSON.stringify(prepared, (_, v) => typeof v === 'bigint' ? v.toString() : v));
       setPrepareResponse(prepared);

@@ -2908,7 +2908,28 @@ export async function parsePaymentRequest(input: string): Promise<{
  * from the callback, and return it. Only used when the SDK's own `parse()`
  * couldn't classify the address (e.g. a transient resolution hiccup).
  */
-async function lightningAddressToBolt11(addr: string, amountSat: number): Promise<string> {
+function normalizeLnurlComment(comment?: string): string | undefined {
+  const normalized = comment?.trim();
+  return normalized ? normalized : undefined;
+}
+
+function assertLnurlCommentAllowed(comment: string | undefined, commentAllowed: unknown): void {
+  if (!comment) return;
+
+  const limit = Number(commentAllowed || 0);
+  if (!Number.isFinite(limit) || limit <= 0) {
+    throw new Error('This recipient does not accept comments. Remove the comment to continue.');
+  }
+  if (comment.length > limit) {
+    throw new Error(`Comment is too long. This recipient accepts up to ${limit} characters.`);
+  }
+}
+
+async function lightningAddressToBolt11(
+  addr: string,
+  amountSat: number,
+  comment?: string,
+): Promise<string> {
   const [username, domain] = addr.split('@');
   if (!username || !domain || !domain.includes('.')) {
     throw new Error('That doesn’t look like a valid Lightning Address.');
@@ -2928,8 +2949,12 @@ async function lightningAddressToBolt11(addr: string, amountSat: number): Promis
   if (amountMsat > meta.maxSendable) {
     throw new Error(`Amount too large. Maximum: ${Math.floor(meta.maxSendable / 1000)} sats`);
   }
+  assertLnurlCommentAllowed(comment, meta.commentAllowed);
   const callbackUrl = new URL(meta.callback);
   callbackUrl.searchParams.set('amount', amountMsat.toString());
+  if (comment) {
+    callbackUrl.searchParams.set('comment', comment);
+  }
   const invResp = await fetch(callbackUrl.toString());
   if (!invResp.ok) {
     throw new Error(`Couldn’t get an invoice from ${domain} (HTTP ${invResp.status}).`);
@@ -2947,7 +2972,7 @@ async function lightningAddressToBolt11(addr: string, amountSat: number): Promis
 export async function prepareSendPayment(
   paymentRequest: string,
   amountSat?: number,
-  options?: { tokenIdentifier?: string }
+  options?: { tokenIdentifier?: string; comment?: string }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> {
   if (!_isNativeAvailable || !sdkInstance) {
@@ -2956,6 +2981,7 @@ export async function prepareSendPayment(
 
   const trimmed = paymentRequest.trim();
   const lower = trimmed.toLowerCase();
+  const comment = normalizeLnurlComment(options?.comment);
   const isAtAddress = trimmed.includes('@') && !lower.startsWith('lnbc');
   const bolt11 = isBolt11Invoice(trimmed);
 
@@ -2987,12 +3013,13 @@ export async function prepareSendPayment(
   if (parsedTag === 'LightningAddress' || parsedTag === 'LnurlPay') {
     const payRequest = parsedTag === 'LightningAddress' ? parsedInner?.payRequest : parsedInner;
     if (payRequest) {
+      assertLnurlCommentAllowed(comment, payRequest.commentAllowed);
       if (__DEV__) console.log('🔗 [BreezSparkService] Preparing native LNURL-pay');
       const lnurlPrepare = await sdkInstance.prepareLnurlPay({
         amount: BigInt(amountSat || 0),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         payRequest: payRequest as any,
-        comment: undefined,
+        comment,
       });
       return {
         __lnurlPay: true,
@@ -3007,7 +3034,7 @@ export async function prepareSendPayment(
   //    Address (user@domain). Resolve it manually to a BOLT11 and prepare that.
   if (!parsedTag && isAtAddress) {
     if (__DEV__) console.log('🔗 [BreezSparkService] Manual LNURL-pay fallback');
-    const bolt11 = await lightningAddressToBolt11(trimmed, amountSat || 0);
+    const bolt11 = await lightningAddressToBolt11(trimmed, amountSat || 0, comment);
     return await sdkInstance.prepareSendPayment({
       paymentRequest: toSdkPaymentRequest(bolt11),
     });
@@ -3017,6 +3044,9 @@ export async function prepareSendPayment(
   //    prepare directly. If it's genuinely unrecognisable the SDK throws a
   //    clear error, which the caller maps to a friendly message.
   try {
+    if (comment) {
+      throw new Error('Comments can only be sent to Lightning Address or LNURL-pay recipients. Remove the comment to continue.');
+    }
     return await sdkInstance.prepareSendPayment({
       paymentRequest: toSdkPaymentRequest(trimmed),
       amount: amountSat ? BigInt(amountSat) : undefined,
