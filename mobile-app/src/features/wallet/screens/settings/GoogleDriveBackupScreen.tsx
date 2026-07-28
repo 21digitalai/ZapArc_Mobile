@@ -188,7 +188,9 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
   const [isProcessing, setIsProcessing] = useState(false);
   // Whether to include the address book in this backup, and the contacts
   // pulled out of a restored backup awaiting a merge decision.
-  const [includeContacts, setIncludeContacts] = useState(true);
+  // Contacts are sensitive optional data. Uploading them requires an explicit
+  // affirmative choice for each backup rather than inheriting an opt-in.
+  const [includeContacts, setIncludeContacts] = useState(false);
   const [restoredContacts, setRestoredContacts] = useState<Contact[] | null>(null);
 
   // Restore flow: PIN setup after decryption
