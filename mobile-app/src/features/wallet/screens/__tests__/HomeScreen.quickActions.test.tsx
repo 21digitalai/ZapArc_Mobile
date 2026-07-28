@@ -1,6 +1,6 @@
 import React from 'react';
 import { AccessibilityInfo, Animated } from 'react-native';
-import { act, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { HomeScreen } from '../HomeScreen';
 
@@ -8,6 +8,8 @@ const mockGetActiveAsset = jest.fn<Promise<'BTC' | 'USDB'>, []>();
 let mockPaymentListener: ((payment: any) => void) | undefined;
 let mockFocusCallback: (() => void) | undefined;
 let mockWalletTransactions: any[] = [];
+let mockTransactionRows: any[] = [];
+let mockStoredPaymentComment: string | null = null;
 const mockRefreshBalance = jest.fn().mockResolvedValue(undefined);
 const mockRefreshTransactions = jest.fn().mockResolvedValue(undefined);
 const mockGetPayment = jest.fn();
@@ -100,7 +102,13 @@ jest.mock('../../utils/walletSecurityOnboarding', () => ({
 }));
 
 jest.mock('../../utils/transactionRows', () => ({
-  buildTransactionRows: () => [],
+  buildTransactionRows: () => mockTransactionRows,
+}));
+
+jest.mock('../../utils/paymentComment', () => ({
+  loadPaymentComment: () => Promise.resolve(mockStoredPaymentComment),
+  shouldShowPaymentComment: (description: string | null | undefined, comment: string | null | undefined) =>
+    !!comment?.trim() && comment.trim() !== description?.trim(),
 }));
 
 jest.mock('expo-linear-gradient', () => ({
@@ -134,6 +142,8 @@ describe('HomeScreen quick actions', () => {
     mockPaymentListener = undefined;
     mockFocusCallback = undefined;
     mockWalletTransactions = [];
+    mockTransactionRows = [];
+    mockStoredPaymentComment = null;
     mockUseLocalSearchParams.mockReturnValue({});
     mockGetPayment.mockResolvedValue(null);
     mockGetActiveAsset.mockResolvedValue('BTC');
@@ -755,5 +765,27 @@ describe('HomeScreen quick actions', () => {
     expect(mockRefreshBalance).toHaveBeenCalled();
     expect(mockRefreshTransactions).toHaveBeenCalled();
     jest.useRealTimers();
+  });
+
+  it('renders provider Description and stored Comment independently in transaction details', async () => {
+    const transaction = {
+      id: 'payment-comment-home', type: 'send', method: 'lightning', status: 'completed',
+      amount: 100, timestamp: Date.now(), description: 'Sent payment to LNURL address',
+    };
+    mockTransactionRows = [{
+      id: transaction.id, transaction, displayType: 'send', displayAmount: 100,
+      displayDescription: 'Sent payment to LNURL address', isSwap: false,
+    }];
+    mockStoredPaymentComment = 'Lunch reimbursement';
+
+    render(<HomeScreen />);
+    await waitFor(() => expect(screen.getByText('Sent payment to LNURL address')).toBeTruthy());
+    fireEvent.press(screen.getByText('Sent payment to LNURL address'));
+
+    await waitFor(() => {
+      expect(screen.getByText('payments.description')).toBeTruthy();
+      expect(screen.getByText('wallet.comment')).toBeTruthy();
+      expect(screen.getByText('Lunch reimbursement')).toBeTruthy();
+    });
   });
 });

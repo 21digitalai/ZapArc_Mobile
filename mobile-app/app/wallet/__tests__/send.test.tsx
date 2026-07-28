@@ -243,6 +243,23 @@ describe('SendScreen on-chain flow', () => {
     });
   });
 
+  it('labels the entered preview value as Comment, not Description', async () => {
+    mockParsePaymentRequest.mockResolvedValue({ type: 'bolt11', isValid: true });
+    mockPrepareSendPayment.mockResolvedValue({ paymentMethod: { tag: 'Bolt11' } });
+    renderScreen();
+
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'lnbc1commentpreview');
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
+    fireEvent.changeText(screen.getByPlaceholderText('Add a comment'), 'Lunch reimbursement');
+    fireEvent.press(screen.getByText('Preview Payment'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Comment:')).toBeTruthy();
+      expect(screen.getByText('Lunch reimbursement')).toBeTruthy();
+    });
+    expect(screen.queryByText('Description:')).toBeNull();
+  });
+
   it('rejects invalid and empty amount edge cases', async () => {
     mockParsePaymentRequest.mockResolvedValueOnce({ type: 'unknown', isValid: false });
     renderScreen();
