@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.zaparc.app",
-      "buildNumber": "22",
+      "buildNumber": "23",
       "appleTeamId": "JY93CF5N7U",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
@@ -31,7 +31,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.zaparc.app",
-      "versionCode": 64,
+      "versionCode": 65,
       "googleServicesFile": "./android/app/google-services.json",
       "permissions": [
         "android.permission.CAMERA",
