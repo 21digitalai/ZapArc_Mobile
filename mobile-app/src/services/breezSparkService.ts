@@ -327,6 +327,10 @@ export interface DepositInfo {
   amountSats: number;
   /** False until the deposit UTXO has enough Bitcoin confirmations to claim. */
   isMature: boolean;
+  /** Best-effort Bitcoin confirmation count from mempool.space. */
+  confirmations?: number;
+  /** Confirmations Breez currently requires before claiming a deposit. */
+  requiredConfirmations: number;
   claimError?: unknown;
   /** When the claim failed because the fee exceeds the deposit, the exact
    *  fee the SDK said was required (sats). Lets the UI show a precise
@@ -2079,8 +2083,17 @@ export async function listDeposits(): Promise<DepositInfo[]> {
     const response = await sdkInstance.listUnclaimedDeposits({});
     const deposits = response?.deposits || [];
     console.log(`🔍 [BreezSparkService] listUnclaimedDeposits: ${deposits.length} found`);
+    if (deposits.length === 0) return [];
 
-    return deposits.map((deposit: any) => {
+    const tipHeight = getBitcoinTipHeight();
+    const confirmations = await Promise.all(
+      deposits.map((deposit: any) => getBitcoinConfirmationCount(
+        String(deposit?.txid || ''),
+        tipHeight,
+      )),
+    );
+
+    return deposits.map((deposit: any, index: number) => {
       // Pull the exact required fee out of a MaxDepositClaimFeeExceeded error
       // when present (inner.requiredFeeSats), so the UI can be precise.
       let requiredFeeSats: number | undefined;
@@ -2095,6 +2108,8 @@ export async function listDeposits(): Promise<DepositInfo[]> {
         vout: Number(deposit?.vout || 0),
         amountSats: Number(deposit?.amountSats || deposit?.amountSat || 0),
         isMature: deposit?.isMature === true,
+        confirmations: confirmations[index],
+        requiredConfirmations: 3,
         claimError: deposit?.claimError,
         requiredFeeSats,
       };
@@ -2102,6 +2117,61 @@ export async function listDeposits(): Promise<DepositInfo[]> {
   } catch (error) {
     console.error('❌ [BreezSparkService] Failed to list deposits:', error);
     return [];
+  }
+}
+
+const MEMPOOL_API_URL = 'https://mempool.space/api';
+const CONFIRMATION_LOOKUP_TIMEOUT_MS = 5_000;
+
+async function fetchWithTimeout(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CONFIRMATION_LOOKUP_TIMEOUT_MS);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function getBitcoinTipHeight(): Promise<number | undefined> {
+  try {
+    const response = await fetchWithTimeout(`${MEMPOOL_API_URL}/blocks/tip/height`);
+    if (!response.ok) return undefined;
+    const height = Number(await response.text());
+    return Number.isFinite(height) && height >= 0 ? height : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Returns an exact best-effort Bitcoin confirmation count. Breez 0.19 only
+ * exposes the binary `isMature` flag, so explorer failures intentionally
+ * return undefined and leave the claim flow unaffected.
+ */
+export async function getBitcoinConfirmationCount(
+  txid: string,
+  tipHeight?: number | Promise<number | undefined>,
+): Promise<number | undefined> {
+  if (!txid) return undefined;
+
+  try {
+    const response = await fetchWithTimeout(`${MEMPOOL_API_URL}/tx/${txid}/status`);
+    if (!response.ok) return undefined;
+    const status = await response.json() as {
+      confirmed?: boolean;
+      block_height?: number;
+    };
+    if (!status.confirmed) return 0;
+
+    const blockHeight = Number(status.block_height);
+    const currentTip = tipHeight === undefined
+      ? await getBitcoinTipHeight()
+      : await tipHeight;
+    if (!Number.isFinite(blockHeight) || currentTip === undefined) return undefined;
+    return Math.max(1, currentTip - blockHeight + 1);
+  } catch {
+    return undefined;
   }
 }
 

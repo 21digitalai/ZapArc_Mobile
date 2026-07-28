@@ -284,6 +284,13 @@ describe('BreezSparkService deposit claim handling', () => {
   it('preserves SDK maturity state when listing deposits', async () => {
     const svc = require('../breezSparkService');
     await svc.initializeSDK('test mnemonic words go here twelve words');
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce({ ok: true, text: async () => '900000' })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ confirmed: true, block_height: 899999 }),
+      });
     mockListUnclaimedDeposits.mockResolvedValueOnce({
       deposits: [{
         txid: 'deposit-tx',
@@ -299,9 +306,12 @@ describe('BreezSparkService deposit claim handling', () => {
       vout: 1,
       amountSats: 25_000,
       isMature: false,
+      confirmations: 2,
+      requiredConfirmations: 3,
       claimError: undefined,
       requiredFeeSats: undefined,
     }]);
+    global.fetch = originalFetch;
   });
 
   it('preserves deposit vout on the completed Breez payment', async () => {

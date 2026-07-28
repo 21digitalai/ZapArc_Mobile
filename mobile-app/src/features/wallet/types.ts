@@ -142,6 +142,9 @@ export interface Transaction {
   onchainVout?: number;
   /** Live state for a provisional deposit that has not become a Payment yet. */
   onchainClaimState?: 'confirming' | 'claiming' | 'retrying' | 'too-small';
+  /** Best-effort chain progress while an on-chain deposit is provisional. */
+  onchainConfirmations?: number;
+  onchainRequiredConfirmations?: number;
   /** True only for the local row synthesized from listUnclaimedDeposits. */
   isProvisionalClaim?: boolean;
   /** Last SDK observation; used to bridge deposit→Payment reconciliation. */

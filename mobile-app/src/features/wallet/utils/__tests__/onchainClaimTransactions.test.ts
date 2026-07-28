@@ -7,6 +7,8 @@ const deposit = (overrides: Partial<DepositInfo> = {}): DepositInfo => ({
   vout: 1,
   amountSats: 25_000,
   isMature: false,
+  confirmations: 1,
+  requiredConfirmations: 3,
   ...overrides,
 });
 
@@ -21,6 +23,8 @@ describe('mergeOnchainClaimTransactions', () => {
       txid: 'deposit-tx',
       onchainVout: 1,
       onchainClaimState: 'confirming',
+      onchainConfirmations: 1,
+      onchainRequiredConfirmations: 3,
       status: 'pending',
       timestamp: 1_000,
     });

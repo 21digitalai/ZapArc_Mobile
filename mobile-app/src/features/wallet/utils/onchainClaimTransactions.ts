@@ -54,6 +54,8 @@ function provisionalTransaction(
     txid: deposit.txid,
     onchainVout: deposit.vout,
     onchainClaimState: claimState,
+    onchainConfirmations: deposit.confirmations,
+    onchainRequiredConfirmations: deposit.requiredConfirmations,
     isProvisionalClaim: true,
     claimLastSeenAt: now,
     failureReason: statusDetails,

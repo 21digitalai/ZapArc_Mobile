@@ -179,7 +179,12 @@ export function TransactionHistoryScreen(): React.JSX.Element {
       asset: rowAsset,
     });
     const claimStatusLabel = tx.onchainClaimState === 'confirming'
-      ? t('deposit.statusConfirming')
+      ? tx.onchainConfirmations !== undefined && tx.onchainRequiredConfirmations
+        ? t('deposit.statusConfirmingProgress', {
+            count: tx.onchainConfirmations,
+            required: tx.onchainRequiredConfirmations,
+          })
+        : t('deposit.statusConfirming')
       : tx.onchainClaimState === 'claiming'
         ? t('deposit.statusClaiming')
         : tx.onchainClaimState === 'retrying'
@@ -260,7 +265,12 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     const method = tx.method || (tx.txid ? 'onchain' : 'lightning');
     const date = new Date(tx.timestamp);
     const claimStatusLabel = tx.onchainClaimState === 'confirming'
-      ? t('deposit.statusConfirming')
+      ? tx.onchainConfirmations !== undefined && tx.onchainRequiredConfirmations
+        ? t('deposit.statusConfirmingProgress', {
+            count: tx.onchainConfirmations,
+            required: tx.onchainRequiredConfirmations,
+          })
+        : t('deposit.statusConfirming')
       : tx.onchainClaimState === 'claiming'
         ? t('deposit.statusClaiming')
         : tx.onchainClaimState === 'retrying'
