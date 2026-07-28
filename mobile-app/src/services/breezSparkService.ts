@@ -326,7 +326,8 @@ export interface TransactionInfo {
 const MAX_DISPLAY_PAYMENT_COMMENT_LENGTH = 1_000;
 
 /**
- * Breez exposes an LNURL payer message as `details.inner.lnurlPayInfo.comment`.
+ * Breez exposes a received LNURL payer message as
+ * `details.inner.lnurlReceiveMetadata.senderComment`.
  * Keep it separate from the provider/invoice description and never fall back to
  * raw LNURL metadata, which may contain unrelated provider data.
  */
@@ -337,9 +338,9 @@ export function extractLnurlPaymentComment(payment: unknown): string | undefined
   const typedDetails = details as { tag?: unknown; inner?: unknown };
   if (String(typedDetails.tag).toLowerCase() !== 'lightning') return undefined;
   if (!typedDetails.inner || typeof typedDetails.inner !== 'object') return undefined;
-  const lnurlPayInfo = (typedDetails.inner as { lnurlPayInfo?: unknown }).lnurlPayInfo;
-  if (!lnurlPayInfo || typeof lnurlPayInfo !== 'object') return undefined;
-  const value = (lnurlPayInfo as { comment?: unknown }).comment;
+  const metadata = (typedDetails.inner as { lnurlReceiveMetadata?: unknown }).lnurlReceiveMetadata;
+  if (!metadata || typeof metadata !== 'object') return undefined;
+  const value = (metadata as { senderComment?: unknown }).senderComment;
   if (typeof value !== 'string') return undefined;
   const comment = value.trim();
   return comment.length > 0 && comment.length <= MAX_DISPLAY_PAYMENT_COMMENT_LENGTH

@@ -289,7 +289,7 @@ describe('BreezSparkService LNURL comments', () => {
 });
 
 describe('BreezSparkService received LNURL comment mapping', () => {
-  it('maps only the documented Lightning lnurlPayInfo comment', async () => {
+  it('maps only the documented received Lightning LNURL sender comment', async () => {
     const svc = require('../breezSparkService');
     await svc.initializeSDK('test mnemonic words go here twelve words');
     mockListPayments.mockResolvedValueOnce({
@@ -298,7 +298,7 @@ describe('BreezSparkService received LNURL comment mapping', () => {
         amount: 42n, fees: 0n, timestamp: 1n, method: 0,
         details: { tag: 'Lightning', inner: {
           description: 'Invoice description',
-          lnurlPayInfo: { comment: 'Thanks for dinner', metadata: '["text/plain","ignore"]' },
+          lnurlReceiveMetadata: { senderComment: 'Thanks for dinner', metadata: '["text/plain","ignore"]' },
         } },
       }],
     });
@@ -313,9 +313,9 @@ describe('BreezSparkService received LNURL comment mapping', () => {
 
   it('does not expose malformed, oversized, or non-Lightning metadata as a comment', () => {
     const { extractLnurlPaymentComment } = require('../breezSparkService');
-    expect(extractLnurlPaymentComment({ details: { tag: 'Lightning', inner: { lnurlPayInfo: { comment: '  ' } } } })).toBeUndefined();
-    expect(extractLnurlPaymentComment({ details: { tag: 'Lightning', inner: { lnurlPayInfo: { comment: 'x'.repeat(1001) } } } })).toBeUndefined();
-    expect(extractLnurlPaymentComment({ details: { tag: 'Token', inner: { lnurlPayInfo: { comment: 'not a payment message' } } } })).toBeUndefined();
+    expect(extractLnurlPaymentComment({ details: { tag: 'Lightning', inner: { lnurlReceiveMetadata: { senderComment: '  ' } } } })).toBeUndefined();
+    expect(extractLnurlPaymentComment({ details: { tag: 'Lightning', inner: { lnurlReceiveMetadata: { senderComment: 'x'.repeat(1001) } } } })).toBeUndefined();
+    expect(extractLnurlPaymentComment({ details: { tag: 'Token', inner: { lnurlReceiveMetadata: { senderComment: 'not a payment message' } } } })).toBeUndefined();
   });
 });
 
