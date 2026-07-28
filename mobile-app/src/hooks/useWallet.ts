@@ -1120,6 +1120,7 @@ export function useWalletStateInternal(): WalletState & WalletActions {
           status: p.status,
           timestamp: p.timestamp,
           description: p.description,
+          comment: p.comment,
           method: p.method,
           txid: p.txid,
           onchainVout: p.onchainVout,

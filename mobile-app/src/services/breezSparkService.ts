@@ -299,6 +299,8 @@ export interface TransactionInfo {
   status: 'pending' | 'completed' | 'failed';
   timestamp: number;
   description?: string;
+  /** LUD-12 message supplied by the payer, when Breez persists it for an LNURL payment. */
+  comment?: string;
   paymentRequest?: string;
   method?: 'lightning' | 'onchain';
   txid?: string;
@@ -319,6 +321,30 @@ export interface TransactionInfo {
     toAmount: number;
     toFee?: number;
   };
+}
+
+const MAX_DISPLAY_PAYMENT_COMMENT_LENGTH = 1_000;
+
+/**
+ * Breez exposes an LNURL payer message as `details.inner.lnurlPayInfo.comment`.
+ * Keep it separate from the provider/invoice description and never fall back to
+ * raw LNURL metadata, which may contain unrelated provider data.
+ */
+export function extractLnurlPaymentComment(payment: unknown): string | undefined {
+  if (!payment || typeof payment !== 'object') return undefined;
+  const details = (payment as { details?: unknown }).details;
+  if (!details || typeof details !== 'object') return undefined;
+  const typedDetails = details as { tag?: unknown; inner?: unknown };
+  if (String(typedDetails.tag).toLowerCase() !== 'lightning') return undefined;
+  if (!typedDetails.inner || typeof typedDetails.inner !== 'object') return undefined;
+  const lnurlPayInfo = (typedDetails.inner as { lnurlPayInfo?: unknown }).lnurlPayInfo;
+  if (!lnurlPayInfo || typeof lnurlPayInfo !== 'object') return undefined;
+  const value = (lnurlPayInfo as { comment?: unknown }).comment;
+  if (typeof value !== 'string') return undefined;
+  const comment = value.trim();
+  return comment.length > 0 && comment.length <= MAX_DISPLAY_PAYMENT_COMMENT_LENGTH
+    ? comment
+    : undefined;
 }
 
 export interface DepositInfo {
@@ -2362,6 +2388,7 @@ export async function listPayments(): Promise<TransactionInfo[]> {
       }
 
       const description = payment.details?.inner?.description || payment.details?.description || payment.description || '';
+      const comment = extractLnurlPaymentComment(payment);
 
       // RN SDK: method is numeric (0=lightning, 3=deposit, others TBD), details uses {tag, inner}
       // Web SDK: method is string ("lightning", "deposit"), details uses {type, txId}
@@ -2480,6 +2507,7 @@ export async function listPayments(): Promise<TransactionInfo[]> {
         status: mappedStatus,
         timestamp: timestamp || Date.now(),
         description,
+        comment,
         method,
         txid: txid ? String(txid) : undefined,
         onchainVout: Number.isInteger(onchainVout) && (onchainVout as number) >= 0
@@ -2542,7 +2570,8 @@ export async function getPayment(paymentId: string): Promise<TransactionInfo | n
         feeSat,
         status: mapPaymentStatus(p.status),
         timestamp,
-        description: p.description,
+        description: p.details?.inner?.description || p.description,
+        comment: extractLnurlPaymentComment(p),
       };
     }
     return null;

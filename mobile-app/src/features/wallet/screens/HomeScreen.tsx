@@ -311,6 +311,10 @@ export function HomeScreen(): React.JSX.Element {
       setSelectedTxComment(null);
       return;
     }
+    if (selectedTransaction.type === 'receive') {
+      setSelectedTxComment(selectedTransaction.comment || null);
+      return;
+    }
     loadPaymentComment(activeWalletInfo, selectedTransaction.id)
       .then(setSelectedTxComment)
       .catch(() => setSelectedTxComment(null));

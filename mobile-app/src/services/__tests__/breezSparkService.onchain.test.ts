@@ -288,6 +288,37 @@ describe('BreezSparkService LNURL comments', () => {
   });
 });
 
+describe('BreezSparkService received LNURL comment mapping', () => {
+  it('maps only the documented Lightning lnurlPayInfo comment', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockListPayments.mockResolvedValueOnce({
+      payments: [{
+        id: 'incoming-lud12-comment', paymentType: 'receive', status: 'succeeded',
+        amount: 42n, fees: 0n, timestamp: 1n, method: 0,
+        details: { tag: 'Lightning', inner: {
+          description: 'Invoice description',
+          lnurlPayInfo: { comment: 'Thanks for dinner', metadata: '["text/plain","ignore"]' },
+        } },
+      }],
+    });
+
+    await expect(svc.listPayments()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'incoming-lud12-comment', type: 'receive',
+        description: 'Invoice description', comment: 'Thanks for dinner',
+      }),
+    ]));
+  });
+
+  it('does not expose malformed, oversized, or non-Lightning metadata as a comment', () => {
+    const { extractLnurlPaymentComment } = require('../breezSparkService');
+    expect(extractLnurlPaymentComment({ details: { tag: 'Lightning', inner: { lnurlPayInfo: { comment: '  ' } } } })).toBeUndefined();
+    expect(extractLnurlPaymentComment({ details: { tag: 'Lightning', inner: { lnurlPayInfo: { comment: 'x'.repeat(1001) } } } })).toBeUndefined();
+    expect(extractLnurlPaymentComment({ details: { tag: 'Token', inner: { lnurlPayInfo: { comment: 'not a payment message' } } } })).toBeUndefined();
+  });
+});
+
 describe('BreezSparkService.getPayment', () => {
   beforeEach(() => {
     jest.clearAllMocks();

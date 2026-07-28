@@ -80,4 +80,17 @@ describe('TransactionHistoryScreen comment details', () => {
     await waitFor(() => expect(screen.getByText('payments.description')).toBeTruthy());
     expect(screen.queryByText('wallet.comment')).toBeNull();
   });
+
+  it('renders a received LUD-12 comment from the refreshed transaction', async () => {
+    const transaction = {
+      id: 'received-lud12-comment', type: 'receive', method: 'lightning', status: 'completed',
+      amount: 100, timestamp: Date.now(), description: 'Invoice description', comment: 'Thank you!',
+    };
+    mockRows = [{ id: transaction.id, transaction, displayType: 'receive', displayAmount: 100, displayDescription: transaction.description, isSwap: false }];
+    render(<TransactionHistoryScreen />);
+
+    fireEvent.press(await screen.findByText('Invoice description'));
+    await waitFor(() => expect(screen.getByText('wallet.comment')).toBeTruthy());
+    expect(screen.getByText('Thank you!')).toBeTruthy();
+  });
 });

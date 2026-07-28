@@ -788,4 +788,22 @@ describe('HomeScreen quick actions', () => {
       expect(screen.getByText('Lunch reimbursement')).toBeTruthy();
     });
   });
+
+  it('renders a received LUD-12 comment from a refreshed transaction', async () => {
+    const transaction = {
+      id: 'received-comment-home', type: 'receive', method: 'lightning', status: 'completed',
+      amount: 100, timestamp: Date.now(), description: 'Invoice description', comment: 'Coffee, thank you!',
+    };
+    mockTransactionRows = [{
+      id: transaction.id, transaction, displayType: 'receive', displayAmount: 100,
+      displayDescription: transaction.description, isSwap: false,
+    }];
+
+    render(<HomeScreen />);
+    await waitFor(() => expect(screen.getByText('Invoice description')).toBeTruthy());
+    fireEvent.press(screen.getByText('Invoice description'));
+
+    await waitFor(() => expect(screen.getByText('wallet.comment')).toBeTruthy());
+    expect(screen.getByText('Coffee, thank you!')).toBeTruthy();
+  });
 });

@@ -130,6 +130,8 @@ export interface Transaction {
   type: 'send' | 'receive';
   amount: number;
   description?: string;
+  /** Recipient-visible LUD-12 payer message supplied by Breez, if available. */
+  comment?: string;
   timestamp: number;
   status: 'pending' | 'completed' | 'failed';
   paymentHash?: string;

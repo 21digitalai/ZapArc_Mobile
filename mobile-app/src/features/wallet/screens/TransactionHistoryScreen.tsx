@@ -88,9 +88,13 @@ export function TransactionHistoryScreen(): React.JSX.Element {
       return;
     }
     const id = selectedTransaction.id;
-    loadPaymentComment(activeWalletInfo, id)
-      .then((note) => setSelectedTxNote(note))
-      .catch(() => setSelectedTxNote(null));
+    if (selectedTransaction.type === 'receive') {
+      setSelectedTxNote(selectedTransaction.comment || null);
+    } else {
+      loadPaymentComment(activeWalletInfo, id)
+        .then((note) => setSelectedTxNote(note))
+        .catch(() => setSelectedTxNote(null));
+    }
     AsyncStorage.getItem(`payment_recipient_${id}`)
       .then((r) => setSelectedTxRecipient(r))
       .catch(() => setSelectedTxRecipient(null));
