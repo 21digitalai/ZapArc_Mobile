@@ -251,12 +251,12 @@ export async function mergeImportedContacts(
   const now = Date.now();
 
   for (const c of incoming) {
-    const address = typeof c?.lightningAddress === 'string' ? c.lightningAddress.trim() : '';
-    if (!address) {
+    const sanitized = sanitizeImportedContact(c);
+    if (!sanitized) {
       skipped++;
       continue;
     }
-    const key = normalizeLightningAddress(address);
+    const key = normalizeLightningAddress(sanitized.lightningAddress);
     if (seen.has(key)) {
       skipped++;
       continue;
@@ -264,12 +264,8 @@ export async function mergeImportedContacts(
     seen.add(key);
     existing.push({
       id: generateUUID(),
-      name: typeof c.name === 'string' ? c.name.trim() : '',
-      lightningAddress: address,
-      sparkAddress: c.sparkAddress?.trim() || undefined,
-      preferredAsset: c.preferredAsset,
-      notes: c.notes?.trim() || undefined,
-      createdAt: typeof c.createdAt === 'number' ? c.createdAt : now,
+      ...sanitized,
+      createdAt: sanitized.createdAt || now,
       updatedAt: now,
     });
     added++;
@@ -279,6 +275,28 @@ export async function mergeImportedContacts(
     await saveContacts(existing);
   }
   return { added, skipped };
+}
+
+/**
+ * Validates and normalizes a contact loaded from an encrypted backup before it
+ * can enter local storage. Imported ids and timestamps are intentionally not
+ * trusted; mergeImportedContacts creates fresh local identities.
+ */
+export function sanitizeImportedContact(value: unknown): Omit<Contact, 'id' | 'updatedAt'> | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const raw = value as Partial<Contact>;
+  const input: CreateContactInput = {
+    name: typeof raw.name === 'string' ? raw.name.trim() : '',
+    lightningAddress: typeof raw.lightningAddress === 'string' ? raw.lightningAddress.trim() : '',
+    sparkAddress: typeof raw.sparkAddress === 'string' ? raw.sparkAddress.trim() || undefined : undefined,
+    preferredAsset: raw.preferredAsset === 'BTC' || raw.preferredAsset === 'USDB' ? raw.preferredAsset : undefined,
+    notes: typeof raw.notes === 'string' ? raw.notes.trim() || undefined : undefined,
+  };
+  if (!validateContactInput(input).isValid) return null;
+  return {
+    ...input,
+    createdAt: typeof raw.createdAt === 'number' && Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now(),
+  };
 }
 
 /**
@@ -317,4 +335,5 @@ export const contactService = {
   updateContact,
   deleteContact,
   mergeImportedContacts,
+  sanitizeImportedContact,
 };

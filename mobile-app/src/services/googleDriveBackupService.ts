@@ -20,6 +20,7 @@ import {
   type EncryptedBackup,
 } from './backupEncryption';
 import type { Contact } from '../features/addressBook/types';
+import { sanitizeImportedContact } from '../features/addressBook/services/contactService';
 
 // =============================================================================
 // Types
@@ -38,6 +39,7 @@ export interface BackupMetadata {
   walletName?: string;
   size: number;
   seedFingerprint?: string;
+  contactsIncluded?: boolean;
 }
 
 interface DriveFile {
@@ -47,6 +49,7 @@ interface DriveFile {
   size?: string;
   appProperties?: {
     seedFingerprint?: string;
+    contactsIncluded?: string;
   };
 }
 
@@ -427,6 +430,7 @@ class GoogleDriveBackupService {
         description: `ZapArc wallet backup: ${walletName || 'Unknown wallet'}`,
         appProperties: {
           seedFingerprint,
+          contactsIncluded: options?.contacts && options.contacts.length > 0 ? 'true' : 'false',
         },
       };
       if (!existingBackup) {
@@ -540,6 +544,7 @@ class GoogleDriveBackupService {
             walletName,
             size: parseInt(file.size || '0', 10),
             seedFingerprint: file.appProperties?.seedFingerprint,
+            contactsIncluded: file.appProperties?.contactsIncluded === 'true',
           };
         });
 
@@ -557,7 +562,7 @@ class GoogleDriveBackupService {
   async restoreBackup(
     backupId: string,
     password: string
-  ): Promise<{ success: boolean; mnemonic?: string; walletName?: string; contacts?: Contact[]; error?: string }> {
+  ): Promise<{ success: boolean; mnemonic?: string; walletName?: string; contacts?: Contact[]; contactsRestoreWarning?: boolean; error?: string }> {
     try {
       console.log('📥 [GoogleDrive] Restoring backup...');
 
@@ -606,21 +611,29 @@ class GoogleDriveBackupService {
       // Optionally decrypt the contacts section if this backup carried one.
       // Non-fatal: a contacts-decrypt failure must never block the seed restore.
       let contacts: Contact[] | undefined;
+      let contactsRestoreWarning = false;
       if (backupData.contacts) {
         try {
           const json = await decryptStringBlob(backupData.contacts, password);
           const parsed = JSON.parse(json);
           if (Array.isArray(parsed)) {
-            contacts = parsed as Contact[];
+            contacts = parsed
+              .map(sanitizeImportedContact)
+              .filter((contact): contact is NonNullable<typeof contact> => contact !== null)
+              .map((contact, index) => ({ ...contact, id: `backup-${index}`, updatedAt: contact.createdAt }));
+            contactsRestoreWarning = contacts.length !== parsed.length;
             console.log(`🔓 [GoogleDrive] Restored ${contacts.length} contacts from backup`);
+          } else {
+            contactsRestoreWarning = true;
           }
         } catch (contactsError) {
           console.warn('⚠️ [GoogleDrive] Could not decrypt contacts section:', contactsError);
+          contactsRestoreWarning = true;
         }
       }
 
       console.log('✅ [GoogleDrive] Backup restored successfully');
-      return { success: true, mnemonic, walletName: backupData.walletName, contacts };
+      return { success: true, mnemonic, walletName: backupData.walletName, contacts, contactsRestoreWarning };
     } catch (error) {
       console.error('❌ [GoogleDrive] Restore backup failed:', error);
       return {

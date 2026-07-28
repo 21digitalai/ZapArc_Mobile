@@ -55,6 +55,7 @@ import {
   type BackupMetadata,
 } from '../../../../services/googleDriveBackupService';
 import { contactService, refreshContactsStore } from '../../../addressBook';
+import { sanitizeImportedContact } from '../../../addressBook/services/contactService';
 import type { Contact } from '../../../addressBook/types';
 import { CONTACTS_BACKUP_ENABLED } from '../../../../config/features';
 import {
@@ -615,6 +616,9 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
         // Hold any contacts found in the backup until after the wallet import,
         // then offer to merge them (see handleConfirmImport).
         setRestoredContacts(result.contacts && result.contacts.length > 0 ? result.contacts : null);
+        if (result.contactsRestoreWarning) {
+          Alert.alert(t('cloudBackup.partialRestoreTitle'), t('cloudBackup.partialRestoreBody'));
+        }
         setRestorePin('');
         setConfirmRestorePin('');
         setShowPinModal(true);
@@ -693,9 +697,18 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
         try {
           const json = await decryptStringBlob(contactsBlob, password);
           const parsed = JSON.parse(json);
-          if (Array.isArray(parsed) && parsed.length > 0) fileContacts = parsed as Contact[];
+          if (Array.isArray(parsed)) {
+            fileContacts = parsed
+              .map(sanitizeImportedContact)
+              .filter((contact): contact is NonNullable<typeof contact> => contact !== null)
+              .map((contact, index) => ({ ...contact, id: `backup-${index}`, updatedAt: contact.createdAt }));
+            if (fileContacts.length !== parsed.length) {
+              Alert.alert(t('cloudBackup.partialRestoreTitle'), t('cloudBackup.partialRestoreBody'));
+            }
+          }
         } catch (contactsErr) {
           console.warn('⚠️ [Restore] Could not decrypt contacts from file:', contactsErr);
+          Alert.alert(t('cloudBackup.partialRestoreTitle'), t('cloudBackup.partialRestoreBody'));
         }
       }
 
@@ -1195,6 +1208,11 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                                 <Text style={[styles.backupDate, { color: secondaryText }]}>
                                   {formatDate(matchedBackup.timestamp)}
                                 </Text>
+                                {matchedBackup.contactsIncluded && (
+                                  <Text style={[styles.backupDate, { color: secondaryText }]}>
+                                    {t('cloudBackup.contactsIncluded')}
+                                  </Text>
+                                )}
                               </View>
                             ) : (
                               <Text style={[styles.walletStatusText, { color: '#ffb74d' }]}>
@@ -1258,6 +1276,11 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                             <Text style={[styles.backupDate, { color: secondaryText }]}>
                               {formatDate(backup.timestamp)}
                             </Text>
+                            {backup.contactsIncluded && (
+                              <Text style={[styles.backupDate, { color: secondaryText }]}>
+                                {t('cloudBackup.contactsIncluded')}
+                              </Text>
+                            )}
                           </View>
                           <View style={styles.backupActions}>
                             <TouchableOpacity

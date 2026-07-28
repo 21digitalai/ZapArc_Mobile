@@ -77,4 +77,4 @@ export const MULTI_ASSET_UI_ENABLED = false as boolean;
  * just hides the option and ensures no contacts are written to backups for now.
  * Flip to `true` to ship the feature.
  */
-export const CONTACTS_BACKUP_ENABLED = false as boolean;
+export const CONTACTS_BACKUP_ENABLED = true as boolean;
