@@ -643,6 +643,30 @@ class GoogleDriveBackupService {
     }
   }
 
+  /** Downloads/decrypts only optional contacts; never restores wallet seed data. */
+  async restoreContacts(backupId: string, password: string): Promise<{ success: boolean; contacts?: Contact[]; contactsRestoreWarning?: boolean; error?: string }> {
+    try {
+      const accessToken = await this.getValidAccessToken();
+      const response = await fetch(`${DRIVE_API.FILES}/${backupId}?alt=media`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) throw new Error('Failed to download backup');
+      const backupData = await response.json();
+      if (!validateBackupStructure(backupData)) return { success: false, error: 'Invalid backup file format' };
+      if (!backupData.contacts) return { success: true, contacts: [] };
+      try {
+        const parsed = JSON.parse(await decryptStringBlob(backupData.contacts, password));
+        if (!Array.isArray(parsed)) return { success: true, contacts: [], contactsRestoreWarning: true };
+        const contacts = parsed.map(sanitizeImportedContact)
+          .filter((contact): contact is NonNullable<typeof contact> => contact !== null)
+          .map((contact, index) => ({ ...contact, id: `backup-${index}`, updatedAt: contact.createdAt }));
+        return { success: true, contacts, contactsRestoreWarning: contacts.length !== parsed.length };
+      } catch {
+        return { success: false, error: 'Incorrect password or unreadable contacts section' };
+      }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to download contacts' };
+    }
+  }
+
   /**
    * Delete a backup from Google Drive
    */

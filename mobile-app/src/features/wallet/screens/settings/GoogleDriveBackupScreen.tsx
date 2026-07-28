@@ -139,7 +139,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
 
   // Modal state
   const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [modalMode, setModalMode] = useState<'create' | 'restore'>('create');
+  const [modalMode, setModalMode] = useState<'create' | 'restore' | 'sync'>('create');
 
   // Password sheet slide-in animation. We drive the backdrop opacity and the
   // sheet's translateY off one Animated.Value (like AssetPickerSheet) and use
@@ -598,6 +598,39 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     setShowPasswordModal(true);
   };
 
+  const handleSyncContacts = (backup: BackupMetadata): void => {
+    setSelectedBackup(backup);
+    setModalMode('sync');
+    setPassword('');
+    setShowPasswordModal(true);
+  };
+
+  const handleConfirmContactSync = async (): Promise<void> => {
+    if (!selectedBackup) return;
+    setIsProcessing(true);
+    try {
+      const result = await googleDriveBackupService.restoreContacts(selectedBackup.id, password);
+      if (!result.success) {
+        Alert.alert(t('common.error'), result.error || t('cloudBackup.contactsSyncFailed'));
+        return;
+      }
+      setShowPasswordModal(false);
+      setPassword('');
+      if (result.contactsRestoreWarning) Alert.alert(t('cloudBackup.partialRestoreTitle'), t('cloudBackup.partialRestoreBody'));
+      if (!result.contacts || result.contacts.length === 0) {
+        Alert.alert(t('cloudBackup.contactsSyncTitle'), t('cloudBackup.noContactsInBackup'));
+        return;
+      }
+      const { added, skipped } = await contactService.mergeImportedContacts(result.contacts);
+      await refreshContactsStore();
+      Alert.alert(t('cloudBackup.contactsSyncTitle'), t('cloudBackup.mergeContactsResult').replace('{{added}}', String(added)).replace('{{skipped}}', String(skipped)));
+    } catch {
+      Alert.alert(t('common.error'), t('cloudBackup.contactsSyncFailed'));
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleConfirmRestore = async (): Promise<void> => {
     if (!selectedBackup) return;
 
@@ -1047,7 +1080,9 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
               onPress={
                 modalMode === 'create'
                   ? handleConfirmCreateBackup
-                  : fileBackupData
+                  : modalMode === 'sync'
+                    ? handleConfirmContactSync
+                    : fileBackupData
                     ? handleConfirmFileRestore
                     : handleConfirmRestore
               }
@@ -1060,7 +1095,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
               style={[styles.modalButton, { backgroundColor: BRAND_COLOR }]}
               labelStyle={{ color: '#1a1a2e' }}
             >
-              {modalMode === 'create' ? t('cloudBackup.createBackup') : t('cloudBackup.restore')}
+              {modalMode === 'create' ? t('cloudBackup.createBackup') : modalMode === 'sync' ? t('cloudBackup.syncContacts') : t('cloudBackup.restore')}
             </Button>
           </View>
       </Animated.View>
@@ -1232,6 +1267,11 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                             >
                               {matchedBackup ? 'Update Backup' : 'Back Up Now'}
                             </Button>
+                            {matchedBackup && (
+                              <Button mode="outlined" onPress={() => handleSyncContacts(matchedBackup)} icon="contacts" compact style={[styles.walletActionBtn, { borderColor: BRAND_COLOR, marginLeft: 8 }]} textColor={BRAND_COLOR}>
+                                {t('cloudBackup.syncContacts')}
+                              </Button>
+                            )}
                             {matchedBackup && (
                               <Button
                                 mode="outlined"
