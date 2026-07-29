@@ -148,7 +148,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
 
   // Modal state
   const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [modalMode, setModalMode] = useState<'create' | 'restore' | 'sync'>('create');
+  const [modalMode, setModalMode] = useState<'create' | 'replace' | 'restore' | 'sync'>('create');
 
   // Password sheet slide-in animation. We drive the backdrop opacity and the
   // sheet's translateY off one Animated.Value (like AssetPickerSheet) and use
@@ -216,6 +216,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
   const [pendingBackupContext, setPendingBackupContext] = useState<{
     targetKeyId: string;
     password: string;
+    existingBackupPassword?: string;
   } | null>(null);
 
   // ==========================================================================
@@ -438,7 +439,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     }
 
     // Show password modal
-    setModalMode('create');
+    setModalMode(getWalletBackupById(targetId) ? 'replace' : 'create');
     setPassword('');
     setConfirmPassword('');
     setShowPasswordModal(true);
@@ -474,7 +475,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
   // called from both the happy path (session/biometric) and the manual PIN
   // prompt fallback.
   const performBackup = useCallback(
-    async (targetKeyId: string, backupPassword: string, pin: string): Promise<void> => {
+    async (targetKeyId: string, backupPassword: string, pin: string, existingBackupPassword?: string): Promise<void> => {
       const targetKey = masterKeys.find((k) => k.id === targetKeyId);
       if (!targetKey) {
         Alert.alert(t('common.error'), 'No wallet found');
@@ -491,7 +492,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
         } catch {
           Alert.alert(t('common.error'), 'Incorrect PIN');
           // Re-open manual prompt so the user can try again.
-          setPendingBackupContext({ targetKeyId, password: backupPassword });
+          setPendingBackupContext({ targetKeyId, password: backupPassword, existingBackupPassword });
           setBackupManualPin('');
           setBackupPinPromptVisible(true);
           return;
@@ -517,7 +518,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
           backupPassword,
           targetKey.id,
           targetKey.nickname,
-          { contacts: contactsToBackup }
+          { contacts: contactsToBackup, existingBackupPassword }
         );
 
         if (result.success) {
@@ -570,13 +571,13 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     // enabled), fall back to asking the user to enter their PIN.
     const pin = await resolveBackupPin(targetKey.id);
     if (!pin) {
-      setPendingBackupContext({ targetKeyId: targetKey.id, password });
+      setPendingBackupContext({ targetKeyId: targetKey.id, password, existingBackupPassword: modalMode === 'replace' ? password : undefined });
       setBackupManualPin('');
       setBackupPinPromptVisible(true);
       return;
     }
 
-    await performBackup(targetKey.id, password, pin);
+    await performBackup(targetKey.id, password, pin, modalMode === 'replace' ? password : undefined);
   };
 
   const handleBackupPinSubmit = useCallback(async (): Promise<void> => {
@@ -588,12 +589,12 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
       Alert.alert(t('common.error'), `PIN must be ${WALLET_PIN_LENGTH} digits`);
       return;
     }
-    const { targetKeyId, password: backupPassword } = pendingBackupContext;
+    const { targetKeyId, password: backupPassword, existingBackupPassword } = pendingBackupContext;
     setBackupPinPromptVisible(false);
     setPendingBackupContext(null);
     const pin = backupManualPin;
     setBackupManualPin('');
-    await performBackup(targetKeyId, backupPassword, pin);
+    await performBackup(targetKeyId, backupPassword, pin, existingBackupPassword);
   }, [pendingBackupContext, backupManualPin, performBackup, t]);
 
   const handleBackupPinCancel = useCallback((): void => {
@@ -963,12 +964,14 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
             contentContainerStyle={styles.modalScrollContent}
           >
           <Text style={[styles.modalTitle, { color: primaryText }]}>
-            {modalMode === 'create'
+          {modalMode === 'create'
               ? t('cloudBackup.enterBackupPassword')
+              : modalMode === 'replace'
+                ? 'Verify current backup password'
               : t('cloudBackup.enterRestorePassword')}
           </Text>
 
-          {modalMode === 'create' && (
+          {(modalMode === 'create' || modalMode === 'replace') && (
             <View style={styles.warningBanner}>
               <Text style={styles.warningIcon}>⚠️</Text>
               <Text style={[styles.warningText, { color: secondaryText }]}>
@@ -1090,7 +1093,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
             <Button
               mode="contained"
               onPress={
-                modalMode === 'create'
+                modalMode === 'create' || modalMode === 'replace'
                   ? handleConfirmCreateBackup
                   : modalMode === 'sync'
                     ? handleConfirmContactSync
@@ -1107,7 +1110,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
               style={[styles.modalButton, { backgroundColor: BRAND_COLOR }]}
               labelStyle={{ color: '#1a1a2e' }}
             >
-              {modalMode === 'create' ? t('cloudBackup.createBackup') : modalMode === 'sync' ? t('cloudBackup.syncContacts') : t('cloudBackup.restore')}
+              {modalMode === 'create' ? t('cloudBackup.createBackup') : modalMode === 'replace' ? 'Replace backup' : modalMode === 'sync' ? t('cloudBackup.syncContacts') : t('cloudBackup.restore')}
             </Button>
           </View>
       </Animated.View>

@@ -387,27 +387,12 @@ class GoogleDriveBackupService {
     password: string,
     walletId: string,
     walletName?: string,
-    options?: { contacts?: Contact[] }
+    options?: { contacts?: Contact[]; existingBackupPassword?: string }
   ): Promise<{ success: boolean; error?: string }> {
     try {
       console.log('📤 [GoogleDrive] Creating backup...');
 
       const seedFingerprint = await this.getSeedFingerprint(mnemonic);
-
-      // Encrypt the mnemonic
-      const encryptedBackup = await encryptMnemonic(mnemonic, password, walletName);
-      encryptedBackup.seedFingerprint = seedFingerprint;
-
-      // Optionally attach the (separately-encrypted) contacts section. Encrypted
-      // with the same password but its own salt/IV, so it stays private and is
-      // ignored by older app builds that don't know the field.
-      if (options?.contacts && options.contacts.length > 0) {
-        encryptedBackup.contacts = await encryptStringBlob(
-          JSON.stringify(options.contacts),
-          password
-        );
-        console.log(`🔐 [GoogleDrive] Attached ${options.contacts.length} contacts to backup`);
-      }
 
       // Get valid access token and backup folder
       const accessToken = await this.getValidAccessToken();
@@ -417,6 +402,25 @@ class GoogleDriveBackupService {
       const existingBackup = existingBackups.find(
         (backup) => backup.seedFingerprint === seedFingerprint
       );
+
+      if (existingBackup) {
+        if (!options?.existingBackupPassword) {
+          return { success: false, error: 'Enter the current backup password before replacing this backup.' };
+        }
+        const verification = await this.restoreBackup(existingBackup.id, options.existingBackupPassword);
+        if (!verification.success) {
+          return { success: false, error: 'Incorrect password. The existing backup was not changed.' };
+        }
+        password = options.existingBackupPassword;
+      }
+
+      // Encrypt only after the existing Drive file (if any) has been verified.
+      const encryptedBackup = await encryptMnemonic(mnemonic, password, walletName);
+      encryptedBackup.seedFingerprint = seedFingerprint;
+      if (options?.contacts && options.contacts.length > 0) {
+        encryptedBackup.contacts = await encryptStringBlob(JSON.stringify(options.contacts), password);
+        console.log(`🔐 [GoogleDrive] Attached ${options.contacts.length} contacts to backup`);
+      }
 
       // Create file name — include wallet name for easy identification
       const safeName = (walletName || 'Wallet').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);

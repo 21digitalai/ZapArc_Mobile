@@ -1,4 +1,5 @@
 jest.mock('../backupEncryption', () => ({
+  encryptMnemonic: jest.fn().mockResolvedValue({ version: 3, ciphertext: 'encrypted' }),
   decryptStringBlob: jest.fn(),
   validateBackupStructure: jest.fn(() => true),
   isEncryptionAvailable: jest.fn(() => true),
@@ -59,5 +60,24 @@ describe('Google Drive contacts-only sync', () => {
       success: false,
       error: expectedError,
     });
+  });
+});
+
+describe('Google Drive replacement password guard', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (googleDriveBackupService as unknown as { getValidAccessToken: jest.Mock }).getValidAccessToken = jest.fn().mockResolvedValue('token');
+    (googleDriveBackupService as unknown as { getOrCreateBackupFolder: jest.Mock }).getOrCreateBackupFolder = jest.fn().mockResolvedValue('folder');
+    (googleDriveBackupService as unknown as { getSeedFingerprint: jest.Mock }).getSeedFingerprint = jest.fn().mockResolvedValue('fingerprint');
+    (googleDriveBackupService as unknown as { listBackups: jest.Mock }).listBackups = jest.fn().mockResolvedValue([{ id: 'existing', seedFingerprint: 'fingerprint' }]);
+  });
+
+  it('does not upload when verification is absent or fails', async () => {
+    const restore = jest.spyOn(googleDriveBackupService, 'restoreBackup').mockResolvedValue({ success: false, error: 'Incorrect password' });
+    global.fetch = jest.fn() as jest.Mock;
+    await expect(googleDriveBackupService.createBackup('valid mnemonic words', 'new-password', 'wallet')).resolves.toMatchObject({ success: false });
+    await expect(googleDriveBackupService.createBackup('valid mnemonic words', 'new-password', 'wallet', undefined, { existingBackupPassword: 'wrong' })).resolves.toMatchObject({ success: false });
+    expect(restore).toHaveBeenCalledWith('existing', 'wrong');
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });
