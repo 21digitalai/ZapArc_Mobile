@@ -148,7 +148,8 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
 
   // Modal state
   const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [modalMode, setModalMode] = useState<'create' | 'replace' | 'restore' | 'sync'>('create');
+  const [modalMode, setModalMode] = useState<'create' | 'replace' | 'changePassword' | 'restore' | 'sync'>('create');
+  const [currentBackupPassword, setCurrentBackupPassword] = useState('');
 
   // Password sheet slide-in animation. We drive the backdrop opacity and the
   // sheet's translateY off one Animated.Value (like AssetPickerSheet) and use
@@ -442,6 +443,20 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     setModalMode(getWalletBackupById(targetId) ? 'replace' : 'create');
     setPassword('');
     setConfirmPassword('');
+    setCurrentBackupPassword('');
+    setShowPasswordModal(true);
+  };
+
+  const handleChangeBackupPassword = async (masterKeyId: string): Promise<void> => {
+    const matchedBackup = getWalletBackupById(masterKeyId);
+    if (!matchedBackup) return;
+    setSelectedMasterKeyId(masterKeyId);
+    const authenticated = await authenticateUser();
+    if (!authenticated) return;
+    setModalMode('changePassword');
+    setCurrentBackupPassword('');
+    setPassword('');
+    setConfirmPassword('');
     setShowPasswordModal(true);
   };
 
@@ -549,12 +564,12 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     if (!targetKey) return;
 
     // Validate password
-    if (!passwordStrength?.isValid) {
+    if (modalMode !== 'replace' && !passwordStrength?.isValid) {
       Alert.alert(t('common.error'), t('cloudBackup.passwordTooWeak'));
       return;
     }
 
-    if (password !== confirmPassword) {
+    if (modalMode !== 'replace' && password !== confirmPassword) {
       Alert.alert(t('common.error'), t('cloudBackup.passwordMismatch'));
       return;
     }
@@ -571,13 +586,13 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     // enabled), fall back to asking the user to enter their PIN.
     const pin = await resolveBackupPin(targetKey.id);
     if (!pin) {
-      setPendingBackupContext({ targetKeyId: targetKey.id, password, existingBackupPassword: modalMode === 'replace' ? password : undefined });
+      setPendingBackupContext({ targetKeyId: targetKey.id, password, existingBackupPassword: modalMode === 'replace' ? password : modalMode === 'changePassword' ? currentBackupPassword : undefined });
       setBackupManualPin('');
       setBackupPinPromptVisible(true);
       return;
     }
 
-    await performBackup(targetKey.id, password, pin, modalMode === 'replace' ? password : undefined);
+    await performBackup(targetKey.id, password, pin, modalMode === 'replace' ? password : modalMode === 'changePassword' ? currentBackupPassword : undefined);
   };
 
   const handleBackupPinSubmit = useCallback(async (): Promise<void> => {
@@ -968,10 +983,12 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
               ? t('cloudBackup.enterBackupPassword')
               : modalMode === 'replace'
                 ? 'Verify current backup password'
+                : modalMode === 'changePassword'
+                  ? 'Change backup password'
               : t('cloudBackup.enterRestorePassword')}
           </Text>
 
-          {(modalMode === 'create' || modalMode === 'replace') && (
+          {(modalMode === 'create' || modalMode === 'replace' || modalMode === 'changePassword') && (
             <View style={styles.warningBanner}>
               <Text style={styles.warningIcon}>⚠️</Text>
               <Text style={[styles.warningText, { color: secondaryText }]}>
@@ -979,11 +996,16 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
               </Text>
             </View>
           )}
+          {modalMode === 'replace' && (
+            <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>
+              Forgot the current password? Delete this backup first, then create a new backup. It cannot be overwritten without verification.
+            </Text>
+          )}
 
           <StyledTextInput
-            label={t('cloudBackup.password')}
-            value={password}
-            onChangeText={setPassword}
+            label={modalMode === 'changePassword' ? 'Current backup password' : t('cloudBackup.password')}
+            value={modalMode === 'changePassword' ? currentBackupPassword : password}
+            onChangeText={modalMode === 'changePassword' ? setCurrentBackupPassword : setPassword}
             secureTextEntry={!showPassword}
             // No inputAccessoryViewID here: a Done-bar InputAccessoryView on an
             // iOS secureTextEntry field makes the keyboard flicker (hide→show)
@@ -1003,8 +1025,22 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
             }
           />
 
-          {modalMode === 'create' && (
+          {(modalMode === 'create' || modalMode === 'changePassword') && (
             <>
+              {modalMode === 'changePassword' && (
+                <StyledTextInput
+                  label="New backup password"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  returnKeyType="done"
+                  autoComplete="off"
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                  textContentType="none"
+                  style={styles.input}
+                />
+              )}
               {passwordStrength && (
                 <View style={styles.strengthContainer}>
                   <ProgressBar
@@ -1083,6 +1119,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                 setShowPasswordModal(false);
                 setPassword('');
                 setConfirmPassword('');
+                setCurrentBackupPassword('');
                 setFileBackupData(null);
               }}
               style={styles.modalButton}
@@ -1093,7 +1130,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
             <Button
               mode="contained"
               onPress={
-                modalMode === 'create' || modalMode === 'replace'
+                modalMode === 'create' || modalMode === 'replace' || modalMode === 'changePassword'
                   ? handleConfirmCreateBackup
                   : modalMode === 'sync'
                     ? handleConfirmContactSync
@@ -1105,12 +1142,13 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
               disabled={
                 isProcessing ||
                 !password ||
-                (modalMode === 'create' && !confirmPassword)
+                ((modalMode === 'create' || modalMode === 'changePassword') && !confirmPassword) ||
+                (modalMode === 'changePassword' && !currentBackupPassword)
               }
               style={[styles.modalButton, { backgroundColor: BRAND_COLOR }]}
               labelStyle={{ color: '#1a1a2e' }}
             >
-              {modalMode === 'create' ? t('cloudBackup.createBackup') : modalMode === 'replace' ? 'Replace backup' : modalMode === 'sync' ? t('cloudBackup.syncContacts') : t('cloudBackup.restore')}
+              {modalMode === 'create' ? t('cloudBackup.createBackup') : modalMode === 'replace' ? 'Replace backup' : modalMode === 'changePassword' ? 'Change password' : modalMode === 'sync' ? t('cloudBackup.syncContacts') : t('cloudBackup.restore')}
             </Button>
           </View>
       </Animated.View>
@@ -1285,6 +1323,18 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                             {matchedBackup && (
                               <Button mode="outlined" onPress={() => handleSyncContacts(matchedBackup)} icon="contacts" compact style={[styles.walletActionBtn, { borderColor: BRAND_COLOR, marginLeft: 8 }]} textColor={BRAND_COLOR}>
                                 {t('cloudBackup.syncContacts')}
+                              </Button>
+                            )}
+                            {matchedBackup && (
+                              <Button
+                                mode="outlined"
+                                onPress={() => handleChangeBackupPassword(key.id)}
+                                icon="key-change"
+                                compact
+                                style={[styles.walletActionBtn, { borderColor: BRAND_COLOR, marginLeft: 8 }]}
+                                textColor={BRAND_COLOR}
+                              >
+                                Change Password
                               </Button>
                             )}
                             {matchedBackup && (

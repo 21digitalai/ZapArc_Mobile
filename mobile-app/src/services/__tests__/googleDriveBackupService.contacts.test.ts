@@ -5,7 +5,7 @@ jest.mock('../backupEncryption', () => ({
   isEncryptionAvailable: jest.fn(() => true),
 }));
 
-import { decryptStringBlob } from '../backupEncryption';
+import { decryptStringBlob, encryptMnemonic } from '../backupEncryption';
 import { googleDriveBackupService } from '../googleDriveBackupService';
 
 const mockedDecrypt = decryptStringBlob as jest.MockedFunction<typeof decryptStringBlob>;
@@ -79,5 +79,17 @@ describe('Google Drive replacement password guard', () => {
     await expect(googleDriveBackupService.createBackup('valid mnemonic words', 'new-password', 'wallet', undefined, { existingBackupPassword: 'wrong' })).resolves.toMatchObject({ success: false });
     expect(restore).toHaveBeenCalledWith('existing', 'wrong');
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('re-encrypts with the requested new password after verifying the current one', async () => {
+    jest.spyOn(googleDriveBackupService, 'restoreBackup').mockResolvedValue({ success: true, mnemonic: 'valid mnemonic words' });
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'existing' }) }) as jest.Mock;
+
+    await expect(googleDriveBackupService.createBackup(
+      'valid mnemonic words', 'new-password', 'wallet', undefined, { existingBackupPassword: 'current-password' }
+    )).resolves.toEqual({ success: true });
+
+    expect(encryptMnemonic).toHaveBeenCalledWith('valid mnemonic words', 'new-password', undefined);
+    expect(global.fetch).toHaveBeenCalled();
   });
 });

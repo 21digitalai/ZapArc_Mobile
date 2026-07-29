@@ -411,7 +411,6 @@ class GoogleDriveBackupService {
         if (!verification.success) {
           return { success: false, error: 'Incorrect password. The existing backup was not changed.' };
         }
-        password = options.existingBackupPassword;
       }
 
       // Encrypt only after the existing Drive file (if any) has been verified.

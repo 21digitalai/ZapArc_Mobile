@@ -23,7 +23,7 @@ jest.mock('../../../../../hooks/useWallet', () => ({ useWallet: () => ({ getMnem
 jest.mock('../../../../../hooks/useWalletAuth', () => ({ useWalletAuth: () => ({ selectWallet: jest.fn(), getSessionPin: jest.fn() }) }));
 jest.mock('../../../../../contexts/ThemeContext', () => ({ useAppTheme: () => ({ themeMode: 'dark' }) }));
 jest.mock('../../../../../hooks/useLanguage', () => ({ useLanguage: () => ({ t: (key: string) => key }) }));
-jest.mock('../../../../../services', () => ({ storageService: { loadMultiWalletStorage: jest.fn().mockResolvedValue({ masterKeys: [{ id: 'wallet-1' }] }) }, settingsService: {} }));
+jest.mock('../../../../../services', () => ({ storageService: { loadMultiWalletStorage: jest.fn().mockResolvedValue({ masterKeys: [{ id: 'wallet-1' }] }) }, settingsService: { getUserSettings: jest.fn().mockResolvedValue({ biometricEnabled: false }) } }));
 jest.mock('../../../../../services/googleDriveBackupService', () => ({
   googleDriveBackupService: {
     initialize: jest.fn().mockResolvedValue(undefined), restoreSession: jest.fn().mockResolvedValue(true),
@@ -103,5 +103,16 @@ describe('GoogleDriveBackupScreen contacts Sync flow', () => {
     await startSync();
     await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('common.error', 'cloudBackup.contactsSyncFailed'));
     expect(mockMergeImportedContacts).not.toHaveBeenCalled();
+  });
+});
+
+describe('GoogleDriveBackupScreen protected replacement flow', () => {
+  it('renders a current-password gate and delete-then-recreate recovery path', async () => {
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Update Backup')).toBeTruthy());
+    fireEvent.press(screen.getByText('Update Backup'));
+    await waitFor(() => expect(screen.getByText('Verify current backup password')).toBeTruthy());
+    expect(screen.getByText(/Delete this backup first, then create a new backup/)).toBeTruthy();
+    expect(screen.getByText('Replace backup')).toBeTruthy();
   });
 });
