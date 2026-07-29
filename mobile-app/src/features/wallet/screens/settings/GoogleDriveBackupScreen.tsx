@@ -927,28 +927,28 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     >
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContent, { backgroundColor: gradientColors[0] }]}>
-          <Text style={[styles.modalTitle, { color: primaryText }]}>Manage Backup</Text>
-          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>Choose how to manage this encrypted cloud copy.</Text>
+          <Text style={[styles.modalTitle, { color: primaryText }]}>{t('cloudBackup.manageBackup')}</Text>
+          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>{t('cloudBackup.manageBackupDescription')}</Text>
           <Button mode="contained" icon="cloud-upload" style={[styles.actionButton, { backgroundColor: BRAND_COLOR }]} labelStyle={{ color: '#1a1a2e' }} onPress={() => {
             setShowManageBackupModal(false);
             if (managedWalletId) void handleCreateBackup(managedWalletId);
-          }}>Replace Backup</Button>
-          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>Replace the cloud copy with this wallet's current data.</Text>
+          }}>{t('cloudBackup.replaceBackup')}</Button>
+          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>{t('cloudBackup.replaceBackupDescription')}</Text>
           <Button mode="outlined" icon="contacts" style={[styles.actionButton, { borderColor: BRAND_COLOR }]} textColor={BRAND_COLOR} onPress={() => {
             setShowManageBackupModal(false);
             if (managedBackup) handleSyncContacts(managedBackup);
-          }}>Restore Contacts</Button>
-          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>Merge missing cloud contacts into this phone. Local contacts stay untouched.</Text>
+          }}>{t('cloudBackup.restoreContacts')}</Button>
+          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>{t('cloudBackup.restoreContactsDescription')}</Text>
           <Button mode="outlined" icon="key-change" style={[styles.actionButton, { borderColor: BRAND_COLOR }]} textColor={BRAND_COLOR} onPress={() => {
             setShowManageBackupModal(false);
             if (managedWalletId) void handleChangeBackupPassword(managedWalletId);
-          }}>Change Backup Password</Button>
-          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>Verify the current password, then encrypt this backup with a new one.</Text>
+          }}>{t('cloudBackup.changeBackupPassword')}</Button>
+          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>{t('cloudBackup.changeBackupPasswordDescription')}</Text>
           <Button mode="outlined" icon="delete-outline" style={[styles.actionButton, { borderColor: '#ef5350' }]} textColor="#ef5350" onPress={() => {
             setShowManageBackupModal(false);
             if (managedBackup) handleDeleteBackup(managedBackup);
-          }}>Delete Backup</Button>
-          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>Permanently remove this cloud copy. This cannot be undone.</Text>
+          }}>{t('cloudBackup.deleteBackup')}</Button>
+          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>{t('cloudBackup.deleteBackupDescription')}</Text>
           <Button mode="outlined" onPress={() => setShowManageBackupModal(false)} style={styles.actionButton} textColor={secondaryText}>{t('common.cancel')}</Button>
         </View>
       </View>
@@ -1337,12 +1337,12 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                             {matchedBackup ? (
                               <View style={styles.backupStatusRow}>
                                 <Text style={[styles.walletStatusText, { color: '#4CAF50' }]}>
-                                  ✅ Backed up
+                                  ✅ {t('cloudBackup.backedUp')}
                                 </Text>
                                 <Text style={[styles.backupDate, { color: secondaryText }]}> 
-                                  {formatDate(matchedBackup.timestamp)}
+                                  {t('cloudBackup.lastBackedUp', { date: formatDate(matchedBackup.timestamp) })}
                                 </Text>
-                                <Text style={[styles.backupDate, { color: secondaryText }]}>Wallet data included</Text>
+                                <Text style={[styles.backupDate, { color: secondaryText }]}>{t('cloudBackup.walletDataIncluded')}</Text>
                                 {matchedBackup.contactsIncluded && (
                                   <Text style={[styles.backupDate, { color: secondaryText }]}>
                                     {t('cloudBackup.contactsIncluded')}
@@ -1351,7 +1351,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                               </View>
                             ) : (
                               <Text style={[styles.walletStatusText, { color: '#ffb74d' }]}>
-                                ⚠️ Not backed up
+                                ⚠️ {t('cloudBackup.notBackedUp')}
                               </Text>
                             )}
                           </View>
@@ -1365,7 +1365,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                               textColor={matchedBackup ? BRAND_COLOR : '#1a1a2e'}
                               labelStyle={matchedBackup ? undefined : { color: '#1a1a2e' }}
                             >
-                              {matchedBackup ? 'Manage Backup' : 'Back Up Now'}
+                              {matchedBackup ? t('cloudBackup.manageBackup') : t('cloudBackup.backUpNow')}
                             </Button>
                           </View>
                         </View>
@@ -1666,9 +1666,7 @@ const styles = StyleSheet.create({
     color: '#1a1a2e',
   },
   backupStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    gap: 4,
   },
   walletActionRow: {
     flexDirection: 'row',
@@ -1676,6 +1674,7 @@ const styles = StyleSheet.create({
   },
   walletActionBtn: {
     borderRadius: 8,
+    minHeight: 44,
   },
   walletStatusText: {
     fontSize: 12,

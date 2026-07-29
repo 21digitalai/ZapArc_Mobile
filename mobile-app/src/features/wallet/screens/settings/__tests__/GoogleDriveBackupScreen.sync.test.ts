@@ -71,10 +71,10 @@ describe('GoogleDriveBackupScreen contacts Sync flow', () => {
 
   async function startSync(): Promise<void> {
     render(React.createElement(GoogleDriveBackupScreen));
-    await waitFor(() => expect(screen.getByText('Manage Backup')).toBeTruthy());
-    fireEvent.press(screen.getByText('Manage Backup'));
-    await waitFor(() => expect(screen.getByText('Restore Contacts')).toBeTruthy());
-    fireEvent.press(screen.getByText('Restore Contacts'));
+    await waitFor(() => expect(screen.getByText('cloudBackup.manageBackup')).toBeTruthy());
+    fireEvent.press(screen.getByText('cloudBackup.manageBackup'));
+    await waitFor(() => expect(screen.getByText('cloudBackup.restoreContacts')).toBeTruthy());
+    fireEvent.press(screen.getByText('cloudBackup.restoreContacts'));
     fireEvent.changeText(screen.UNSAFE_getAllByType(TextInput)[0], 'backup-password');
     await act(async () => {
       fireEvent.press(screen.getByText('cloudBackup.syncContacts'));
@@ -111,12 +111,34 @@ describe('GoogleDriveBackupScreen contacts Sync flow', () => {
 describe('GoogleDriveBackupScreen protected replacement flow', () => {
   it('renders a current-password gate and delete-then-recreate recovery path', async () => {
     render(React.createElement(GoogleDriveBackupScreen));
-    await waitFor(() => expect(screen.getByText('Manage Backup')).toBeTruthy());
-    fireEvent.press(screen.getByText('Manage Backup'));
-    await waitFor(() => expect(screen.getByText('Replace Backup')).toBeTruthy());
-    fireEvent.press(screen.getByText('Replace Backup'));
+    await waitFor(() => expect(screen.getByText('cloudBackup.manageBackup')).toBeTruthy());
+    fireEvent.press(screen.getByText('cloudBackup.manageBackup'));
+    await waitFor(() => expect(screen.getByText('cloudBackup.replaceBackup')).toBeTruthy());
+    fireEvent.press(screen.getByText('cloudBackup.replaceBackup'));
     await waitFor(() => expect(screen.getByText('Verify current backup password')).toBeTruthy());
     expect(screen.getByText(/Delete this backup first, then create a new backup/)).toBeTruthy();
     expect(screen.getByText('Replace backup')).toBeTruthy();
+  });
+});
+
+describe('GoogleDriveBackupScreen backup management layout', () => {
+  it('renders a single no-backup action and the explained management actions', async () => {
+    const backupService = require('../../../../../services/googleDriveBackupService').googleDriveBackupService;
+    backupService.listBackups.mockResolvedValueOnce([]);
+
+    render(React.createElement(GoogleDriveBackupScreen));
+
+    await waitFor(() => expect(screen.getByText('cloudBackup.backUpNow')).toBeTruthy());
+    expect(screen.queryByText('cloudBackup.manageBackup')).toBeNull();
+
+    backupService.listBackups.mockResolvedValue([{ id: 'backup-1', timestamp: 1, seedFingerprint: 'fingerprint-1' }]);
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('cloudBackup.manageBackup')).toBeTruthy());
+    fireEvent.press(screen.getByText('cloudBackup.manageBackup'));
+
+    expect(screen.getByText('cloudBackup.replaceBackupDescription')).toBeTruthy();
+    expect(screen.getByText('cloudBackup.restoreContactsDescription')).toBeTruthy();
+    expect(screen.getByText('cloudBackup.changeBackupPasswordDescription')).toBeTruthy();
+    expect(screen.getByText('cloudBackup.deleteBackupDescription')).toBeTruthy();
   });
 });

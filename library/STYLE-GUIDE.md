@@ -147,3 +147,9 @@
 - Pending includes its authoritative outgoing amount as a formatted sats subtitle when available; never substitute `0 sats` for an unavailable amount.
 - Motion starts only after the device accessibility preference confirms it is allowed. Reduced-motion devices keep a stable orange Pending shell.
 - A terminal replacement first gives the Pending shell a short exit, then mounts with a fresh toast revision so its full dismissal duration begins after the handoff, not when the payment event arrived. Reduced-motion uses the same brief opacity-only handoff.
+
+### Cloud backup wallet management
+
+`src/features/wallet/screens/settings/GoogleDriveBackupScreen.tsx`
+- A wallet card has one full-width primary action: `Back Up Now` when it has no backup, otherwise `Manage Backup`. Keep backup status as stacked, localized text so dates and longer translations wrap safely on narrow devices.
+- Manage Backup uses the existing bottom-sheet modal and presents vertically stacked action/explanation pairs. Use `Restore Contacts` for the merge-only cloud-to-phone operation; never call it Sync Contacts. The destructive delete action stays last.
