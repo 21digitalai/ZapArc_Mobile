@@ -71,11 +71,13 @@ describe('GoogleDriveBackupScreen contacts Sync flow', () => {
 
   async function startSync(): Promise<void> {
     render(React.createElement(GoogleDriveBackupScreen));
-    await waitFor(() => expect(screen.getByText('cloudBackup.syncContacts')).toBeTruthy());
-    fireEvent.press(screen.getByText('cloudBackup.syncContacts'));
+    await waitFor(() => expect(screen.getByText('Manage Backup')).toBeTruthy());
+    fireEvent.press(screen.getByText('Manage Backup'));
+    await waitFor(() => expect(screen.getByText('Restore Contacts')).toBeTruthy());
+    fireEvent.press(screen.getByText('Restore Contacts'));
     fireEvent.changeText(screen.UNSAFE_getAllByType(TextInput)[0], 'backup-password');
     await act(async () => {
-      fireEvent.press(screen.getAllByText('cloudBackup.syncContacts')[1]);
+      fireEvent.press(screen.getByText('cloudBackup.syncContacts'));
     });
   }
 
@@ -109,8 +111,10 @@ describe('GoogleDriveBackupScreen contacts Sync flow', () => {
 describe('GoogleDriveBackupScreen protected replacement flow', () => {
   it('renders a current-password gate and delete-then-recreate recovery path', async () => {
     render(React.createElement(GoogleDriveBackupScreen));
-    await waitFor(() => expect(screen.getByText('Update Backup')).toBeTruthy());
-    fireEvent.press(screen.getByText('Update Backup'));
+    await waitFor(() => expect(screen.getByText('Manage Backup')).toBeTruthy());
+    fireEvent.press(screen.getByText('Manage Backup'));
+    await waitFor(() => expect(screen.getByText('Replace Backup')).toBeTruthy());
+    fireEvent.press(screen.getByText('Replace Backup'));
     await waitFor(() => expect(screen.getByText('Verify current backup password')).toBeTruthy());
     expect(screen.getByText(/Delete this backup first, then create a new backup/)).toBeTruthy();
     expect(screen.getByText('Replace backup')).toBeTruthy();

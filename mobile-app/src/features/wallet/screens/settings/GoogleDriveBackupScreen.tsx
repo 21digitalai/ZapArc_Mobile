@@ -148,6 +148,9 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
 
   // Modal state
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showManageBackupModal, setShowManageBackupModal] = useState(false);
+  const [managedBackup, setManagedBackup] = useState<BackupMetadata | null>(null);
+  const [managedWalletId, setManagedWalletId] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<'create' | 'replace' | 'changePassword' | 'restore' | 'sync'>('create');
   const [currentBackupPassword, setCurrentBackupPassword] = useState('');
 
@@ -458,6 +461,12 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     setPassword('');
     setConfirmPassword('');
     setShowPasswordModal(true);
+  };
+
+  const handleManageBackup = (backup: BackupMetadata, walletId: string): void => {
+    setManagedBackup(backup);
+    setManagedWalletId(walletId);
+    setShowManageBackupModal(true);
   };
 
   // Resolve the PIN needed to decrypt the master seed for backup.
@@ -909,6 +918,43 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     );
   };
 
+  const renderManageBackupModal = (): React.JSX.Element => (
+    <Modal
+      visible={showManageBackupModal}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setShowManageBackupModal(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContent, { backgroundColor: gradientColors[0] }]}>
+          <Text style={[styles.modalTitle, { color: primaryText }]}>Manage Backup</Text>
+          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>Choose how to manage this encrypted cloud copy.</Text>
+          <Button mode="contained" icon="cloud-upload" style={[styles.actionButton, { backgroundColor: BRAND_COLOR }]} labelStyle={{ color: '#1a1a2e' }} onPress={() => {
+            setShowManageBackupModal(false);
+            if (managedWalletId) void handleCreateBackup(managedWalletId);
+          }}>Replace Backup</Button>
+          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>Replace the cloud copy with this wallet's current data.</Text>
+          <Button mode="outlined" icon="contacts" style={[styles.actionButton, { borderColor: BRAND_COLOR }]} textColor={BRAND_COLOR} onPress={() => {
+            setShowManageBackupModal(false);
+            if (managedBackup) handleSyncContacts(managedBackup);
+          }}>Restore Contacts</Button>
+          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>Merge missing cloud contacts into this phone. Local contacts stay untouched.</Text>
+          <Button mode="outlined" icon="key-change" style={[styles.actionButton, { borderColor: BRAND_COLOR }]} textColor={BRAND_COLOR} onPress={() => {
+            setShowManageBackupModal(false);
+            if (managedWalletId) void handleChangeBackupPassword(managedWalletId);
+          }}>Change Backup Password</Button>
+          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>Verify the current password, then encrypt this backup with a new one.</Text>
+          <Button mode="outlined" icon="delete-outline" style={[styles.actionButton, { borderColor: '#ef5350' }]} textColor="#ef5350" onPress={() => {
+            setShowManageBackupModal(false);
+            if (managedBackup) handleDeleteBackup(managedBackup);
+          }}>Delete Backup</Button>
+          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>Permanently remove this cloud copy. This cannot be undone.</Text>
+          <Button mode="outlined" onPress={() => setShowManageBackupModal(false)} style={styles.actionButton} textColor={secondaryText}>{t('common.cancel')}</Button>
+        </View>
+      </View>
+    </Modal>
+  );
+
   // ==========================================================================
   // Helpers
   // ==========================================================================
@@ -1293,9 +1339,10 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                                 <Text style={[styles.walletStatusText, { color: '#4CAF50' }]}>
                                   ✅ Backed up
                                 </Text>
-                                <Text style={[styles.backupDate, { color: secondaryText }]}>
+                                <Text style={[styles.backupDate, { color: secondaryText }]}> 
                                   {formatDate(matchedBackup.timestamp)}
                                 </Text>
+                                <Text style={[styles.backupDate, { color: secondaryText }]}>Wallet data included</Text>
                                 {matchedBackup.contactsIncluded && (
                                   <Text style={[styles.backupDate, { color: secondaryText }]}>
                                     {t('cloudBackup.contactsIncluded')}
@@ -1311,44 +1358,15 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                           <View style={styles.walletActionRow}>
                             <Button
                               mode={matchedBackup ? 'outlined' : 'contained'}
-                              onPress={() => handleCreateBackup(key.id)}
-                              icon={matchedBackup ? 'cloud-sync' : 'cloud-upload'}
+                              onPress={() => matchedBackup ? handleManageBackup(matchedBackup, key.id) : handleCreateBackup(key.id)}
+                              icon={matchedBackup ? 'cog' : 'cloud-upload'}
                               compact
                               style={matchedBackup ? [styles.walletActionBtn, { borderColor: BRAND_COLOR, flex: 1 }] : [styles.walletActionBtn, { backgroundColor: BRAND_COLOR, flex: 1 }]}
                               textColor={matchedBackup ? BRAND_COLOR : '#1a1a2e'}
                               labelStyle={matchedBackup ? undefined : { color: '#1a1a2e' }}
                             >
-                              {matchedBackup ? 'Update Backup' : 'Back Up Now'}
+                              {matchedBackup ? 'Manage Backup' : 'Back Up Now'}
                             </Button>
-                            {matchedBackup && (
-                              <Button mode="outlined" onPress={() => handleSyncContacts(matchedBackup)} icon="contacts" compact style={[styles.walletActionBtn, { borderColor: BRAND_COLOR, marginLeft: 8 }]} textColor={BRAND_COLOR}>
-                                {t('cloudBackup.syncContacts')}
-                              </Button>
-                            )}
-                            {matchedBackup && (
-                              <Button
-                                mode="outlined"
-                                onPress={() => handleChangeBackupPassword(key.id)}
-                                icon="key-change"
-                                compact
-                                style={[styles.walletActionBtn, { borderColor: BRAND_COLOR, marginLeft: 8 }]}
-                                textColor={BRAND_COLOR}
-                              >
-                                Change Password
-                              </Button>
-                            )}
-                            {matchedBackup && (
-                              <Button
-                                mode="outlined"
-                                onPress={() => handleDeleteBackup(matchedBackup)}
-                                icon="delete-outline"
-                                compact
-                                style={[styles.walletActionBtn, { borderColor: '#ef5350', marginLeft: 8 }]}
-                                textColor="#ef5350"
-                              >
-                                Delete
-                              </Button>
-                            )}
                           </View>
                         </View>
                       );
@@ -1467,6 +1485,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
         </ScrollView>
 
         {renderPasswordModal()}
+        {renderManageBackupModal()}
         {renderPinModal()}
         {renderBackupPinPromptModal()}
       </SafeAreaView>
