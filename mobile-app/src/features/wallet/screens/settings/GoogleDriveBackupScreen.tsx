@@ -927,29 +927,36 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     >
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContent, { backgroundColor: gradientColors[0] }]}>
-          <Text style={[styles.modalTitle, { color: primaryText }]}>{t('cloudBackup.manageBackup')}</Text>
-          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>{t('cloudBackup.manageBackupDescription')}</Text>
-          <Button mode="contained" icon="cloud-upload" style={[styles.actionButton, { backgroundColor: BRAND_COLOR }]} labelStyle={{ color: '#1a1a2e' }} onPress={() => {
-            setShowManageBackupModal(false);
-            if (managedWalletId) void handleCreateBackup(managedWalletId);
-          }}>{t('cloudBackup.replaceBackup')}</Button>
-          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>{t('cloudBackup.replaceBackupDescription')}</Text>
-          <Button mode="outlined" icon="contacts" style={[styles.actionButton, { borderColor: BRAND_COLOR }]} textColor={BRAND_COLOR} onPress={() => {
-            setShowManageBackupModal(false);
-            if (managedBackup) handleSyncContacts(managedBackup);
-          }}>{t('cloudBackup.restoreContacts')}</Button>
-          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>{t('cloudBackup.restoreContactsDescription')}</Text>
-          <Button mode="outlined" icon="key-change" style={[styles.actionButton, { borderColor: BRAND_COLOR }]} textColor={BRAND_COLOR} onPress={() => {
-            setShowManageBackupModal(false);
-            if (managedWalletId) void handleChangeBackupPassword(managedWalletId);
-          }}>{t('cloudBackup.changeBackupPassword')}</Button>
-          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>{t('cloudBackup.changeBackupPasswordDescription')}</Text>
-          <Button mode="outlined" icon="delete-outline" style={[styles.actionButton, { borderColor: '#ef5350' }]} textColor="#ef5350" onPress={() => {
-            setShowManageBackupModal(false);
-            if (managedBackup) handleDeleteBackup(managedBackup);
-          }}>{t('cloudBackup.deleteBackup')}</Button>
-          <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>{t('cloudBackup.deleteBackupDescription')}</Text>
-          <Button mode="outlined" onPress={() => setShowManageBackupModal(false)} style={styles.actionButton} textColor={secondaryText}>{t('common.cancel')}</Button>
+          <ScrollView
+            testID="manage-backup-scroll"
+            style={styles.manageBackupScroll}
+            contentContainerStyle={styles.manageBackupScrollContent}
+            showsVerticalScrollIndicator
+          >
+            <Text style={[styles.modalTitle, { color: primaryText }]}>{t('cloudBackup.manageBackup')}</Text>
+            <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>{t('cloudBackup.manageBackupDescription')}</Text>
+            <Button mode="contained" icon="cloud-upload" style={[styles.actionButton, { backgroundColor: BRAND_COLOR }]} labelStyle={{ color: '#1a1a2e' }} onPress={() => {
+              setShowManageBackupModal(false);
+              if (managedWalletId) void handleCreateBackup(managedWalletId);
+            }}>{t('cloudBackup.replaceBackup')}</Button>
+            <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>{t('cloudBackup.replaceBackupDescription')}</Text>
+            <Button mode="outlined" icon="contacts" style={[styles.actionButton, { borderColor: BRAND_COLOR }]} textColor={BRAND_COLOR} onPress={() => {
+              setShowManageBackupModal(false);
+              if (managedBackup) handleSyncContacts(managedBackup);
+            }}>{t('cloudBackup.restoreContacts')}</Button>
+            <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>{t('cloudBackup.restoreContactsDescription')}</Text>
+            <Button mode="outlined" icon="key-change" style={[styles.actionButton, { borderColor: BRAND_COLOR }]} textColor={BRAND_COLOR} onPress={() => {
+              setShowManageBackupModal(false);
+              if (managedWalletId) void handleChangeBackupPassword(managedWalletId);
+            }}>{t('cloudBackup.changeBackupPassword')}</Button>
+            <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>{t('cloudBackup.changeBackupPasswordDescription')}</Text>
+            <Button mode="outlined" icon="delete-outline" style={[styles.actionButton, { borderColor: '#ef5350' }]} textColor="#ef5350" onPress={() => {
+              setShowManageBackupModal(false);
+              if (managedBackup) handleDeleteBackup(managedBackup);
+            }}>{t('cloudBackup.deleteBackup')}</Button>
+            <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>{t('cloudBackup.deleteBackupDescription')}</Text>
+            <Button mode="outlined" onPress={() => setShowManageBackupModal(false)} style={styles.actionButton} textColor={secondaryText}>{t('common.cancel')}</Button>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -1028,9 +1035,9 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
           {modalMode === 'create'
               ? t('cloudBackup.enterBackupPassword')
               : modalMode === 'replace'
-                ? 'Verify current backup password'
+                ? t('cloudBackup.verifyCurrentBackupPassword')
                 : modalMode === 'changePassword'
-                  ? 'Change backup password'
+                  ? t('cloudBackup.changeBackupPassword')
               : t('cloudBackup.enterRestorePassword')}
           </Text>
 
@@ -1044,12 +1051,12 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
           )}
           {modalMode === 'replace' && (
             <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>
-              Forgot the current password? Delete this backup first, then create a new backup. It cannot be overwritten without verification.
+              {t('cloudBackup.replaceBackupPasswordRecovery')}
             </Text>
           )}
 
           <StyledTextInput
-            label={modalMode === 'changePassword' ? 'Current backup password' : t('cloudBackup.password')}
+            label={modalMode === 'changePassword' ? t('cloudBackup.currentBackupPassword') : t('cloudBackup.password')}
             value={modalMode === 'changePassword' ? currentBackupPassword : password}
             onChangeText={modalMode === 'changePassword' ? setCurrentBackupPassword : setPassword}
             secureTextEntry={!showPassword}
@@ -1075,7 +1082,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
             <>
               {modalMode === 'changePassword' && (
                 <StyledTextInput
-                  label="New backup password"
+                  label={t('cloudBackup.newBackupPassword')}
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
@@ -1194,7 +1201,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
               style={[styles.modalButton, { backgroundColor: BRAND_COLOR }]}
               labelStyle={{ color: '#1a1a2e' }}
             >
-              {modalMode === 'create' ? t('cloudBackup.createBackup') : modalMode === 'replace' ? 'Replace backup' : modalMode === 'changePassword' ? 'Change password' : modalMode === 'sync' ? t('cloudBackup.syncContacts') : t('cloudBackup.restore')}
+              {modalMode === 'create' ? t('cloudBackup.createBackup') : modalMode === 'replace' ? t('cloudBackup.replaceBackup') : modalMode === 'changePassword' ? t('cloudBackup.changePassword') : modalMode === 'sync' ? t('cloudBackup.restoreContacts') : t('cloudBackup.restore')}
             </Button>
           </View>
       </Animated.View>
@@ -1775,6 +1782,12 @@ const styles = StyleSheet.create({
   },
   modalScrollContent: {
     paddingBottom: 4,
+  },
+  manageBackupScroll: {
+    flexGrow: 0,
+  },
+  manageBackupScrollContent: {
+    paddingBottom: 12,
   },
   modalTitle: {
     fontSize: 18,

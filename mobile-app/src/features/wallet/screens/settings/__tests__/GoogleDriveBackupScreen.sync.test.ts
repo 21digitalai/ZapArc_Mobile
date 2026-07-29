@@ -45,7 +45,7 @@ jest.mock('../../../../../components/PinSetupKeypad', () => ({ PinSetupKeypad: (
 
 import { getContactSyncErrorMessage, GoogleDriveBackupScreen } from '../GoogleDriveBackupScreen';
 
-describe('GoogleDriveBackupScreen contacts Sync feedback', () => {
+describe('GoogleDriveBackupScreen Restore Contacts feedback', () => {
   const t = (key: string): string => `translated:${key}`;
 
   it.each([
@@ -58,7 +58,7 @@ describe('GoogleDriveBackupScreen contacts Sync feedback', () => {
   });
 });
 
-describe('GoogleDriveBackupScreen contacts Sync flow', () => {
+describe('GoogleDriveBackupScreen Restore Contacts flow', () => {
   const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
 
   beforeEach(() => {
@@ -69,7 +69,7 @@ describe('GoogleDriveBackupScreen contacts Sync flow', () => {
 
   afterAll(() => alertSpy.mockRestore());
 
-  async function startSync(): Promise<void> {
+  async function startRestoreContacts(): Promise<void> {
     render(React.createElement(GoogleDriveBackupScreen));
     await waitFor(() => expect(screen.getByText('cloudBackup.manageBackup')).toBeTruthy());
     fireEvent.press(screen.getByText('cloudBackup.manageBackup'));
@@ -77,12 +77,12 @@ describe('GoogleDriveBackupScreen contacts Sync flow', () => {
     fireEvent.press(screen.getByText('cloudBackup.restoreContacts'));
     fireEvent.changeText(screen.UNSAFE_getAllByType(TextInput)[0], 'backup-password');
     await act(async () => {
-      fireEvent.press(screen.getByText('cloudBackup.syncContacts'));
+      fireEvent.press(screen.getByText('cloudBackup.restoreContacts'));
     });
   }
 
   it('merges new cloud contacts, refreshes the store, and reports result counts', async () => {
-    await startSync();
+    await startRestoreContacts();
     await waitFor(() => expect(mockMergeImportedContacts).toHaveBeenCalledWith([{ id: 'contact-1' }]));
     expect(mockRefreshContactsStore).toHaveBeenCalled();
     expect(alertSpy).toHaveBeenCalledWith('cloudBackup.contactsSyncTitle', 'cloudBackup.mergeContactsResult');
@@ -94,7 +94,7 @@ describe('GoogleDriveBackupScreen contacts Sync flow', () => {
     [{ success: false, error: 'contacts_corrupt' }, 'cloudBackup.contactsSyncCorrupt'],
   ])('reports no-op and classified sync failures', async (result, expected) => {
     mockRestoreContacts.mockResolvedValue(result);
-    await startSync();
+    await startRestoreContacts();
     await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(expect.any(String), expected));
     expect(mockMergeImportedContacts).not.toHaveBeenCalled();
     expect(mockRefreshContactsStore).not.toHaveBeenCalled();
@@ -102,7 +102,7 @@ describe('GoogleDriveBackupScreen contacts Sync flow', () => {
 
   it('reports offline fetch failures without mutating the address book', async () => {
     mockRestoreContacts.mockRejectedValue(new Error('offline'));
-    await startSync();
+    await startRestoreContacts();
     await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('common.error', 'cloudBackup.contactsSyncFailed'));
     expect(mockMergeImportedContacts).not.toHaveBeenCalled();
   });
@@ -115,9 +115,9 @@ describe('GoogleDriveBackupScreen protected replacement flow', () => {
     fireEvent.press(screen.getByText('cloudBackup.manageBackup'));
     await waitFor(() => expect(screen.getByText('cloudBackup.replaceBackup')).toBeTruthy());
     fireEvent.press(screen.getByText('cloudBackup.replaceBackup'));
-    await waitFor(() => expect(screen.getByText('Verify current backup password')).toBeTruthy());
-    expect(screen.getByText(/Delete this backup first, then create a new backup/)).toBeTruthy();
-    expect(screen.getByText('Replace backup')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('cloudBackup.verifyCurrentBackupPassword')).toBeTruthy());
+    expect(screen.getByText('cloudBackup.replaceBackupPasswordRecovery')).toBeTruthy();
+    expect(screen.getByText('cloudBackup.replaceBackup')).toBeTruthy();
   });
 });
 
@@ -140,5 +140,9 @@ describe('GoogleDriveBackupScreen backup management layout', () => {
     expect(screen.getByText('cloudBackup.restoreContactsDescription')).toBeTruthy();
     expect(screen.getByText('cloudBackup.changeBackupPasswordDescription')).toBeTruthy();
     expect(screen.getByText('cloudBackup.deleteBackupDescription')).toBeTruthy();
+
+    const scrollSheet = screen.getByTestId('manage-backup-scroll');
+    expect(scrollSheet.props.showsVerticalScrollIndicator).toBe(true);
+    expect(scrollSheet.props.contentContainerStyle).toEqual(expect.objectContaining({ paddingBottom: 12 }));
   });
 });
