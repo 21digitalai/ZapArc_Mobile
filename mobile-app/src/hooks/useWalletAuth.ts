@@ -336,33 +336,14 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       }
 
       if (!pin) {
-        // Reaching here means getBiometricPin RESOLVED to null (not threw) —
-        // i.e. there is genuinely NO biometric key bound for THIS wallet's
-        // masterKeyId. A user-cancelled prompt throws instead and is handled
-        // in the catch above, so we can safely distinguish the two: this is
-        // the keystore↔setting DRIFT case, not a cancel.
-        //
-        // How drift happens: `biometricEnabled` is a GLOBAL setting but the
-        // biometric PIN is stored PER-WALLET. Restoring/importing a wallet
-        // creates a new masterKeyId with no bound biometric PIN, while the
-        // global `biometricEnabled` flag carries over from a previously
-        // created wallet — so the button shows but no key exists, and the
-        // SecureStore read returns null without ever prompting.
-        //
-        // Self-heal: flip the setting off for this state so the stale
-        // biometric button disappears and the home banner re-surfaces,
-        // letting the user re-enable (which binds a PIN for THIS wallet).
-        // This is safe precisely because we've confirmed there's no key to
-        // protect — unlike the old aggressive behaviour that disabled on a
-        // mere cancel.
-        console.warn('⚠️ [useWalletAuth] No biometric key bound for this wallet — disabling stale biometric flag so the user can re-enable');
-        try {
-          await settingsService.updateUserSettings({ biometricEnabled: false });
-          setBiometricEnabled(false);
-        } catch (healErr) {
-          console.warn('⚠️ [useWalletAuth] Failed to reconcile biometric flag:', healErr);
-        }
-        setError('Biometric unlock isn’t set up for this wallet yet. Enter your PIN, then enable it from the home screen or Settings.');
+        // The preference is global, but secure entries are intentionally per
+        // master wallet. A missing entry is normal for a wallet created before
+        // this feature (or after OS credentials were invalidated): keep the
+        // global preference and let the normal PIN path enroll this wallet.
+        // Authentication cancellation/failure is handled above and never
+        // reaches this branch.
+        console.log('ℹ️ [useWalletAuth] No biometric key bound for this wallet; PIN is required once to enroll it');
+        setError('Biometric unlock is not set up for this wallet yet. Enter your PIN once to enable it for future unlocks.');
         return false;
       }
 

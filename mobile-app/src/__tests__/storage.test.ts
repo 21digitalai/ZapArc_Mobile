@@ -360,6 +360,38 @@ describe('StorageService', () => {
   });
 
   describe('biometric PIN auth gating', () => {
+    it('keeps biometric PINs isolated by master wallet ID', async () => {
+      const values = new Map<string, string>();
+      (SecureStore.setItemAsync as jest.Mock).mockImplementation(async (key: string, value: string) => {
+        values.set(key, value);
+      });
+      (SecureStore.getItemAsync as jest.Mock).mockImplementation(async (key: string) => values.get(key) ?? null);
+
+      await storageService.storeBiometricPin('mk-one', '1111');
+      await storageService.storeBiometricPin('mk-two', '2222');
+
+      await expect(storageService.getBiometricPin('mk-one')).resolves.toBe('1111');
+      await expect(storageService.getBiometricPin('mk-two')).resolves.toBe('2222');
+      expect(values.has('zap_arc_biometric_pin_mk-one')).toBe(true);
+      expect(values.has('zap_arc_biometric_pin_mk-two')).toBe(true);
+    });
+
+    it('removes only the deleted master wallet biometric PIN', async () => {
+      const values = new Map<string, string>([
+        ['zap_arc_biometric_pin_mk-one', '1111'],
+        ['zap_arc_biometric_pin_mk-two', '2222'],
+      ]);
+      (SecureStore.deleteItemAsync as jest.Mock).mockImplementation(async (key: string) => {
+        values.delete(key);
+      });
+      (SecureStore.getItemAsync as jest.Mock).mockImplementation(async (key: string) => values.get(key) ?? null);
+
+      await storageService.deleteBiometricPin('mk-one');
+
+      await expect(storageService.getBiometricPin('mk-one')).resolves.toBeNull();
+      await expect(storageService.getBiometricPin('mk-two')).resolves.toBe('2222');
+    });
+
     it('stores biometric PIN with requireAuthentication enabled', async () => {
       (SecureStore.setItemAsync as jest.Mock).mockResolvedValue(undefined);
 
