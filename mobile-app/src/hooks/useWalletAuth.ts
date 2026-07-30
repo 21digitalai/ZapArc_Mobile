@@ -95,6 +95,7 @@ export interface WalletAuthActions {
 
   // Wallet selection
   selectWallet: (masterKeyId: string, subWalletIndex: number, pin: string) => Promise<boolean>;
+  selectWalletWithBiometric: (masterKeyId: string, subWalletIndex: number) => Promise<boolean>;
   selectSubWallet: (subWalletIndex: number) => Promise<boolean>;
 
   // Session management
@@ -445,6 +446,19 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         setIsUnlocked(true);
         updateActivity();
 
+        // The preference is global but keychain records are intentionally
+        // per master wallet. A wallet created before this feature therefore
+        // needs one successful PIN switch before it can use biometrics.
+        if (biometricEnabled && biometricAvailable) {
+          try {
+            await storageService.storeBiometricPin(currentMasterKeyId, pin);
+          } catch (enrollmentError) {
+            // The switch is already authenticated. Keep it successful and
+            // allow the next PIN switch to retry enrollment safely.
+            console.warn('⚠️ [useWalletAuth] Could not enroll wallet biometric PIN:', enrollmentError);
+          }
+        }
+
         console.log('✅ [useWalletAuth] Unlocked with PIN - starting background init');
 
         // NON-BLOCKING: Initialize SDK in background so the user can navigate
@@ -483,7 +497,7 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         setIsLoading(false);
       }
     },
-    [currentMasterKeyId]
+    [biometricAvailable, biometricEnabled, currentMasterKeyId]
   );
 
   const lock = useCallback(async (): Promise<void> => {
@@ -583,6 +597,14 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         // Cache PIN for future use (module-level — shared across hook callers)
         setModuleSessionPin(pin);
 
+        if (biometricEnabled && biometricAvailable) {
+          try {
+            await storageService.storeBiometricPin(masterKeyId, pin);
+          } catch (enrollmentError) {
+            console.warn('⚠️ [useWalletAuth] Could not enroll switched wallet biometric PIN:', enrollmentError);
+          }
+        }
+
         await storageService.unlockWallet();
         setIsUnlocked(true);
         updateActivity();
@@ -614,7 +636,28 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         setIsLoading(false);
       }
     },
-    [currentMasterKeyId]
+    [biometricAvailable, biometricEnabled, currentMasterKeyId]
+  );
+
+  const selectWalletWithBiometric = useCallback(
+    async (masterKeyId: string, subWalletIndex: number): Promise<boolean> => {
+      if (!biometricEnabled || !biometricAvailable) return false;
+
+      try {
+        // A missing entry resolves to null without prompting. Cancellation,
+        // invalidated credentials, and failed OS auth throw and all retain
+        // the manual PIN path without exposing the protected value.
+        const pin = await storageService.getBiometricPin(masterKeyId, {
+          authenticationPrompt: 'Unlock selected wallet',
+        });
+        if (!pin) return false;
+        return await selectWallet(masterKeyId, subWalletIndex, pin);
+      } catch (biometricError) {
+        console.log('ℹ️ [useWalletAuth] Biometric wallet switch unavailable:', biometricError);
+        return false;
+      }
+    },
+    [biometricAvailable, biometricEnabled, selectWallet]
   );
 
   const selectSubWallet = useCallback(
@@ -825,21 +868,16 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
 
   /**
    * Explicit opt-out: disable biometric unlock. Clears the stored biometric
-   * PIN from SecureStore for the current master key AND flips the setting off.
+   * PINs from SecureStore for every known master key AND flips the setting off.
    * Keeping these two in lockstep prevents the previous failure mode where the
    * setting said "on" but no PIN was bound, leading to broken-state recovery.
    */
   const disableBiometric = useCallback(async (): Promise<{ ok: boolean; reason?: string }> => {
     try {
       setError(null);
-      const masterKeyId = currentMasterKeyId;
-      if (masterKeyId) {
-        try {
-          await storageService.deleteBiometricPin(masterKeyId);
-        } catch (delErr) {
-          console.warn('⚠️ [useWalletAuth] disableBiometric: deleteBiometricPin failed (continuing)', delErr);
-        }
-      }
+      const walletStorage = await storageService.loadMultiWalletStorage();
+      const masterKeyIds = walletStorage?.masterKeys.map((masterKey) => masterKey.id) || [];
+      await Promise.all(masterKeyIds.map((masterKeyId) => storageService.deleteBiometricPin(masterKeyId)));
       await settingsService.updateUserSettings({ biometricEnabled: false });
       setBiometricEnabled(false);
       console.log('✅ [useWalletAuth] Biometric unlock disabled');
@@ -849,7 +887,7 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       const reason = err instanceof Error ? err.message : 'Unknown error disabling biometric.';
       return { ok: false, reason };
     }
-  }, [currentMasterKeyId]);
+  }, []);
 
   // ========================================
   // Return Hook Value
@@ -878,6 +916,7 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
     enableBiometric,
     disableBiometric,
     selectWallet,
+    selectWalletWithBiometric,
     selectSubWallet,
     updateActivity,
     checkAutoLock,

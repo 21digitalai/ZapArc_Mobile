@@ -13,7 +13,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 // bindings lazily (only inside render/call-time).
 export { useWallet } from '../contexts/WalletContext';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { storageService } from '../services';
+import { storageService, settingsService } from '../services';
 import * as BreezSparkService from '../services/breezSparkService';
 import * as WalletCache from '../services/walletCacheService';
 import { primeSessionPin } from './useWalletAuth';
@@ -37,6 +37,19 @@ import { mergeOnchainClaimTransactions } from '../features/wallet/utils/onchainC
 // =============================================================================
 
 type WalletAsset = 'BTC' | 'USDB';
+
+async function enrollNewMasterKeyBiometricPin(masterKeyId: string, pin: string): Promise<void> {
+  const settings = await settingsService.getUserSettings();
+  if (!settings.biometricEnabled) return;
+
+  const [hasHardware, isEnrolled] = await Promise.all([
+    LocalAuthentication.hasHardwareAsync(),
+    LocalAuthentication.isEnrolledAsync(),
+  ]);
+  if (hasHardware && isEnrolled) {
+    await storageService.storeBiometricPin(masterKeyId, pin);
+  }
+}
 
 export type TokenBalanceEntry = Record<string, unknown>;
 
@@ -349,11 +362,7 @@ export function useWalletStateInternal(): WalletState & WalletActions {
         // "Unlock your wallet with your PIN first" right after the user
         // just set one.
         primeSessionPin(pin);
-
-        // Biometric PIN is stored lazily when the user explicitly enables
-        // biometric unlock from the home banner / security settings. Eagerly
-        // writing it here would trigger an OS fingerprint dialog (to bind the
-        // keystore entry) even though the user never opted in.
+        await enrollNewMasterKeyBiometricPin(masterKeyId, pin);
 
         // Initialize Breez SDK with the new wallet's mnemonic (sub-wallet index 0)
         let sdkInitialized = false;
@@ -416,11 +425,7 @@ export function useWalletStateInternal(): WalletState & WalletActions {
         // home biometric banner works immediately after restore without a
         // "Unlock your wallet with your PIN first" error.
         primeSessionPin(pin);
-
-        // Biometric PIN is stored lazily when the user explicitly enables
-        // biometric unlock from the home banner / security settings. Eagerly
-        // writing it here would trigger an OS fingerprint dialog right after
-        // the user finishes entering their PIN during restore.
+        await enrollNewMasterKeyBiometricPin(masterKeyId, pin);
 
         // Initialize Breez SDK with the imported wallet's mnemonic (sub-wallet index 0)
         let sdkInitialized = false;
@@ -639,6 +644,7 @@ export function useWalletStateInternal(): WalletState & WalletActions {
           setTransactions([]);
         }
 
+        await storageService.deleteBiometricPin(masterKeyId);
         await storageService.deleteMasterKey(masterKeyId);
 
         // Clear all cached lightning addresses for this master key

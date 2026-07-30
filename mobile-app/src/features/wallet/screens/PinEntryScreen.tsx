@@ -64,6 +64,7 @@ export function PinEntryScreen(): React.JSX.Element {
     biometricType,
     activeWalletInfo,
     selectWallet,
+    selectWalletWithBiometric,
     getPinAuthStatus,
   } = useWalletAuth();
 
@@ -82,8 +83,10 @@ export function PinEntryScreen(): React.JSX.Element {
   // ========================================
 
   useEffect(() => {
-    // Try biometric on mount if available and enabled, but not when switching wallets
-    if (biometricAvailable && biometricEnabled && !targetMasterKeyId) {
+    // The target wallet's protected entry determines whether a switch can use
+    // biometrics. If it is missing or the prompt is cancelled, the PIN keypad
+    // remains available without implying that the device biometric is broken.
+    if (biometricAvailable && biometricEnabled) {
       handleBiometricUnlock();
     }
   }, [biometricAvailable, biometricEnabled, targetMasterKeyId]);
@@ -239,10 +242,13 @@ export function PinEntryScreen(): React.JSX.Element {
 
   const handleBiometricUnlock = useCallback(async () => {
     try {
-      // Biometric can only unlock current wallet, not switch to different one
       if (targetMasterKeyId) {
-        // Cannot use biometric for switching wallets - need PIN
-        setError(t('auth.enterPinToSwitch'));
+        setIsUnlocking(true);
+        const success = await selectWalletWithBiometric(targetMasterKeyId, targetSubWalletIndex);
+        setIsUnlocking(false);
+        if (success) {
+          router.replace('/wallet/home');
+        }
         return;
       }
       
@@ -255,7 +261,7 @@ export function PinEntryScreen(): React.JSX.Element {
       // User cancelled or biometric failed - they can use PIN
       console.log('Biometric unlock failed:', err);
     }
-  }, [unlockWithBiometric, targetMasterKeyId]);
+  }, [unlockWithBiometric, selectWalletWithBiometric, targetMasterKeyId, targetSubWalletIndex]);
 
   // ========================================
   // Get biometric icon
