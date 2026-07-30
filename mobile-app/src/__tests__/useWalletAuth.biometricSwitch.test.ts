@@ -24,8 +24,13 @@ jest.mock('../services', () => ({
     setActiveWallet: jest.fn(),
     unlockWallet: jest.fn(),
     getMasterKeyMnemonic: jest.fn().mockResolvedValue(null),
+    loadMultiWalletStorage: jest.fn(),
+    deleteBiometricPin: jest.fn(),
   },
-  settingsService: { getUserSettings: jest.fn().mockResolvedValue({ autoLockTimeout: 0, biometricEnabled: true }) },
+  settingsService: {
+    getUserSettings: jest.fn().mockResolvedValue({ autoLockTimeout: 0, biometricEnabled: true }),
+    updateUserSettings: jest.fn(),
+  },
 }));
 
 jest.mock('../services/breezSparkService', () => ({ disconnectSDK: jest.fn(), initializeSDK: jest.fn() }));
@@ -34,8 +39,8 @@ jest.mock('../services/walletCacheService', () => ({
   setPreloadedData: jest.fn(), emitWalletSwitch: jest.fn(),
 }));
 
-import { storageService } from '../services';
-import { useWalletAuth } from '../hooks/useWalletAuth';
+import { storageService, settingsService } from '../services';
+import { primeSessionPin, useWalletAuth } from '../hooks/useWalletAuth';
 
 describe('useWalletAuth biometric master-wallet switching', () => {
   beforeEach(() => jest.clearAllMocks());
@@ -90,5 +95,46 @@ describe('useWalletAuth biometric master-wallet switching', () => {
       await expect(result.current.selectWallet('wallet-b', 0, '222222')).resolves.toBe(true);
     });
     expect(storageService.storeBiometricPin).toHaveBeenCalledWith('wallet-b', '222222');
+  });
+
+  it('disabling biometrics clears every master-wallet entry and the global preference', async () => {
+    (storageService.loadMultiWalletStorage as jest.Mock).mockResolvedValue({
+      masterKeys: [{ id: 'wallet-a' }, { id: 'wallet-b' }],
+    });
+    (storageService.deleteBiometricPin as jest.Mock).mockResolvedValue(undefined);
+    (settingsService.updateUserSettings as jest.Mock).mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useWalletAuth());
+    await waitFor(() => expect(result.current.biometricAvailable).toBe(true));
+
+    await act(async () => {
+      await expect(result.current.disableBiometric()).resolves.toEqual({ ok: true });
+    });
+
+    expect(storageService.deleteBiometricPin).toHaveBeenCalledTimes(2);
+    expect(storageService.deleteBiometricPin).toHaveBeenCalledWith('wallet-a');
+    expect(storageService.deleteBiometricPin).toHaveBeenCalledWith('wallet-b');
+    expect(settingsService.updateUserSettings).toHaveBeenCalledWith({ biometricEnabled: false });
+    expect(result.current.biometricEnabled).toBe(false);
+  });
+
+  it('switches sub-wallets without PIN verification or biometric storage access', async () => {
+    primeSessionPin('111111');
+    (storageService.getActiveWalletInfo as jest.Mock).mockResolvedValue({
+      masterKeyId: 'wallet-b', subWalletIndex: 2,
+    });
+    (storageService.setActiveWallet as jest.Mock).mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useWalletAuth());
+    await waitFor(() => expect(result.current.currentMasterKeyId).toBe('wallet-b'));
+
+    await act(async () => {
+      await expect(result.current.selectSubWallet(2)).resolves.toBe(true);
+    });
+
+    expect(storageService.setActiveWallet).toHaveBeenCalledWith('wallet-b', 2);
+    expect(storageService.verifyMasterKeyPin).not.toHaveBeenCalled();
+    expect(storageService.getBiometricPin).not.toHaveBeenCalled();
+    expect(storageService.storeBiometricPin).not.toHaveBeenCalled();
   });
 });

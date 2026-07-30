@@ -671,13 +671,11 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
           cachedTxs?.transactions ?? [],
         );
 
-        // Reinitialize SDK with the new sub-wallet's mnemonic
+        // Reinitialize SDK with the session PIN captured during the master
+        // wallet unlock. A sub-wallet switch must not open biometric storage:
+        // it stays within the already authenticated master-wallet session.
         try {
-          // Use cached session PIN or biometric PIN to get mnemonic
-          let pin = getModuleSessionPin();
-          if (!pin) {
-            pin = await storageService.getBiometricPin(currentMasterKeyId);
-          }
+          const pin = getModuleSessionPin();
 
           if (pin) {
             const mnemonic = await storageService.getMasterKeyMnemonic(currentMasterKeyId, pin);
