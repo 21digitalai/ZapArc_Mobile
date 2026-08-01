@@ -28,7 +28,13 @@ jest.mock('../../../src/hooks/useLightningAddress', () => ({ useLightningAddress
 jest.mock('../../../src/components', () => ({ StyledTextInput: 'TextInput', KeyboardDoneAccessory: 'View', keyboardDoneAccessoryId: 'done' }));
 jest.mock('../../../src/services/i18nService', () => ({ t: jest.fn(() => 'Save') }));
 
-import { ReceiveQrActions, ReceiveQrSaveButton, saveReceiveQr, shareReceiveQr } from '../receive';
+import {
+  getReceiveSpotPrice,
+  ReceiveQrActions,
+  ReceiveQrSaveButton,
+  saveReceiveQr,
+  shareReceiveQr,
+} from '../receive';
 
 describe('Receive QR Save buttons', () => {
   beforeEach(() => mockOnSave.mockClear());
@@ -177,5 +183,28 @@ describe('Receive QR Save buttons', () => {
     await shareReceiveQr({ cardRef: { current: {} as never }, filenamePrefix: 'zaparc-lightning-qr', capture: jest.fn().mockResolvedValue('file:///cache/qr.png'), share, showError });
     expect(share.shareAsync).toHaveBeenCalledWith('file:///cache/qr.png', expect.objectContaining({ mimeType: 'image/png' }));
     expect(showError).not.toHaveBeenCalled();
+  });
+});
+
+describe('Receive conversion spot price', () => {
+  const now = 1_000_000;
+  const freshRates = { usd: 65_432.4, eur: 54_648.2, timestamp: now - 1 };
+
+  it.each([
+    ['eur', 'usd', '1 BTC ≈ €54,648'],
+    ['usd', 'eur', '1 BTC ≈ $65,432'],
+    ['sats', 'eur', '1 BTC ≈ €54,648'],
+  ] as const)('uses the selected %s currency, with secondary fiat for sats', (inputCurrency, secondaryFiatCurrency, expected) => {
+    expect(getReceiveSpotPrice(inputCurrency, secondaryFiatCurrency, freshRates, false, now)).toBe(expected);
+  });
+
+  it.each([
+    [null, false],
+    [{ ...freshRates, eur: 0 }, false],
+    [{ ...freshRates, eur: Number.NaN }, false],
+    [{ ...freshRates, timestamp: now - 5 * 60 * 1000 }, false],
+    [freshRates, true],
+  ] as const)('omits unavailable, stale, or loading rates', (rates, isLoadingRates) => {
+    expect(getReceiveSpotPrice('eur', 'usd', rates, isLoadingRates, now)).toBeNull();
   });
 });

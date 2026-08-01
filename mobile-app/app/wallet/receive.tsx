@@ -29,7 +29,7 @@ import { useWallet } from '../../src/hooks/useWallet';
 import { useCurrency } from '../../src/hooks/useCurrency';
 import { useKeyboardAwareScroll } from '../../src/hooks/useKeyboardAwareScroll';
 import { type DisplayCurrency } from '../../src/services/displayCurrencyService';
-import { fiatToUsdb } from '../../src/utils/currency';
+import { fiatToUsdb, formatFiat, type ExchangeRates } from '../../src/utils/currency';
 import { createSafeBackHandler } from '../../src/features/wallet/utils/safeBack';
 import { saveQrToAndroidGallery } from '../../src/features/wallet/utils/saveQrToDevice';
 
@@ -73,6 +73,28 @@ const currencyLabels: Record<InvoiceCurrency, string> = {
   eur: 'EUR',
   usdb: 'USDB',
 };
+
+const MAX_SPOT_RATE_AGE_MS = 5 * 60 * 1000;
+
+export function getReceiveSpotPrice(
+  inputCurrency: InvoiceCurrency,
+  secondaryFiatCurrency: 'usd' | 'eur',
+  rates: ExchangeRates | null,
+  isLoadingRates: boolean,
+  now = Date.now(),
+): string | null {
+  if (isLoadingRates || !rates || !Number.isFinite(rates.timestamp) || now - rates.timestamp >= MAX_SPOT_RATE_AGE_MS) {
+    return null;
+  }
+
+  const fiatCurrency = inputCurrency === 'usd' || inputCurrency === 'eur'
+    ? inputCurrency
+    : secondaryFiatCurrency;
+  const rate = rates[fiatCurrency];
+
+  if (!Number.isFinite(rate) || rate <= 0) return null;
+  return `1 BTC ≈ ${formatFiat(rate, fiatCurrency)}`;
+}
 
 // Centered brand logo for QR codes (Wallet-of-Satoshi style). A single
 // pre-composited asset — bolt icon + the "ZapArc" wordmark (white "Zap" +
@@ -256,7 +278,15 @@ export default function ReceiveScreen() {
   const inputBackgroundColor = getInputBackgroundColor(themeMode);
   const iconColor = secondaryTextColor;
 
-  const { displayCurrency, setDisplayCurrency, convertToSats, formatSatsWithFiat, isLoadingRates, rates } = useCurrency();
+  const {
+    displayCurrency,
+    setDisplayCurrency,
+    convertToSats,
+    formatSatsWithFiat,
+    isLoadingRates,
+    rates,
+    secondaryFiatCurrency,
+  } = useCurrency();
   const { addressInfo, isRegistered, isLoading: isLoadingAddress, refresh: refreshAddress } = useLightningAddress();
   const { refreshBalance, refreshTransactions } = useWallet();
   // True only while the Receive screen is the active/focused screen. We use it
@@ -462,6 +492,11 @@ export default function ReceiveScreen() {
     if (!previewSats) return null;
     return formatSatsWithFiat(previewSats);
   }, [previewSats, formatSatsWithFiat]);
+
+  const receiveSpotPrice = useMemo(
+    () => getReceiveSpotPrice(effectiveInputCurrency, secondaryFiatCurrency, rates, isLoadingRates),
+    [effectiveInputCurrency, secondaryFiatCurrency, rates, isLoadingRates],
+  );
 
   const presets = useMemo(() => {
     switch (effectiveInputCurrency) {
@@ -1199,9 +1234,13 @@ export default function ReceiveScreen() {
               </View>
 
               {previewDisplay && previewSats > 0 && inputCurrency !== 'sats' && (
-                <View style={styles.conversionPreview}>
+                <View
+                  style={styles.conversionPreview}
+                  accessibilityLabel={`Estimated ${previewDisplay.satsDisplay}${receiveSpotPrice ? `. ${receiveSpotPrice}` : ''}`}
+                >
                   <Text style={styles.conversionText}>≈ {previewDisplay.satsDisplay}</Text>
                   {previewDisplay.fiatDisplay && <Text style={styles.conversionFiat}>({previewDisplay.fiatDisplay})</Text>}
+                  {receiveSpotPrice && <Text style={styles.conversionSpotPrice}>{receiveSpotPrice}</Text>}
                 </View>
               )}
 
@@ -1608,6 +1647,7 @@ const styles = StyleSheet.create({
   currencySelectorText: { color: BRAND_COLOR, fontSize: 14, fontWeight: '600' },
   conversionPreview: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 8,
@@ -1620,6 +1660,7 @@ const styles = StyleSheet.create({
   },
   conversionText: { color: BRAND_COLOR, fontSize: 16, fontWeight: '600' },
   conversionFiat: { color: 'rgba(255, 255, 255, 0.7)', fontSize: 14 },
+  conversionSpotPrice: { width: '100%', color: 'rgba(255, 255, 255, 0.85)', fontSize: 13, textAlign: 'center' },
   presetsContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24, gap: 8 },
   presetButton: { flex: 1, borderColor: 'rgba(255, 255, 255, 0.3)' },
   presetButtonContent: { paddingHorizontal: 4, paddingVertical: 6 },

@@ -48,6 +48,12 @@
 - On Android, Save and Share are equally sized adjacent outlined buttons. Save delegates to the scoped MediaStore-backed ZapArc gallery adapter; Share captures the same branded PNG and opens `expo-sharing` only.
 - iOS retains the legacy single `ReceiveQrSaveButton` behavior.
 
+### Receive conversion preview
+
+`app/wallet/receive.tsx`
+- Keep the amber conversion preview readable on narrow screens: the estimated sats and fiat equivalent remain on the first line, while an available BTC spot price uses the compact centered second line.
+- The preview's accessibility label must include the sats estimate and the spot price when it is visible.
+
 ### Asset tabs
 
 `AssetTabBar` (`src/features/wallet/components/AssetTabBar.tsx`)
