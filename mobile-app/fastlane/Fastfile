@@ -113,7 +113,10 @@ lane :bump do |opts|
   UI.message("iOS build number:    #{cur_ios} -> #{new_ios}")
 
   # app.json
-  app = read_json(APP_JSON_PATH); app["expo"]["version"] = version
+  app = read_json(APP_JSON_PATH)
+  app["expo"]["version"] = version
+  app["expo"]["ios"]["buildNumber"] = new_ios.to_s
+  app["expo"]["android"]["versionCode"] = new_code
   File.write(APP_JSON_PATH, JSON.pretty_generate(app) + "\n")
 
   # package.json (keep in sync)
