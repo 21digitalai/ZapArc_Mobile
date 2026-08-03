@@ -1,6 +1,6 @@
 import React from 'react';
 import { Alert, BackHandler } from 'react-native';
-import { render, fireEvent, waitFor, screen, cleanup } from '@testing-library/react-native';
+import { act, render, fireEvent, waitFor, screen, cleanup } from '@testing-library/react-native';
 import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import SendScreen from '../send';
@@ -101,6 +101,8 @@ jest.mock('../../../src/hooks/useWallet', () => ({
 
 jest.mock('../../../src/hooks/useCurrency', () => ({
   useCurrency: () => ({
+    displayCurrency: 'sats',
+    setDisplayCurrency: jest.fn().mockResolvedValue(undefined),
     secondaryFiatCurrency: 'usd',
     convertToSats: (value: number) => Math.round(value),
     formatSatsWithFiat: (sats: number) => ({ satsDisplay: `${sats} sats`, fiatDisplay: '$1.00' }),
@@ -126,6 +128,23 @@ jest.mock('../../../src/features/addressBook/components/ContactSelectionModal', 
       TouchableOpacity,
       { testID: 'select-first-contact', onPress: () => onSelect(contacts[0]) },
       React.createElement(Text, null, 'Select first contact'),
+    );
+  },
+}));
+
+jest.mock('../../../src/features/wallet/components/CurrencyPickerSheet', () => ({
+  CurrencyPickerSheet: ({ visible, onSelect }: any) => {
+    if (!visible) return null;
+    const React = require('react');
+    const { Text, TouchableOpacity, View } = require('react-native');
+    return React.createElement(
+      View,
+      null,
+      ['sats', 'usd', 'eur'].map((currency) => React.createElement(
+        TouchableOpacity,
+        { key: currency, accessibilityLabel: `Select ${currency}`, onPress: () => onSelect(currency) },
+        React.createElement(Text, null, `Select ${currency}`),
+      )),
     );
   },
 }));
@@ -209,6 +228,58 @@ describe('SendScreen on-chain flow', () => {
 
     expect(screen.getByText('1 BTC ≈ $100,000')).toBeTruthy();
     expect(screen.getByLabelText('Estimated 1000 sats. 1 BTC ≈ $100,000')).toBeTruthy();
+  });
+
+  it('updates the spot price when the Send currency picker switches to EUR', () => {
+    renderScreen();
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
+    fireEvent.press(screen.getByText('sats'));
+    fireEvent.press(screen.getByLabelText('Select eur'));
+
+    expect(screen.getByText('1 BTC ≈ €90,000')).toBeTruthy();
+    expect(screen.getByLabelText('Estimated 1000 sats. 1 BTC ≈ €90,000')).toBeTruthy();
+  });
+
+  it('uses the secondary fiat spot price for sats Send input', () => {
+    renderScreen();
+    fireEvent.changeText(screen.getByTestId('amount-input'), '2500');
+
+    expect(screen.getByText('1 BTC ≈ $100,000')).toBeTruthy();
+  });
+
+  it('keeps the spot price visible for a fixed Lightning invoice', async () => {
+    mockLaunchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///fixed-invoice-spot-price.png' }],
+    });
+    mockScanFromURLAsync.mockResolvedValue([{ data: 'lnbc1fixedinvoice', type: 'qr' }]);
+    mockParsePaymentRequest.mockResolvedValue({ isValid: true, type: 'bolt11', amountSat: 2500 });
+
+    renderScreen();
+    fireEvent.press(screen.getByText('Gallery Image'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('amount-input').props.editable).toBe(false);
+      expect(screen.getByText('1 BTC ≈ $100,000')).toBeTruthy();
+    });
+  });
+
+  it('keeps the spot price visible for a fixed Bitcoin URI', async () => {
+    mockUseLocalSearchParams.mockReturnValue({
+      paymentInput: 'bitcoin:bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh?amount=0.000025',
+    });
+    renderScreen();
+
+    await act(async () => {
+      jest.advanceTimersByTime(500);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('₿ On-chain')).toBeTruthy();
+      expect(screen.getByTestId('amount-input').props.value).toBe('2500');
+      expect(screen.getByTestId('amount-input').props.editable).toBe(false);
+      expect(screen.getByText('1 BTC ≈ $100,000')).toBeTruthy();
+    });
   });
 
   it('uses tab selection for on-chain flow', async () => {
