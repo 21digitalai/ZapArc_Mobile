@@ -104,7 +104,7 @@ jest.mock('../../../src/hooks/useCurrency', () => ({
     secondaryFiatCurrency: 'usd',
     convertToSats: (value: number) => Math.round(value),
     formatSatsWithFiat: (sats: number) => ({ satsDisplay: `${sats} sats`, fiatDisplay: '$1.00' }),
-    rates: { usd: 100000, eur: 100000 },
+    rates: { usd: 100000, eur: 90000, timestamp: Date.now() },
     isLoadingRates: false,
   }),
 }));
@@ -201,6 +201,14 @@ describe('SendScreen on-chain flow', () => {
     jest.runOnlyPendingTimers();
     jest.useRealTimers();
     cleanup();
+  });
+
+  it('shows the fresh BTC price in the Send estimate bubble', () => {
+    renderScreen();
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
+
+    expect(screen.getByText('1 BTC ≈ $100,000')).toBeTruthy();
+    expect(screen.getByLabelText('Estimated 1000 sats. 1 BTC ≈ $100,000')).toBeTruthy();
   });
 
   it('uses tab selection for on-chain flow', async () => {

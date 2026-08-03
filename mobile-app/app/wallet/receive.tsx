@@ -29,7 +29,7 @@ import { useWallet } from '../../src/hooks/useWallet';
 import { useCurrency } from '../../src/hooks/useCurrency';
 import { useKeyboardAwareScroll } from '../../src/hooks/useKeyboardAwareScroll';
 import { type DisplayCurrency } from '../../src/services/displayCurrencyService';
-import { fiatToUsdb, formatFiat, type ExchangeRates } from '../../src/utils/currency';
+import { fiatToUsdb, getBtcSpotPrice } from '../../src/utils/currency';
 import { createSafeBackHandler } from '../../src/features/wallet/utils/safeBack';
 import { saveQrToAndroidGallery } from '../../src/features/wallet/utils/saveQrToDevice';
 
@@ -74,27 +74,7 @@ const currencyLabels: Record<InvoiceCurrency, string> = {
   usdb: 'USDB',
 };
 
-const MAX_SPOT_RATE_AGE_MS = 5 * 60 * 1000;
-
-export function getReceiveSpotPrice(
-  inputCurrency: InvoiceCurrency,
-  secondaryFiatCurrency: 'usd' | 'eur',
-  rates: ExchangeRates | null,
-  isLoadingRates: boolean,
-  now = Date.now(),
-): string | null {
-  if (isLoadingRates || !rates || !Number.isFinite(rates.timestamp) || now - rates.timestamp >= MAX_SPOT_RATE_AGE_MS) {
-    return null;
-  }
-
-  const fiatCurrency = inputCurrency === 'usd' || inputCurrency === 'eur'
-    ? inputCurrency
-    : secondaryFiatCurrency;
-  const rate = rates[fiatCurrency];
-
-  if (!Number.isFinite(rate) || rate <= 0) return null;
-  return `1 BTC ≈ ${formatFiat(rate, fiatCurrency)}`;
-}
+export const getReceiveSpotPrice = getBtcSpotPrice;
 
 // Centered brand logo for QR codes (Wallet-of-Satoshi style). A single
 // pre-composited asset — bolt icon + the "ZapArc" wordmark (white "Zap" +
@@ -1233,7 +1213,7 @@ export default function ReceiveScreen() {
                 </TouchableOpacity>
               </View>
 
-              {previewDisplay && previewSats > 0 && inputCurrency !== 'sats' && (
+              {previewDisplay && previewSats > 0 && effectiveInputCurrency !== 'usdb' && (
                 <View
                   style={styles.conversionPreview}
                   accessibilityLabel={`Estimated ${previewDisplay.satsDisplay}${receiveSpotPrice ? `. ${receiveSpotPrice}` : ''}`}

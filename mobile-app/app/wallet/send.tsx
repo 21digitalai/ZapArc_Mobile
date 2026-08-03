@@ -23,7 +23,7 @@ import {
 } from '../../src/services/breezSparkService';
 import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
 import { useCurrency } from '../../src/hooks/useCurrency';
-import { formatFiat, satsToFiat, usdbToFiat, fiatToUsdb } from '../../src/utils/currency';
+import { formatFiat, getBtcSpotPrice, satsToFiat, usdbToFiat, fiatToUsdb } from '../../src/utils/currency';
 import { cycleDisplayCurrency, type DisplayCurrency } from '../../src/services/displayCurrencyService';
 import { useLightningAddress } from '../../src/hooks/useLightningAddress';
 import { useKeyboardAwareScroll } from '../../src/hooks/useKeyboardAwareScroll';
@@ -414,6 +414,11 @@ export default function SendScreen() {
     if (!previewSats) return null;
     return formatSatsWithFiat(previewSats);
   }, [previewSats, formatSatsWithFiat]);
+
+  const sendSpotPrice = useMemo(
+    () => getBtcSpotPrice(effectiveInputCurrency, secondaryFiatCurrency, rates, isLoadingRates),
+    [effectiveInputCurrency, secondaryFiatCurrency, rates, isLoadingRates],
+  );
 
   const balanceDisplay = useMemo(() => {
     if (isUsdbAsset) {
@@ -1798,10 +1803,14 @@ export default function SendScreen() {
                 <Text style={[styles.conversionFiat, { marginTop: 4 }]}>Amount fixed by invoice</Text>
               )}
 
-              {previewDisplay && previewSats > 0 && inputCurrency !== 'sats' && (
-                <View style={styles.conversionPreview}>
+              {previewDisplay && previewSats > 0 && effectiveInputCurrency !== 'usdb' && (
+                <View
+                  style={styles.conversionPreview}
+                  accessibilityLabel={`Estimated ${previewDisplay.satsDisplay}${sendSpotPrice ? `. ${sendSpotPrice}` : ''}`}
+                >
                   <Text style={styles.conversionText}>≈ {previewDisplay.satsDisplay}</Text>
                   {previewDisplay.fiatDisplay && <Text style={styles.conversionFiat}>({previewDisplay.fiatDisplay})</Text>}
+                  {sendSpotPrice && <Text style={styles.conversionSpotPrice}>{sendSpotPrice}</Text>}
                 </View>
               )}
 
@@ -1858,10 +1867,14 @@ export default function SendScreen() {
                 <Text style={[styles.conversionFiat, { marginTop: 4 }]}>Amount fixed by URI</Text>
               )}
 
-              {previewDisplay && previewSats > 0 && inputCurrency !== 'sats' && (
-                <View style={styles.conversionPreview}>
+              {previewDisplay && previewSats > 0 && effectiveInputCurrency !== 'usdb' && (
+                <View
+                  style={styles.conversionPreview}
+                  accessibilityLabel={`Estimated ${previewDisplay.satsDisplay}${sendSpotPrice ? `. ${sendSpotPrice}` : ''}`}
+                >
                   <Text style={styles.conversionText}>≈ {previewDisplay.satsDisplay}</Text>
                   {previewDisplay.fiatDisplay && <Text style={styles.conversionFiat}>({previewDisplay.fiatDisplay})</Text>}
+                  {sendSpotPrice && <Text style={styles.conversionSpotPrice}>{sendSpotPrice}</Text>}
                 </View>
               )}
 
@@ -2490,6 +2503,7 @@ const styles = StyleSheet.create({
   },
   conversionPreview: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 8,
@@ -2508,6 +2522,12 @@ const styles = StyleSheet.create({
   conversionFiat: {
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 14,
+  },
+  conversionSpotPrice: {
+    width: '100%',
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontSize: 13,
+    textAlign: 'center',
   },
   lowAmountWarning: {
     color: '#ff9800',

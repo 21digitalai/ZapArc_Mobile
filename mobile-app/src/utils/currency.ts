@@ -31,6 +31,7 @@ export interface CurrencySettings {
 
 const SATS_PER_BTC = 100_000_000;
 const RATE_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+export const SPOT_RATE_MAX_AGE_MS = 5 * 60 * 1000;
 const COINGECKO_API = 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,eur';
 
 // =============================================================================
@@ -172,6 +173,36 @@ export function formatFiat(amount: number, currency: 'usd' | 'eur'): string {
   } else {
     return `${symbol}${amount.toFixed(2)}`;
   }
+}
+
+/**
+ * Returns a presentable BTC spot-price line only when the shared rate is
+ * fresh and usable. Screens can keep their amount previews available even
+ * while this optional detail is unavailable.
+ */
+export function getBtcSpotPrice(
+  inputCurrency: 'sats' | 'usd' | 'eur' | 'usdb',
+  secondaryFiatCurrency: 'usd' | 'eur',
+  rates: ExchangeRates | null,
+  isLoadingRates: boolean,
+  now = Date.now(),
+): string | null {
+  if (
+    isLoadingRates ||
+    !rates ||
+    !Number.isFinite(rates.timestamp) ||
+    now - rates.timestamp >= SPOT_RATE_MAX_AGE_MS
+  ) {
+    return null;
+  }
+
+  const fiatCurrency = inputCurrency === 'usd' || inputCurrency === 'eur'
+    ? inputCurrency
+    : secondaryFiatCurrency;
+  const rate = rates[fiatCurrency];
+  if (!Number.isFinite(rate) || rate <= 0) return null;
+
+  return `1 BTC ≈ ${formatFiat(rate, fiatCurrency)}`;
 }
 
 /**

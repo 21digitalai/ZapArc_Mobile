@@ -54,6 +54,13 @@
 - Keep the amber conversion preview readable on narrow screens: the estimated sats and fiat equivalent remain on the first line, while an available BTC spot price uses the compact centered second line.
 - The preview's accessibility label must include the sats estimate and the spot price when it is visible.
 
+### Send conversion preview
+
+`app/wallet/send.tsx`
+- Keep the amber conversion preview readable on narrow screens: the sats/fiat estimate remains on the first line and the optional BTC spot price is centered on a compact second line.
+- Use `getBtcSpotPrice` from `src/utils/currency.ts` for both Send and Receive. It uses the selected input fiat (or secondary fiat for sats), and suppresses loading, invalid, zero, or five-minute-stale rates.
+- The preview accessibility label includes the estimate and spot price when present.
+
 ### Asset tabs
 
 `AssetTabBar` (`src/features/wallet/components/AssetTabBar.tsx`)
