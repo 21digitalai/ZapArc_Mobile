@@ -66,6 +66,13 @@ def production_google_web_client_id
   client_id
 end
 
+def production_google_ios_client_id
+  source = File.read(GOOGLE_OAUTH_CONFIG)
+  client_id = source[/PRODUCTION_GOOGLE_IOS_CLIENT_ID\s*=\s*['\"]([^'\"]+)['\"]/, 1]
+  UI.user_error!("Missing production Google iOS OAuth client ID in #{GOOGLE_OAUTH_CONFIG}") unless client_id
+  client_id
+end
+
 def verify_android_oauth_bundle!(aab_path)
   client_id = production_google_web_client_id
   command = "unzip -p #{Shellwords.escape(aab_path)} base/assets/index.android.bundle | grep -aFq -- #{Shellwords.escape(client_id)}"
@@ -73,10 +80,25 @@ def verify_android_oauth_bundle!(aab_path)
   UI.success("Verified production Google OAuth configuration in Android AAB")
 end
 
+def verify_ios_oauth_bundle!(ipa_path)
+  client_id = production_google_ios_client_id
+  command = "unzip -p #{Shellwords.escape(ipa_path)} 'Payload/*.app/main.jsbundle' | grep -aFq -- #{Shellwords.escape(client_id)}"
+  UI.user_error!("iOS IPA does not contain the production Google OAuth client ID") unless system(command)
+  UI.success("Verified production Google OAuth configuration in iOS IPA")
+end
+
 def require_existing_aab!
   path = File.expand_path(android_aab_path, PROJECT_ROOT)
   UI.user_error!("Android AAB not found at #{path} — run `fastlane android build` first.") unless File.exist?(path)
   verify_android_oauth_bundle!(path)
+  path
+end
+
+
+def require_existing_ipa!
+  path = File.expand_path(ios_ipa_path, PROJECT_ROOT)
+  UI.user_error!("iOS IPA not found at #{path} — run `fastlane ios build` first.") unless File.exist?(path)
+  verify_ios_oauth_bundle!(path)
   path
 end
 
@@ -242,6 +264,7 @@ platform :ios do
       "#{xcode_auth_flags}"
     )
     UI.user_error!("IPA not found at #{ios_ipa_path}") unless File.exist?(abs(ios_ipa_path))
+    verify_ios_oauth_bundle!(abs(ios_ipa_path))
     UI.success("IPA ready: #{abs(ios_ipa_path)}")
   end
 
@@ -249,14 +272,14 @@ platform :ios do
   lane :upload_testflight do
     upload_to_testflight(
       api_key: asc_key, app_identifier: ios_identifier,
-      ipa: abs(ios_ipa_path), skip_waiting_for_build_processing: true,
+      ipa: require_existing_ipa!, skip_waiting_for_build_processing: true,
     )
   end
 
   desc "Submit the existing IPA to App Review (no metadata/screenshot changes)"
   lane :submit_for_review do
     deliver(
-      api_key: asc_key, app_identifier: ios_identifier, ipa: abs(ios_ipa_path),
+      api_key: asc_key, app_identifier: ios_identifier, ipa: require_existing_ipa!,
       app_version: expo["version"],
       skip_metadata: true, skip_screenshots: true, skip_binary_upload: true,
       force: true, submit_for_review: true, precheck_include_in_app_purchases: false,
