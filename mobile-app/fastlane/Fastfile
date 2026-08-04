@@ -57,9 +57,26 @@ def ios_export_dir     = env_value("FASTLANE_IOS_EXPORT_DIR", "ios/build/export"
 def ios_ipa_path       = File.join(ios_export_dir, "#{ios_scheme}.ipa")
 def ios_export_options = env_value("FASTLANE_IOS_EXPORT_OPTIONS", "ios/ExportOptions-AppStore.plist")
 def android_aab_path   = env_value("FASTLANE_ANDROID_AAB_PATH", "android/app/build/outputs/bundle/release/app-release.aab")
+GOOGLE_OAUTH_CONFIG    = File.join(PROJECT_ROOT, "src/config/googleOAuth.ts")
+
+def production_google_web_client_id
+  source = File.read(GOOGLE_OAUTH_CONFIG)
+  client_id = source[/PRODUCTION_GOOGLE_WEB_CLIENT_ID\s*=\s*['\"]([^'\"]+)['\"]/, 1]
+  UI.user_error!("Missing production Google Web OAuth client ID in #{GOOGLE_OAUTH_CONFIG}") unless client_id
+  client_id
+end
+
+def verify_android_oauth_bundle!(aab_path)
+  client_id = production_google_web_client_id
+  command = "unzip -p #{Shellwords.escape(aab_path)} base/assets/index.android.bundle | grep -aFq -- #{Shellwords.escape(client_id)}"
+  UI.user_error!("Android AAB does not contain the production Google Web OAuth client ID") unless system(command)
+  UI.success("Verified production Google OAuth configuration in Android AAB")
+end
+
 def require_existing_aab!
   path = File.expand_path(android_aab_path, PROJECT_ROOT)
   UI.user_error!("Android AAB not found at #{path} — run `fastlane android build` first.") unless File.exist?(path)
+  verify_android_oauth_bundle!(path)
   path
 end
 
@@ -152,6 +169,7 @@ platform :android do
   lane :build do
     in_root("cd android && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ./gradlew bundleRelease")
     UI.user_error!("AAB not found at #{android_aab_path}") unless File.exist?(abs(android_aab_path))
+    verify_android_oauth_bundle!(abs(android_aab_path))
     UI.success("AAB ready: #{abs(android_aab_path)}")
   end
 
