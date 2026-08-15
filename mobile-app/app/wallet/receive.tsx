@@ -32,6 +32,7 @@ import { type DisplayCurrency } from '../../src/services/displayCurrencyService'
 import { fiatToUsdb, getBtcSpotPrice } from '../../src/utils/currency';
 import { createSafeBackHandler } from '../../src/features/wallet/utils/safeBack';
 import { saveQrToAndroidGallery } from '../../src/features/wallet/utils/saveQrToDevice';
+import { settingsService } from '../../src/services/settingsService';
 
 /**
  * Local widening of {@link DisplayCurrency} for the receive screen. The
@@ -541,12 +542,14 @@ export default function ReceiveScreen() {
 
     try {
       setIsGenerating(true);
+      const userSettings = await settingsService.getUserSettings();
+      const requestedExpirySecs = userSettings.invoiceExpirySecs;
       const result = await BreezSparkService.receivePayment(
         satsAmount,
         description || undefined,
         isUsdbAsset
-          ? { tokenIdentifier: usdbTokenIdentifier || undefined, usdbAmount }
-          : undefined,
+          ? { tokenIdentifier: usdbTokenIdentifier || undefined, usdbAmount, expirySecs: requestedExpirySecs }
+          : { expirySecs: requestedExpirySecs },
       );
 
       setInvoice(result.paymentRequest);
@@ -555,7 +558,7 @@ export default function ReceiveScreen() {
       // preview can show "1.00 USDB" instead of falling through to
       // "any amount" when the user requested a specific token amount.
       setInvoiceUsdbAmount(isUsdbAsset && usdbAmount ? usdbAmount : 0);
-      setExpiryTime(Date.now() + 15 * 60 * 1000);
+      setExpiryTime(result.expiresAt || Date.now() + requestedExpirySecs * 1000);
     } catch (error) {
       console.error('Failed to generate invoice:', error);
       Alert.alert(t('common.error'), error instanceof Error ? error.message : t('deposit.generateInvoiceFailed'));

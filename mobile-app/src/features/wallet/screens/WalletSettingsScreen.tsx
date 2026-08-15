@@ -81,6 +81,13 @@ export function WalletSettingsScreen(): React.JSX.Element {
     }
   };
 
+  const getInvoiceExpiryDisplay = (): string => {
+    const seconds = settings?.invoiceExpirySecs || 86400;
+    if (seconds % 86400 === 0) return `${seconds / 86400} ${t(seconds === 86400 ? 'settings.day' : 'settings.days')}`;
+    if (seconds % 3600 === 0) return `${seconds / 3600} ${t(seconds === 3600 ? 'settings.hour' : 'settings.hours')}`;
+    return `${seconds / 60} ${t(seconds === 60 ? 'settings.minute' : 'settings.minutes')}`;
+  };
+
   // Show the loading state ONLY when there are genuinely no settings yet (first
   // load). A transient `settingsLoading` while settings already exist (e.g. a
   // focus refresh, or a child screen updating a setting) must NOT blank the
@@ -137,6 +144,19 @@ export function WalletSettingsScreen(): React.JSX.Element {
                 <List.Icon {...props} icon="chevron-right" color={secondaryTextColor} />
               )}
               onPress={() => router.push('/wallet/settings/language')}
+              titleStyle={[styles.listTitle, { color: primaryTextColor }]}
+              descriptionStyle={[styles.listDescription, { color: secondaryTextColor }]}
+              style={styles.listItem}
+            />
+
+            <Divider style={styles.divider} />
+
+            <List.Item
+              title={t('settings.invoiceExpiry')}
+              description={getInvoiceExpiryDisplay()}
+              left={(props) => <List.Icon {...props} icon="timer-outline" color={BRAND_COLOR} />}
+              right={(props) => <List.Icon {...props} icon="chevron-right" color={secondaryTextColor} />}
+              onPress={() => router.push('/wallet/settings/invoice-expiry')}
               titleStyle={[styles.listTitle, { color: primaryTextColor }]}
               descriptionStyle={[styles.listDescription, { color: secondaryTextColor }]}
               style={styles.listItem}

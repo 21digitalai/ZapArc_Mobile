@@ -289,6 +289,8 @@ export interface PaymentResult {
 export interface ReceivePaymentResult {
   paymentRequest: string;
   feeSat: number;
+  /** Requested expiry as an absolute UTC timestamp, used only if SDK metadata is unavailable. */
+  expiresAt?: number;
 }
 
 export interface TransactionInfo {
@@ -1984,7 +1986,7 @@ export async function payInvoice(
 export async function receivePayment(
   amountSat: number,
   description?: string,
-  options?: { tokenIdentifier?: string; usdbAmount?: number },
+  options?: { tokenIdentifier?: string; usdbAmount?: number; expirySecs?: number },
 ): Promise<ReceivePaymentResult> {
   if (!_isNativeAvailable || !sdkInstance) {
     throw new Error('SDK not available');
@@ -1992,6 +1994,7 @@ export async function receivePayment(
 
   try {
     let paymentMethod: any;
+    const expirySecs = Math.min(7 * 24 * 60 * 60, Math.max(60, Math.round(options?.expirySecs || 86400)));
 
     if (options?.tokenIdentifier) {
       // USDB / token receive path. SparkAddress is the "any amount" form;
@@ -2009,7 +2012,7 @@ export async function receivePayment(
         paymentMethod = BreezSDK.ReceivePaymentMethod.SparkInvoice.new({
           amount: baseUnits,
           tokenIdentifier: options.tokenIdentifier,
-          expiryTime: BigInt(Math.floor(Date.now() / 1000) + 900),
+          expiryTime: BigInt(Math.floor(Date.now() / 1000) + expirySecs),
           description: description || undefined,
           senderPublicKey: undefined,
         });
@@ -2029,7 +2032,7 @@ export async function receivePayment(
         expirySecs: number;
       } = {
         description: description || '',
-        expirySecs: 900, // 15 minutes
+        expirySecs,
       };
       if (amountSat && amountSat > 0) {
         invoiceParams.amountSats = BigInt(amountSat);
@@ -2041,9 +2044,29 @@ export async function receivePayment(
       paymentMethod,
     });
 
+    // Breez may clamp a requested BOLT11 lifetime. Prefer its returned/parsed
+    // absolute expiration, retaining the requested lifetime only as a fallback.
+    let expiresAt = Date.now() + expirySecs * 1000;
+    try {
+      const parsed = await sdkInstance.parse(response.paymentRequest);
+      const inner = Array.isArray(parsed?.inner) ? parsed.inner[0] : parsed?.inner;
+      const details = inner?.invoiceDetails || inner;
+      const timestamp = Number(details?.timestamp);
+      const expiry = Number(details?.expiry);
+      const absoluteExpiry = Number(details?.expiryTime ?? details?.expiresAt);
+      if (Number.isFinite(absoluteExpiry) && absoluteExpiry > 0) {
+        expiresAt = absoluteExpiry > 1e12 ? absoluteExpiry : absoluteExpiry * 1000;
+      } else if (Number.isFinite(timestamp) && timestamp > 0 && Number.isFinite(expiry) && expiry > 0) {
+        expiresAt = (timestamp + expiry) * 1000;
+      }
+    } catch (parseError) {
+      console.warn('[BreezSparkService] Could not read generated invoice expiry; using requested lifetime', parseError);
+    }
+
     return {
       paymentRequest: response.paymentRequest,
       feeSat: Number(response.fee),
+      expiresAt,
     };
   } catch (error) {
     console.error('Failed to create receive invoice:', error);
