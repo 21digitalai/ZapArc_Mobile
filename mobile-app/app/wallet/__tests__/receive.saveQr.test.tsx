@@ -32,6 +32,7 @@ import {
   getReceiveSpotPrice,
   ReceiveQrActions,
   ReceiveQrSaveButton,
+  nextReceiveExpiryTime,
   saveReceiveQr,
   shareReceiveQr,
 } from '../receive';
@@ -206,5 +207,53 @@ describe('Receive conversion spot price', () => {
     [freshRates, true],
   ] as const)('omits unavailable, stale, or loading rates', (rates, isLoadingRates) => {
     expect(getReceiveSpotPrice('eur', 'usd', rates, isLoadingRates, now)).toBeNull();
+  });
+});
+
+describe('Receive invoice expiry state', () => {
+  const now = 1_700_000_000_000;
+  const priorExpiry = now + 15 * 60 * 1000;
+
+  it('replaces an already-generated invoice expiry only after a new invoice result arrives', () => {
+    const nextExpiry = nextReceiveExpiryTime(priorExpiry, {
+      type: 'generated',
+      isExpiringRequest: true,
+      result: { expiresAt: now + 24 * 60 * 60 * 1000 },
+      requestedExpirySecs: 900,
+      now,
+    });
+
+    expect(nextExpiry).toBe(now + 24 * 60 * 60 * 1000);
+  });
+
+  it('uses the SDK-returned absolute expiry instead of the requested duration', () => {
+    expect(nextReceiveExpiryTime(null, {
+      type: 'generated',
+      isExpiringRequest: true,
+      result: { expiresAt: now + 60 * 60 * 1000 },
+      requestedExpirySecs: 24 * 60 * 60,
+      now,
+    })).toBe(now + 60 * 60 * 1000);
+  });
+
+  it('falls back to the requested duration only for expiring requests', () => {
+    expect(nextReceiveExpiryTime(null, {
+      type: 'generated',
+      isExpiringRequest: true,
+      result: {},
+      requestedExpirySecs: 24 * 60 * 60,
+      now,
+    })).toBe(now + 24 * 60 * 60 * 1000);
+  });
+
+  it('clears expiry for reusable static addresses and when starting a new invoice', () => {
+    expect(nextReceiveExpiryTime(priorExpiry, {
+      type: 'generated',
+      isExpiringRequest: false,
+      result: {},
+      requestedExpirySecs: 24 * 60 * 60,
+      now,
+    })).toBeNull();
+    expect(nextReceiveExpiryTime(priorExpiry, { type: 'clear' })).toBeNull();
   });
 });

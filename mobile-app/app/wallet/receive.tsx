@@ -23,6 +23,7 @@ import {
   BreezSparkService,
   onPaymentReceived,
   getDepositClaimErrorInfo,
+  type ReceivePaymentResult,
 } from '../../src/services/breezSparkService';
 import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
 import { useWallet } from '../../src/hooks/useWallet';
@@ -76,6 +77,30 @@ const currencyLabels: Record<InvoiceCurrency, string> = {
 };
 
 export const getReceiveSpotPrice = getBtcSpotPrice;
+
+type ReceiveExpiryUpdate =
+  | { type: 'generated'; isExpiringRequest: boolean; result: Pick<ReceivePaymentResult, 'expiresAt'>; requestedExpirySecs: number; now: number }
+  | { type: 'clear' };
+
+/**
+ * Keeps expiry state tied to a generated payment request. A returned SDK
+ * timestamp is authoritative; the requested duration is only a defensive
+ * fallback for expiring requests when that metadata is unavailable.
+ */
+export function nextReceiveExpiryTime(current: number | null, update: ReceiveExpiryUpdate): number | null {
+  if (update.type === 'clear') return null;
+
+  if (!update.isExpiringRequest) return null;
+
+  const sdkExpiry = update.result.expiresAt;
+  if (typeof sdkExpiry === 'number' && Number.isFinite(sdkExpiry) && sdkExpiry > update.now) {
+    return sdkExpiry;
+  }
+
+  return Number.isFinite(update.requestedExpirySecs) && update.requestedExpirySecs > 0
+    ? update.now + (update.requestedExpirySecs * 1000)
+    : current;
+}
 
 // Centered brand logo for QR codes (Wallet-of-Satoshi style). A single
 // pre-composited asset — bolt icon + the "ZapArc" wordmark (white "Zap" +
@@ -560,7 +585,13 @@ export default function ReceiveScreen() {
       setInvoiceUsdbAmount(isUsdbAsset && usdbAmount ? usdbAmount : 0);
       // Static Spark addresses are reusable and must never start an expiry
       // countdown. Single-use payment requests retain their actual SDK expiry.
-      setExpiryTime(result.expiresAt || null);
+      setExpiryTime((current) => nextReceiveExpiryTime(current, {
+        type: 'generated',
+        isExpiringRequest: !isUsdbAsset || Boolean(usdbAmount),
+        result,
+        requestedExpirySecs,
+        now: Date.now(),
+      }));
     } catch (error) {
       console.error('Failed to generate invoice:', error);
       Alert.alert(t('common.error'), error instanceof Error ? error.message : t('deposit.generateInvoiceFailed'));
@@ -588,7 +619,7 @@ export default function ReceiveScreen() {
 
   const handleNewInvoice = useCallback(() => {
     setInvoice('');
-    setExpiryTime(null);
+    setExpiryTime((current) => nextReceiveExpiryTime(current, { type: 'clear' }));
     setInvoiceSatsAmount(0);
     setInvoiceUsdbAmount(0);
     setInvoicePreviewY(null);
