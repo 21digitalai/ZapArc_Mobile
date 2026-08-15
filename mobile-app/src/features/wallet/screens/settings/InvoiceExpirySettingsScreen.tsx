@@ -9,9 +9,11 @@ import { useLanguage } from '../../../../hooks/useLanguage';
 import { useAppTheme } from '../../../../contexts/ThemeContext';
 import { BRAND_COLOR, getGradientColors, getPrimaryTextColor, getSecondaryTextColor } from '../../../../utils/theme-helpers';
 import { createSafeBackHandler } from '../../utils/safeBack';
-
-const MAX_EXPIRY_SECS = 7 * 24 * 60 * 60;
-const PRESETS = [900, 3600, 21600, 86400, MAX_EXPIRY_SECS];
+import {
+  customMinutesToExpirySecs,
+  INVOICE_EXPIRY_PRESETS,
+  isInvoiceExpiryPreset,
+} from './invoiceExpiry';
 
 function formatExpiry(seconds: number, t: (key: string) => string): string {
   if (seconds % 86400 === 0) return `${seconds / 86400} ${t(seconds === 86400 ? 'settings.day' : 'settings.days')}`;
@@ -33,13 +35,13 @@ export function InvoiceExpirySettingsScreen(): React.JSX.Element {
   const [error, setError] = useState('');
   useEffect(() => {
     const seconds = settings?.invoiceExpirySecs || 86400;
-    setSelected(PRESETS.includes(seconds) ? String(seconds) : 'custom');
-    if (!PRESETS.includes(seconds)) setCustomMinutes(String(Math.round(seconds / 60)));
+    setSelected(isInvoiceExpiryPreset(seconds) ? String(seconds) : 'custom');
+    if (!isInvoiceExpiryPreset(seconds)) setCustomMinutes(String(Math.round(seconds / 60)));
   }, [settings]);
   const save = async (value: string) => {
     let seconds = Number(value);
-    if (value === 'custom') seconds = Math.round(Number(customMinutes) * 60);
-    if (!Number.isFinite(seconds) || seconds < 60 || seconds > MAX_EXPIRY_SECS) {
+    if (value === 'custom') seconds = customMinutesToExpirySecs(customMinutes) || NaN;
+    if (!Number.isFinite(seconds)) {
       setError(t('settings.invoiceExpiryInvalid'));
       return;
     }
@@ -52,7 +54,7 @@ export function InvoiceExpirySettingsScreen(): React.JSX.Element {
   return <LinearGradient colors={getGradientColors(themeMode)} style={styles.gradient}><SafeAreaView style={styles.container}>
     <View style={styles.header}><IconButton icon="arrow-left" iconColor={primary} onPress={safeBack} /><Text style={[styles.title, { color: primary }]}>{t('settings.invoiceExpiry')}</Text><View style={styles.spacer} /></View>
     <ScrollView contentContainerStyle={styles.content}><Text style={[styles.description, { color: secondary }]}>{t('settings.invoiceExpiryDescription')}</Text>
-      <RadioButton.Group value={selected} onValueChange={save}>{PRESETS.map((seconds) => <View key={seconds} style={styles.option}><RadioButton.Android value={String(seconds)} color={BRAND_COLOR} uncheckedColor={secondary} /><Text style={[styles.optionText, { color: primary }]}>{formatExpiry(seconds, t)}</Text></View>)}
+      <RadioButton.Group value={selected} onValueChange={save}>{INVOICE_EXPIRY_PRESETS.map((seconds) => <View key={seconds} style={styles.option}><RadioButton.Android value={String(seconds)} color={BRAND_COLOR} uncheckedColor={secondary} /><Text style={[styles.optionText, { color: primary }]}>{formatExpiry(seconds, t)}</Text></View>)}
         <View style={styles.option}><RadioButton.Android value="custom" color={BRAND_COLOR} uncheckedColor={secondary} onPress={() => setSelected('custom')} /><Text style={[styles.optionText, { color: primary }]}>{t('settings.custom')}</Text></View>
       </RadioButton.Group>
       {selected === 'custom' && <TextInput mode="outlined" label={t('settings.customMinutes')} value={customMinutes} onChangeText={setCustomMinutes} onBlur={() => save('custom')} keyboardType="number-pad" error={!!error} />}
