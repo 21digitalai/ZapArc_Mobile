@@ -41,6 +41,13 @@
 
 ## Components
 
+### Invoice expiry setting
+
+`src/features/wallet/screens/settings/InvoiceExpirySettingsScreen.tsx`
+- Place the Invoice expiry row in Wallet Configuration directly after Lightning Address and before Address Book; show the persisted duration as its description.
+- Reuse the wallet gradient, theme helpers, Expo Router leaf-route, and `createSafeBackHandler` pattern used by other wallet settings screens.
+- Offer the approved presets plus a custom duration bounded to one minute through seven days. Keep strings localized and persist only `invoiceExpirySecs` through the settings hook.
+
 ### Receive QR actions
 
 `app/wallet/receive.tsx`
