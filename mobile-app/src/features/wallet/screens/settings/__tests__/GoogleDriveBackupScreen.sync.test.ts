@@ -43,7 +43,45 @@ jest.mock('../../../../../components/StyledTextInput', () => {
 });
 jest.mock('../../../../../components/PinSetupKeypad', () => ({ PinSetupKeypad: () => null }));
 
-import { getContactSyncErrorMessage, GoogleDriveBackupScreen } from '../GoogleDriveBackupScreen';
+import {
+  getContactSyncErrorMessage,
+  GoogleDriveBackupScreen,
+  restoreContactsIfAddressBookEmpty,
+} from '../GoogleDriveBackupScreen';
+
+describe('wallet restore contact policy', () => {
+  const cloudContacts = [{
+    id: 'cloud-1',
+    name: 'Alice',
+    lightningAddress: 'alice@example.com',
+    createdAt: 1,
+    updatedAt: 1,
+  }];
+
+  it('automatically restores contacts when the local address book is empty', async () => {
+    const dependencies = {
+      getAllContacts: jest.fn().mockResolvedValue([]),
+      mergeImportedContacts: jest.fn().mockResolvedValue({ added: 1, skipped: 0 }),
+      refreshContactsStore: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await expect(restoreContactsIfAddressBookEmpty(cloudContacts, dependencies)).resolves.toBe(true);
+    expect(dependencies.mergeImportedContacts).toHaveBeenCalledWith(cloudContacts);
+    expect(dependencies.refreshContactsStore).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves restoration to the merge prompt when local contacts exist', async () => {
+    const dependencies = {
+      getAllContacts: jest.fn().mockResolvedValue([{ ...cloudContacts[0], id: 'local-1' }]),
+      mergeImportedContacts: jest.fn(),
+      refreshContactsStore: jest.fn(),
+    };
+
+    await expect(restoreContactsIfAddressBookEmpty(cloudContacts, dependencies)).resolves.toBe(false);
+    expect(dependencies.mergeImportedContacts).not.toHaveBeenCalled();
+    expect(dependencies.refreshContactsStore).not.toHaveBeenCalled();
+  });
+});
 
 describe('GoogleDriveBackupScreen Restore Contacts feedback', () => {
   const t = (key: string): string => `translated:${key}`;

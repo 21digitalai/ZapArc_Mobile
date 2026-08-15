@@ -77,6 +77,32 @@ export function getContactSyncErrorMessage(
   return error || t('cloudBackup.contactsSyncFailed');
 }
 
+type ContactRestoreDependencies = {
+  getAllContacts: () => Promise<Contact[]>;
+  mergeImportedContacts: (contacts: Contact[]) => Promise<{ added: number; skipped: number }>;
+  refreshContactsStore: () => Promise<void>;
+};
+
+/**
+ * Restores contacts immediately when there is no local address book to merge
+ * with. A non-empty local book must keep using the explicit Merge/Skip prompt.
+ */
+export async function restoreContactsIfAddressBookEmpty(
+  contacts: Contact[],
+  dependencies: ContactRestoreDependencies = {
+    getAllContacts: contactService.getAllContacts,
+    mergeImportedContacts: contactService.mergeImportedContacts,
+    refreshContactsStore,
+  },
+): Promise<boolean> {
+  const existingContacts = await dependencies.getAllContacts();
+  if (existingContacts.length > 0) return false;
+
+  await dependencies.mergeImportedContacts(contacts);
+  await dependencies.refreshContactsStore();
+  return true;
+}
+
 // =============================================================================
 // Component
 // =============================================================================
@@ -874,6 +900,19 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
       const contactsToMerge = restoredContacts;
       setRestoredContacts(null);
       if (CONTACTS_BACKUP_ENABLED && contactsToMerge && contactsToMerge.length > 0) {
+        try {
+          const restoredAutomatically = await restoreContactsIfAddressBookEmpty(contactsToMerge);
+          if (restoredAutomatically) {
+            router.replace('/wallet/home');
+            return;
+          }
+        } catch (contactsRestoreError) {
+          console.warn('⚠️ [Restore] Automatic contact restore failed:', contactsRestoreError);
+          Alert.alert(t('cloudBackup.partialRestoreTitle'), t('cloudBackup.partialRestoreBody'));
+          router.replace('/wallet/home');
+          return;
+        }
+
         promptMergeContacts(contactsToMerge, () => router.replace('/wallet/home'));
         return;
       }
