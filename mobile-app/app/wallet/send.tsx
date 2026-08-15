@@ -150,6 +150,8 @@ interface PaymentPreview {
   amount: number;
   fee: number;
   total: number;
+  enteredAmount: string;
+  enteredCurrency: SendInputCurrency;
   description?: string;
 }
 
@@ -1172,6 +1174,8 @@ export default function SendScreen() {
         amount: paymentAmount,
         fee: feeAmount,
         total: totalAmount,
+        enteredAmount: amount.trim(),
+        enteredCurrency: effectiveInputCurrency,
         description: comment.trim() || undefined,
       };
 
@@ -1456,6 +1460,10 @@ export default function SendScreen() {
     };
     const shouldShowFiatUnavailable =
       !isUsdbAsset && (!previewFiat.amount || !previewFiat.fee || !previewFiat.total);
+    const shouldShowSelectedFiat =
+      !isUsdbAsset
+      && (preview.enteredCurrency === 'usd' || preview.enteredCurrency === 'eur')
+      && preview.enteredCurrency !== secondaryFiatCurrency;
 
     return (
       <LinearGradient colors={gradientColors} style={styles.gradient}>
@@ -1522,6 +1530,18 @@ export default function SendScreen() {
                   {previewFiat.amount && (
                     <Text style={[styles.previewFiatEstimate, { color: secondaryTextColor }]}>
                       {previewFiat.amount}
+                    </Text>
+                  )}
+                  {shouldShowSelectedFiat && (
+                    <Text
+                      style={[styles.previewFiatEstimate, { color: secondaryTextColor }]}
+                      accessibilityLabel={t('send.selectedAmount')
+                        .replace('{{amount}}', preview.enteredAmount)
+                        .replace('{{currency}}', currencyLabels[preview.enteredCurrency])}
+                    >
+                      {t('send.selectedAmount')
+                        .replace('{{amount}}', preview.enteredAmount)
+                        .replace('{{currency}}', currencyLabels[preview.enteredCurrency])}
                     </Text>
                   )}
                 </View>

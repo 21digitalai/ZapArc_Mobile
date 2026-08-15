@@ -60,6 +60,7 @@ const mockContacts = [{
 }];
 
 const mockUseLocalSearchParams = jest.fn(() => ({}));
+let mockSecondaryFiatCurrency: 'usd' | 'eur' = 'usd';
 
 jest.mock('expo-router', () => ({
   router: {
@@ -103,7 +104,7 @@ jest.mock('../../../src/hooks/useCurrency', () => ({
   useCurrency: () => ({
     displayCurrency: 'sats',
     setDisplayCurrency: jest.fn().mockResolvedValue(undefined),
-    secondaryFiatCurrency: 'usd',
+    secondaryFiatCurrency: mockSecondaryFiatCurrency,
     convertToSats: (value: number) => Math.round(value),
     formatSatsWithFiat: (sats: number) => ({ satsDisplay: `${sats} sats`, fiatDisplay: '$1.00' }),
     rates: { usd: 100000, eur: 90000, timestamp: Date.now() },
@@ -199,6 +200,7 @@ describe('SendScreen on-chain flow', () => {
     jest.useFakeTimers();
     jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
     mockUseLocalSearchParams.mockReturnValue({});
+    mockSecondaryFiatCurrency = 'usd';
     mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: true, assets: [] });
 
     mockParsePaymentRequest.mockResolvedValue({ type: 'bitcoinAddress', isValid: true });
@@ -337,6 +339,36 @@ describe('SendScreen on-chain flow', () => {
       expect(screen.getByText('Lunch reimbursement')).toBeTruthy();
     });
     expect(screen.queryByText('Description:')).toBeNull();
+  });
+
+  it.each([
+    ['usd', 'eur', 'Selected: 100 EUR'],
+    ['eur', 'usd', 'Selected: 100 USD'],
+  ] as const)('preserves an alternate selected fiat amount when default fiat is %s', async (secondary, selected, expected) => {
+    mockSecondaryFiatCurrency = secondary;
+    mockParsePaymentRequest.mockResolvedValue({ type: 'lightningAddress', isValid: true });
+    mockPrepareSendPayment.mockResolvedValue({ paymentMethod: { tag: 'Bolt11' } });
+    renderScreen();
+
+    fireEvent.press(screen.getByText('sats'));
+    fireEvent.press(screen.getByLabelText(`Select ${selected}`));
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'alice@example.com');
+    fireEvent.changeText(screen.getByTestId('amount-input'), '100');
+    fireEvent.press(screen.getByText('Preview Payment'));
+
+    await waitFor(() => expect(screen.getByLabelText(expected)).toBeTruthy());
+  });
+
+  it('does not duplicate the selected amount for default fiat or sats input', async () => {
+    mockParsePaymentRequest.mockResolvedValue({ type: 'lightningAddress', isValid: true });
+    mockPrepareSendPayment.mockResolvedValue({ paymentMethod: { tag: 'Bolt11' } });
+    renderScreen();
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'alice@example.com');
+    fireEvent.changeText(screen.getByTestId('amount-input'), '100');
+    fireEvent.press(screen.getByText('Preview Payment'));
+
+    await waitFor(() => expect(screen.getByText('Payment Preview')).toBeTruthy());
+    expect(screen.queryByText(/Selected:/)).toBeNull();
   });
 
   it('rejects invalid and empty amount edge cases', async () => {
