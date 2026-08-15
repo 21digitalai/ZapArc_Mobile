@@ -82,7 +82,7 @@ export function WalletSettingsScreen(): React.JSX.Element {
   };
 
   const getInvoiceExpiryDisplay = (): string => {
-    const seconds = settings?.invoiceExpirySecs || 3600;
+    const seconds = settings?.invoiceExpirySecs || 21600;
     if (seconds % 86400 === 0) return `${seconds / 86400} ${t(seconds === 86400 ? 'settings.day' : 'settings.days')}`;
     if (seconds % 3600 === 0) return `${seconds / 3600} ${t(seconds === 3600 ? 'settings.hour' : 'settings.hours')}`;
     return `${seconds / 60} ${t(seconds === 60 ? 'settings.minute' : 'settings.minutes')}`;

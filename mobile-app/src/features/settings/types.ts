@@ -159,7 +159,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   primaryDenomination: 'sats', // Default to satoshis
   secondaryFiatCurrency: 'usd', // Default to USD for fiat conversion
   useBuiltInWallet: true,
-  invoiceExpirySecs: 3600,
+  invoiceExpirySecs: 21600,
   theme: 'dark', // Default to dark theme to match current app style
   biometricEnabled: false,
   autoLockTimeout: 900, // 15 minutes
