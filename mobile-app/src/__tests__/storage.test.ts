@@ -488,6 +488,7 @@ describe('SettingsService', () => {
       expect(settings.language).toBe('bg');
       expect(settings.biometricEnabled).toBe(true);
       expect(settings.currency).toBe(DEFAULT_USER_SETTINGS.currency);
+      expect(settings.invoiceExpirySecs).toBe(86400);
     });
   });
 

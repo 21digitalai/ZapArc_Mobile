@@ -152,19 +152,6 @@ export function WalletSettingsScreen(): React.JSX.Element {
             <Divider style={styles.divider} />
 
             <List.Item
-              title={t('settings.invoiceExpiry')}
-              description={getInvoiceExpiryDisplay()}
-              left={(props) => <List.Icon {...props} icon="timer-outline" color={BRAND_COLOR} />}
-              right={(props) => <List.Icon {...props} icon="chevron-right" color={secondaryTextColor} />}
-              onPress={() => router.push('/wallet/settings/invoice-expiry')}
-              titleStyle={[styles.listTitle, { color: primaryTextColor }]}
-              descriptionStyle={[styles.listDescription, { color: secondaryTextColor }]}
-              style={styles.listItem}
-            />
-
-            <Divider style={styles.divider} />
-
-            <List.Item
               title={t('settings.theme')}
               description={t('settings.darkModeSettings')}
               left={(props) => (
@@ -174,6 +161,19 @@ export function WalletSettingsScreen(): React.JSX.Element {
                 <List.Icon {...props} icon="chevron-right" color={secondaryTextColor} />
               )}
               onPress={() => router.push('/wallet/settings/theme')}
+              titleStyle={[styles.listTitle, { color: primaryTextColor }]}
+              descriptionStyle={[styles.listDescription, { color: secondaryTextColor }]}
+              style={styles.listItem}
+            />
+
+            <Divider style={styles.divider} />
+
+            <List.Item
+              title={t('settings.invoiceExpiry')}
+              description={getInvoiceExpiryDisplay()}
+              left={(props) => <List.Icon {...props} icon="timer-outline" color={BRAND_COLOR} />}
+              right={(props) => <List.Icon {...props} icon="chevron-right" color={secondaryTextColor} />}
+              onPress={() => router.push('/wallet/settings/invoice-expiry')}
               titleStyle={[styles.listTitle, { color: primaryTextColor }]}
               descriptionStyle={[styles.listDescription, { color: secondaryTextColor }]}
               style={styles.listItem}

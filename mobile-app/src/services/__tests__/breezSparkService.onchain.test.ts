@@ -17,6 +17,7 @@ jest.mock('../notificationTriggerService', () => ({
 }));
 
 const mockSendPayment = jest.fn();
+const mockReceivePayment = jest.fn();
 const mockParse = jest.fn();
 const mockPrepareSendPayment = jest.fn();
 const mockPrepareLnurlPay = jest.fn();
@@ -60,9 +61,14 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
       return { type: 'bitcoinAddress', confirmationSpeed };
     },
   },
+  ReceivePaymentMethod: {
+    Bolt11Invoice: { new: jest.fn((params) => ({ tag: 'Bolt11Invoice', params })) },
+    SparkInvoice: { new: jest.fn((params) => ({ tag: 'SparkInvoice', params })) },
+  },
   defaultConfig: jest.fn(() => ({})),
   connect: jest.fn().mockResolvedValue({
     sendPayment: (...args: unknown[]) => mockSendPayment(...args),
+    receivePayment: (...args: unknown[]) => mockReceivePayment(...args),
     parse: (...args: unknown[]) => mockParse(...args),
     prepareSendPayment: (...args: unknown[]) => mockPrepareSendPayment(...args),
     prepareLnurlPay: (...args: unknown[]) => mockPrepareLnurlPay(...args),
@@ -161,6 +167,61 @@ describe('BreezSparkService.sendPayment', () => {
     const result = await svc.sendPayment({});
 
     expect(result).toMatchObject(expected);
+  });
+});
+
+describe('BreezSparkService.receivePayment expiry', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('uses Breez parsed expiry for a BTC BOLT11 invoice and forwards expirySecs', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockReceivePayment.mockResolvedValueOnce({ paymentRequest: 'lnbc1test', fee: 0n });
+    mockParse.mockResolvedValueOnce({ inner: { timestamp: 1_700_000_000, expiry: 3_600 } });
+
+    const result = await svc.receivePayment(42, 'coffee', { expirySecs: 3_600 });
+
+    expect(mockReceivePayment).toHaveBeenCalledWith({
+      paymentMethod: expect.objectContaining({
+        tag: 'Bolt11Invoice',
+        params: expect.objectContaining({ expirySecs: 3_600, amountSats: 42n }),
+      }),
+    });
+    expect(result.expiresAt).toBe(1_700_003_600_000);
+  });
+
+  it('passes an absolute expiryTime for amount-specific USDB invoices', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockReceivePayment.mockResolvedValueOnce({ paymentRequest: 'spark1test', fee: 0n });
+    mockParse.mockResolvedValueOnce({ inner: { expiryTime: 1_700_003_600 } });
+
+    await svc.receivePayment(0, undefined, { tokenIdentifier: 'usdb', usdbAmount: 1.25, expirySecs: 3_600 });
+
+    expect(mockReceivePayment).toHaveBeenCalledWith({
+      paymentMethod: expect.objectContaining({
+        tag: 'SparkInvoice',
+        params: expect.objectContaining({ expiryTime: 1_700_003_600n }),
+      }),
+    });
+    now.mockRestore();
+  });
+
+  it('keeps any-amount SparkAddress reusable without expiry or parse calls', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockReceivePayment.mockResolvedValueOnce({ paymentRequest: 'sparkaddress1test', fee: 0n });
+
+    const result = await svc.receivePayment(0, undefined, { tokenIdentifier: 'usdb', expirySecs: 3_600 });
+
+    expect(mockReceivePayment).toHaveBeenCalledWith({
+      paymentMethod: expect.objectContaining({ tag: 'SparkAddress' }),
+    });
+    expect(mockParse).not.toHaveBeenCalled();
+    expect(result.expiresAt).toBeUndefined();
   });
 });
 

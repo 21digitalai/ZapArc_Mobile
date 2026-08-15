@@ -558,7 +558,9 @@ export default function ReceiveScreen() {
       // preview can show "1.00 USDB" instead of falling through to
       // "any amount" when the user requested a specific token amount.
       setInvoiceUsdbAmount(isUsdbAsset && usdbAmount ? usdbAmount : 0);
-      setExpiryTime(result.expiresAt || Date.now() + requestedExpirySecs * 1000);
+      // Static Spark addresses are reusable and must never start an expiry
+      // countdown. Single-use payment requests retain their actual SDK expiry.
+      setExpiryTime(result.expiresAt || null);
     } catch (error) {
       console.error('Failed to generate invoice:', error);
       Alert.alert(t('common.error'), error instanceof Error ? error.message : t('deposit.generateInvoiceFailed'));

@@ -2044,10 +2044,14 @@ export async function receivePayment(
       paymentMethod,
     });
 
-    // Breez may clamp a requested BOLT11 lifetime. Prefer its returned/parsed
-    // absolute expiration, retaining the requested lifetime only as a fallback.
-    let expiresAt = Date.now() + expirySecs * 1000;
-    try {
+    // Spark addresses are reusable and intentionally do not expose invoice
+    // expiry semantics to the receive UI. Expiring payment requests prefer
+    // Breez's parsed absolute expiration, with the requested lifetime only as
+    // a defensive fallback.
+    let expiresAt: number | undefined = wantsExpiringRequest(paymentMethod)
+      ? Date.now() + expirySecs * 1000
+      : undefined;
+    if (expiresAt !== undefined) try {
       const parsed = await sdkInstance.parse(response.paymentRequest);
       const inner = Array.isArray(parsed?.inner) ? parsed.inner[0] : parsed?.inner;
       const details = inner?.invoiceDetails || inner;
@@ -2072,6 +2076,10 @@ export async function receivePayment(
     console.error('Failed to create receive invoice:', error);
     throw error;
   }
+}
+
+function wantsExpiringRequest(paymentMethod: { tag?: string }): boolean {
+  return paymentMethod.tag !== 'SparkAddress';
 }
 
 /**
