@@ -1994,7 +1994,7 @@ export async function receivePayment(
 
   try {
     let paymentMethod: any;
-    const expirySecs = Math.min(7 * 24 * 60 * 60, Math.max(60, Math.round(options?.expirySecs || 21600)));
+    const expirySecs = Math.min(7 * 24 * 60 * 60, Math.max(60, Math.round(options?.expirySecs || 86400)));
 
     if (options?.tokenIdentifier) {
       // USDB / token receive path. SparkAddress is the "any amount" form;

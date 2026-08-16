@@ -192,6 +192,22 @@ describe('BreezSparkService.receivePayment expiry', () => {
     expect(result.expiresAt).toBe(1_700_003_600_000);
   });
 
+  it('defaults absent invoice expiry to one day for BTC BOLT11 invoices', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockReceivePayment.mockResolvedValueOnce({ paymentRequest: 'lnbc1test', fee: 0n });
+    mockParse.mockResolvedValueOnce({ inner: { timestamp: 1_700_000_000, expiry: 86_400 } });
+
+    await svc.receivePayment(42, 'coffee');
+
+    expect(mockReceivePayment).toHaveBeenCalledWith({
+      paymentMethod: expect.objectContaining({
+        tag: 'Bolt11Invoice',
+        params: expect.objectContaining({ expirySecs: 86_400, amountSats: 42n }),
+      }),
+    });
+  });
+
   it('passes an absolute expiryTime for amount-specific USDB invoices', async () => {
     const now = jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
     const svc = require('../breezSparkService');

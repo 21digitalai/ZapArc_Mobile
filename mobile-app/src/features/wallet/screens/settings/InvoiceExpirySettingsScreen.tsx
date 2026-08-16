@@ -30,11 +30,11 @@ export function InvoiceExpirySettingsScreen(): React.JSX.Element {
   const { settings, updateSettings } = useSettings();
   const { t } = useLanguage();
   const { themeMode } = useAppTheme();
-  const [selected, setSelected] = useState('21600');
+  const [selected, setSelected] = useState('86400');
   const [customMinutes, setCustomMinutes] = useState('');
   const [error, setError] = useState('');
   useEffect(() => {
-    const seconds = settings?.invoiceExpirySecs || 21600;
+    const seconds = settings?.invoiceExpirySecs || 86400;
     setSelected(isInvoiceExpiryPreset(seconds) ? String(seconds) : 'custom');
     if (!isInvoiceExpiryPreset(seconds)) setCustomMinutes(String(Math.round(seconds / 60)));
   }, [settings]);
