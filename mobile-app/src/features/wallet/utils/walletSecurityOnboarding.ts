@@ -9,12 +9,12 @@ const WALLET_SECURITY_BANNER_DISMISSED_KEY = '@zap_arc/wallet_security_banner_di
 const BIOMETRIC_BANNER_DISMISSED_KEY = '@zap_arc/wallet_biometric_banner_dismissed_v1';
 const NOTIFICATIONS_BANNER_DISMISSED_KEY = '@zap_arc/wallet_notifications_banner_dismissed_v1';
 
-// --- Engagement-paced banners (cloud backup + lightning address) ---------
+// --- Engagement-paced banners (lightning address + cloud backup) ---------
 //
 // These two are NOT shown on first launch. We pace them so a brand-new
 // user works through the security-critical banners (biometric +
-// notifications) first and gets to actually USE the wallet before we
-// surface the "nice to have" / "protect your funds" nudges. All gating
+// notifications) first. Lightning Address is then offered immediately;
+// cloud backup remains paced. All gating
 // uses local-only signals (AsyncStorage timestamps + locally-cached
 // backup fingerprint + locally-cached lightning address) so this check
 // never makes a network call and never blocks the home screen.
@@ -24,9 +24,8 @@ const LIGHTNING_ADDRESS_BANNER_DISMISSED_KEY = '@zap_arc/wallet_lightning_addres
 const LAST_PROMPT_RESOLVED_AT_KEY = '@zap_arc/wallet_last_noncritical_prompt_resolved_at_v1';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// Grace from first launch before each non-critical banner is eligible.
+// Grace from first launch before the cloud-backup banner is eligible.
 const CLOUD_BACKUP_GRACE_MS = 1 * DAY_MS;      // high-stakes — nudge after day 1
-const LIGHTNING_ADDRESS_GRACE_MS = 3 * DAY_MS; // convenience — no rush
 // After any non-critical banner is dismissed/snoozed, the next one waits
 // this long so they don't cascade in the same session.
 const INTER_PROMPT_COOLDOWN_MS = 2 * DAY_MS;
@@ -113,21 +112,22 @@ export async function enableNotificationsIfNeeded(): Promise<void> {
 // user to opt into biometric + notifications. That up-front alert was
 // intrusive (especially right after the user finished the PIN step) and
 // duplicated what the home-screen banners already do. All security/
-// convenience setup now happens exclusively through the paced banner
-// system (biometric → notifications → cloud-backup → lightning-address),
+// convenience setup now happens exclusively through the banner system
+// (biometric → notifications → lightning-address → cloud-backup),
 // each surfaced at the right time and dismissible. `enableNotificationsIfNeeded`
 // is kept because the notifications banner's "Enable" action calls it.
 
 /**
  * Decide which (if any) security banner to show on the home screen.
  * Only one is ever returned, in strict priority order:
- *   biometric → notifications → cloud-backup → lightning-address
+ *   biometric → notifications → lightning-address → cloud-backup
  * The first eligible + non-suppressed kind wins; everything below waits.
  *
  * The two security-critical banners (biometric, notifications) appear
- * immediately. The two engagement-paced banners (cloud-backup,
- * lightning-address) only surface after a grace period from first launch
- * and are spaced apart by a cooldown, so a first-time user isn't piled on.
+ * immediately. Lightning Address is offered as soon as those security
+ * prompts are resolved; cloud backup retains its grace period and the
+ * non-critical cooldown prevents it from replacing a resolved LNURL prompt
+ * in the same session.
  */
 export async function getActiveSecurityReminder(
   context: SecurityReminderContext = {}
@@ -141,7 +141,7 @@ export async function getActiveSecurityReminder(
   }
 
   const settings = await settingsService.getUserSettings();
-  // Anchor for the engagement-paced grace periods. Cheap stamp-once.
+  // Anchor for the paced cloud-backup grace period. Cheap stamp-once.
   const now = Date.now();
   const firstSeenAt = await getOrSetFirstSeenAt(now);
 
@@ -186,30 +186,10 @@ export async function getActiveSecurityReminder(
     }
   }
 
-  // --- Engagement-paced banners below this line ---------------------------
-  // Shared cooldown: after any non-critical banner was dismissed/snoozed,
-  // hold the next one back so they don't appear in the same session.
-  const lastResolvedAt = await readTimestamp(LAST_PROMPT_RESOLVED_AT_KEY);
-  const cooldownActive =
-    lastResolvedAt !== null && now - lastResolvedAt < INTER_PROMPT_COOLDOWN_MS;
-
-  // 3) Cloud-backup banner — high-stakes (losing the seed = losing funds),
-  // so it leads the non-critical group with a short grace and re-shows
-  // after a snooze until a backup actually exists for this wallet.
-  const backupGraceElapsed = now - firstSeenAt >= CLOUD_BACKUP_GRACE_MS;
-  if (backupGraceElapsed && !cooldownActive) {
-    const alreadyBackedUp = await hasLocalCloudBackup(context.masterKeyId);
-    if (!alreadyBackedUp) {
-      const snoozedUntil = await readTimestamp(CLOUD_BACKUP_SNOOZED_UNTIL_KEY);
-      const snoozeActive = snoozedUntil !== null && now < snoozedUntil;
-      if (!snoozeActive) return 'cloud-backup';
-    }
-  }
-
-  // 4) Lightning-address banner — pure convenience, longest grace, and a
-  // permanent dismiss (the user can always set one up in Settings).
-  const lnGraceElapsed = now - firstSeenAt >= LIGHTNING_ADDRESS_GRACE_MS;
-  if (lnGraceElapsed && !cooldownActive) {
+  // 3) Lightning-address banner — offer it immediately once security is
+  // resolved. It deliberately bypasses the shared non-critical cooldown so
+  // a prior cloud-backup resolution cannot delay this first offer.
+  {
     let hasAddress = false;
     try {
       const cached = await getCachedAddress();
@@ -224,6 +204,22 @@ export async function getActiveSecurityReminder(
       } catch {
         return 'lightning-address';
       }
+    }
+  }
+
+  // 4) Cloud-backup banner — high-stakes, but paced after Lightning Address
+  // so it never delays that first offer. The existing grace/cooldown keeps it
+  // from cascading immediately after a user resolves a non-critical banner.
+  const lastResolvedAt = await readTimestamp(LAST_PROMPT_RESOLVED_AT_KEY);
+  const cooldownActive =
+    lastResolvedAt !== null && now - lastResolvedAt < INTER_PROMPT_COOLDOWN_MS;
+  const backupGraceElapsed = now - firstSeenAt >= CLOUD_BACKUP_GRACE_MS;
+  if (backupGraceElapsed && !cooldownActive) {
+    const alreadyBackedUp = await hasLocalCloudBackup(context.masterKeyId);
+    if (!alreadyBackedUp) {
+      const snoozedUntil = await readTimestamp(CLOUD_BACKUP_SNOOZED_UNTIL_KEY);
+      const snoozeActive = snoozedUntil !== null && now < snoozedUntil;
+      if (!snoozeActive) return 'cloud-backup';
     }
   }
 
