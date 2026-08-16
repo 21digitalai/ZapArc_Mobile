@@ -214,7 +214,11 @@ export function HomeScreen(): React.JSX.Element {
   const { lock, enableBiometric } = useWalletAuth();
   const { t } = useLanguage();
   const { format, formatTx, refreshSettings, rates, secondaryFiatCurrency } = useCurrency();
-  const { addressInfo: lightningAddressInfo, isRegistered: isLightningAddressRegistered } = useLightningAddress();
+  const {
+    addressInfo: lightningAddressInfo,
+    isRegistered: isLightningAddressRegistered,
+    refresh: refreshLightningAddress,
+  } = useLightningAddress();
 
   // Get navigation params (for payment success toast)
   const params = useLocalSearchParams<{
@@ -346,12 +350,13 @@ export function HomeScreen(): React.JSX.Element {
     try {
       const next = await getActiveSecurityReminder({
         masterKeyId: activeWalletInfo?.masterKeyId,
+        subWalletIndex: activeWalletInfo?.subWalletIndex,
       });
       setActiveReminder(next);
     } catch {
       setActiveReminder(null);
     }
-  }, [activeWalletInfo?.masterKeyId]);
+  }, [activeWalletInfo?.masterKeyId, activeWalletInfo?.subWalletIndex]);
 
   useEffect(() => {
     void refreshSecurityBanner();
@@ -470,11 +475,16 @@ export function HomeScreen(): React.JSX.Element {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([refreshBalance(), refreshTransactions()]);
+      await Promise.all([
+        refreshBalance(),
+        refreshTransactions(),
+        refreshLightningAddress(),
+      ]);
+      await refreshSecurityBanner();
     } finally {
       setRefreshing(false);
     }
-  }, [refreshBalance, refreshTransactions]);
+  }, [refreshBalance, refreshTransactions, refreshLightningAddress, refreshSecurityBanner]);
 
   const showOutgoingPaymentState = useCallback((payment: {
     id?: string;

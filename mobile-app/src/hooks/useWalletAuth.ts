@@ -568,14 +568,6 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
 
         WalletCache.setPreloadedData(resolvedBalance, resolvedTransactions);
 
-        // Emit wallet switch event — useWallet listens for this to update immediately
-        WalletCache.emitWalletSwitch({
-          masterKeyId,
-          subWalletIndex,
-          balance: resolvedBalance,
-          transactions: resolvedTransactions,
-        });
-
         // Cache PIN for future use (module-level — shared across hook callers)
         setModuleSessionPin(pin);
 
@@ -611,6 +603,16 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
           // Non-fatal — user can still navigate, SDK will be unavailable
           console.warn('⚠️ [useWalletAuth] SDK reinitialization failed:', sdkError);
         }
+
+        // Notify the shared wallet state only after the SDK reconnect attempt.
+        // Emitting before disconnect/reinitialization lets Home refresh the new
+        // wallet against the old SDK instance and can poison its first cache.
+        WalletCache.emitWalletSwitch({
+          masterKeyId,
+          subWalletIndex,
+          balance: resolvedBalance,
+          transactions: resolvedTransactions,
+        });
 
         return true;
       } catch (err) {
@@ -666,10 +668,9 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
           WalletCache.getCachedBalance(currentMasterKeyId, subWalletIndex),
           WalletCache.getCachedTransactions(currentMasterKeyId, subWalletIndex),
         ]);
-        WalletCache.setPreloadedData(
-          cachedBal?.balance ?? 0,
-          cachedTxs?.transactions ?? [],
-        );
+        const resolvedBalance = cachedBal?.balance ?? 0;
+        const resolvedTransactions = cachedTxs?.transactions ?? [];
+        WalletCache.setPreloadedData(resolvedBalance, resolvedTransactions);
 
         // Reinitialize SDK with the session PIN captured during the master
         // wallet unlock. A sub-wallet switch must not open biometric storage:
@@ -691,6 +692,17 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         } catch (sdkError) {
           console.error('❌ [useWalletAuth] SDK reinitialization failed:', sdkError);
         }
+
+        // The WalletProvider remains mounted during same-master sub-wallet
+        // navigation, so preload data alone is never consumed. Explicitly
+        // notify it after the SDK target is ready (or the reconnect failed)
+        // so it can atomically change wallet identity and reconcile state.
+        WalletCache.emitWalletSwitch({
+          masterKeyId: currentMasterKeyId,
+          subWalletIndex,
+          balance: resolvedBalance,
+          transactions: resolvedTransactions,
+        });
 
         return true;
       } catch (err) {

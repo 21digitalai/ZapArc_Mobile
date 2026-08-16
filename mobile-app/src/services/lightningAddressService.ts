@@ -10,12 +10,35 @@ import {
   unregisterLightningAddress,
   isSDKInitialized,
 } from './breezSparkService';
+import { storageService } from './storageService';
 
 // =============================================================================
 // Constants
 // =============================================================================
 
-const STORAGE_KEY = '@lightning_address_info';
+const LEGACY_STORAGE_KEY = '@lightning_address_info';
+const STORAGE_KEY_PREFIX = '@lightning_address_info:';
+
+export interface LightningAddressWalletIdentity {
+  masterKeyId: string;
+  subWalletIndex: number;
+}
+
+function getStorageKey(identity: LightningAddressWalletIdentity): string {
+  return `${STORAGE_KEY_PREFIX}${identity.masterKeyId}:${identity.subWalletIndex}`;
+}
+
+async function resolveWalletIdentity(
+  identity?: LightningAddressWalletIdentity,
+): Promise<LightningAddressWalletIdentity | null> {
+  if (identity) return identity;
+  const active = await storageService.getActiveWalletInfo();
+  if (!active) return null;
+  return {
+    masterKeyId: active.masterKeyId,
+    subWalletIndex: active.subWalletIndex,
+  };
+}
 
 // Username validation pattern: 3-32 chars, alphanumeric with hyphens/underscores
 // Must start and end with alphanumeric
@@ -90,9 +113,26 @@ export function validateUsername(username: string): UsernameValidationResult {
 /**
  * Get cached Lightning Address info from local storage
  */
-export async function getCachedAddress(): Promise<LightningAddressInfo | null> {
+export async function getCachedAddress(
+  identity?: LightningAddressWalletIdentity,
+): Promise<LightningAddressInfo | null> {
   try {
-    const cached = await AsyncStorage.getItem(STORAGE_KEY);
+    const resolved = await resolveWalletIdentity(identity);
+    if (!resolved) return null;
+
+    const scopedKey = getStorageKey(resolved);
+    let cached = await AsyncStorage.getItem(scopedKey);
+
+    // Older builds stored one global address. It overwhelmingly represented
+    // index 0, so migrate it only for Main; never leak it into a sub-wallet.
+    if (!cached && resolved.subWalletIndex === 0) {
+      cached = await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
+      if (cached) {
+        await AsyncStorage.setItem(scopedKey, cached);
+        await AsyncStorage.removeItem(LEGACY_STORAGE_KEY);
+      }
+    }
+
     if (!cached) return null;
 
     const parsed = JSON.parse(cached) as LightningAddressInfo;
@@ -107,9 +147,17 @@ export async function getCachedAddress(): Promise<LightningAddressInfo | null> {
 /**
  * Save Lightning Address info to local storage
  */
-export async function cacheAddress(addressInfo: LightningAddressInfo): Promise<void> {
+export async function cacheAddress(
+  addressInfo: LightningAddressInfo,
+  identity?: LightningAddressWalletIdentity,
+): Promise<void> {
   try {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(addressInfo));
+    const resolved = await resolveWalletIdentity(identity);
+    if (!resolved) return;
+    await AsyncStorage.setItem(getStorageKey(resolved), JSON.stringify(addressInfo));
+    if (resolved.subWalletIndex === 0) {
+      await AsyncStorage.removeItem(LEGACY_STORAGE_KEY);
+    }
     console.log('✅ [LightningAddressService] Cached address:', addressInfo.lightningAddress);
   } catch (error) {
     console.error('❌ [LightningAddressService] Failed to save cache:', error);
@@ -119,9 +167,16 @@ export async function cacheAddress(addressInfo: LightningAddressInfo): Promise<v
 /**
  * Clear cached Lightning Address info
  */
-export async function clearAddressCache(): Promise<void> {
+export async function clearAddressCache(
+  identity?: LightningAddressWalletIdentity,
+): Promise<void> {
   try {
-    await AsyncStorage.removeItem(STORAGE_KEY);
+    const resolved = await resolveWalletIdentity(identity);
+    if (!resolved) return;
+    await AsyncStorage.removeItem(getStorageKey(resolved));
+    if (resolved.subWalletIndex === 0) {
+      await AsyncStorage.removeItem(LEGACY_STORAGE_KEY);
+    }
     console.log('✅ [LightningAddressService] Cache cleared');
   } catch (error) {
     console.error('❌ [LightningAddressService] Failed to clear cache:', error);
@@ -199,7 +254,12 @@ export async function register(
  * Get current Lightning Address
  * First tries SDK (source of truth), falls back to cache, syncs if needed
  */
-export async function getAddress(): Promise<LightningAddressServiceResult<LightningAddressInfo | null>> {
+export async function getAddress(
+  identity?: LightningAddressWalletIdentity,
+): Promise<LightningAddressServiceResult<LightningAddressInfo | null>> {
+  const resolved = await resolveWalletIdentity(identity);
+  if (!resolved) return { success: true, data: null };
+
   // If SDK is available, use it as source of truth
   if (isSDKInitialized()) {
     try {
@@ -207,11 +267,11 @@ export async function getAddress(): Promise<LightningAddressServiceResult<Lightn
 
       if (sdkAddress) {
         // Update cache with SDK state
-        await cacheAddress(sdkAddress);
+        await cacheAddress(sdkAddress, resolved);
         return { success: true, data: sdkAddress };
       } else {
         // No address registered - clear cache if it exists
-        await clearAddressCache();
+        await clearAddressCache(resolved);
         return { success: true, data: null };
       }
     } catch (error) {
@@ -220,7 +280,7 @@ export async function getAddress(): Promise<LightningAddressServiceResult<Lightn
   }
 
   // Fall back to cache (offline mode)
-  const cached = await getCachedAddress();
+  const cached = await getCachedAddress(resolved);
   return { success: true, data: cached };
 }
 
@@ -253,7 +313,7 @@ export async function unregister(): Promise<LightningAddressServiceResult<void>>
  * Sync local cache with SDK state
  * SDK is the source of truth - updates cache to match
  */
-export async function syncWithSDK(): Promise<void> {
+export async function syncWithSDK(identity?: LightningAddressWalletIdentity): Promise<void> {
   if (!isSDKInitialized()) {
     console.log('ℹ️ [LightningAddressService] SDK not initialized, skipping sync');
     return;
@@ -263,9 +323,9 @@ export async function syncWithSDK(): Promise<void> {
     const sdkAddress = await getLightningAddress();
 
     if (sdkAddress) {
-      await cacheAddress(sdkAddress);
+      await cacheAddress(sdkAddress, identity);
     } else {
-      await clearAddressCache();
+      await clearAddressCache(identity);
     }
 
     console.log('✅ [LightningAddressService] Synced with SDK');

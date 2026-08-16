@@ -81,7 +81,14 @@ describe('getActiveSecurityReminder', () => {
     mockedNotifications.getPermissionsAsync.mockResolvedValue({ status: 'granted' } as never);
     mockedAddress.mockResolvedValue({ lightningAddress: 'alice@zaparc.com' } as never);
 
-    expect(await getActiveSecurityReminder()).toBeNull();
+    expect(await getActiveSecurityReminder({
+      masterKeyId: 'wallet-a',
+      subWalletIndex: 0,
+    })).toBeNull();
+    expect(mockedAddress).toHaveBeenLastCalledWith({
+      masterKeyId: 'wallet-a',
+      subWalletIndex: 0,
+    });
   });
 
   it('keeps cloud backup behind the cooldown after Lightning Address is dismissed', async () => {

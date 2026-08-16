@@ -198,6 +198,9 @@ export function useWalletStateInternal(): WalletState & WalletActions {
   // Debounce timer so a burst of SDK events (e.g. Synced + claim succeeded)
   // collapses into a single balance/transaction refresh.
   const eventRefreshTimerRef = useRef<ReturnType<typeof global.setTimeout> | null>(null);
+  // Monotonic guard for overlapping wallet-switch notifications. A slower
+  // earlier switch must never refresh after a newer target was selected.
+  const walletSwitchGenerationRef = useRef(0);
 
   useEffect(() => {
     balanceRef.current = balance;
@@ -1239,6 +1242,39 @@ export function useWalletStateInternal(): WalletState & WalletActions {
       isCancelled = true;
     };
   }, [activeWalletInfo, refreshBalance, refreshTransactions]);
+
+  // useWalletAuth owns authenticated wallet selection and SDK reinitialization,
+  // while this provider owns the UI state. Bridge them explicitly: relying on
+  // focus timing or the 500ms SDK poll misses fast disconnect/reconnect cycles.
+  useEffect(() => WalletCache.onWalletSwitch((event) => {
+    const walletKey = `${event.masterKeyId}:${event.subWalletIndex}`;
+    const generation = ++walletSwitchGenerationRef.current;
+
+    // Change the authoritative identity synchronously before any refresh can
+    // compare its storage-derived key against the previous React render.
+    activeWalletKeyRef.current = walletKey;
+    refreshBalancePromiseRef.current = null;
+    refreshTransactionsPromiseRef.current = null;
+    optimisticAuthoritativeUntilRef.current = 0;
+    receiveOptimisticUntilRef.current = 0;
+
+    setBalance(event.balance);
+    balanceRef.current = event.balance;
+    setTransactions(event.transactions);
+    transactionsRef.current = event.transactions;
+    setTokenBalances([]);
+    tokenBalancesRef.current = [];
+    setIsRefreshing(false);
+    setIsConnected(BreezSparkService.isSDKInitialized());
+
+    void (async () => {
+      // Reload names + wallet metadata and the target's token cache. Do not
+      // pre-mark lastCacheLoadKeyRef: loadWalletData must observe the change.
+      await loadWalletData(true);
+      if (walletSwitchGenerationRef.current !== generation) return;
+      await Promise.all([refreshBalance(), refreshTransactions()]);
+    })();
+  }), [loadWalletData, refreshBalance, refreshTransactions]);
 
   // ========================================
   // Real-time Payment Event Listener

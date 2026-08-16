@@ -9,6 +9,7 @@
 import { useCallback, useEffect } from 'react';
 import {
   type LightningAddressInfo,
+  type LightningAddressWalletIdentity,
   LightningAddressService,
   validateUsername,
 } from '../services';
@@ -63,14 +64,35 @@ const store = createStore<LnAddressStoreState>({
 
 // De-dupe concurrent refreshes — several mounted consumers re-trigger on the
 // same SDK-connected / wallet-switched signal, but only one fetch should run.
-let refreshInFlight: Promise<void> | null = null;
+const refreshInFlight = new Map<string, Promise<void>>();
+let latestWalletKey: string | null = null;
 
-function refreshStore(): Promise<void> {
-  if (refreshInFlight) return refreshInFlight;
-  refreshInFlight = (async () => {
+function refreshStore(identity: LightningAddressWalletIdentity | null): Promise<void> {
+  const walletKey = identity
+    ? `${identity.masterKeyId}:${identity.subWalletIndex}`
+    : null;
+
+  if (latestWalletKey !== walletKey) {
+    latestWalletKey = walletKey;
+    // Never show the previous wallet's address while the target is loading.
+    store.setState({ addressInfo: null, isLoading: !!walletKey, error: null });
+  }
+
+  if (!identity || !walletKey) {
+    return Promise.resolve();
+  }
+
+  const existing = refreshInFlight.get(walletKey);
+  if (existing) return existing;
+
+  let promise!: Promise<void>;
+  promise = (async () => {
     try {
       store.setState({ isLoading: true, error: null });
-      const result = await LightningAddressService.getAddress();
+      const result = await LightningAddressService.getAddress(identity);
+      // A slow request for the previous wallet must not overwrite the active
+      // wallet's shared module store after a rapid switch back and forth.
+      if (latestWalletKey !== walletKey) return;
       if (result.success) {
         store.setState({ addressInfo: result.data || null, isLoading: false });
       } else {
@@ -78,15 +100,19 @@ function refreshStore(): Promise<void> {
       }
     } catch (err) {
       console.error('❌ [useLightningAddress] refresh failed:', err);
+      if (latestWalletKey !== walletKey) return;
       store.setState({
         error: err instanceof Error ? err.message : 'Failed to load Lightning Address',
         isLoading: false,
       });
     } finally {
-      refreshInFlight = null;
+      if (refreshInFlight.get(walletKey) === promise) {
+        refreshInFlight.delete(walletKey);
+      }
     }
   })();
-  return refreshInFlight;
+  refreshInFlight.set(walletKey, promise);
+  return promise;
 }
 
 // =============================================================================
@@ -100,23 +126,34 @@ export function useLightningAddress(): LightningAddressState & LightningAddressA
   // actually connected (the first mount typically races SDK init and gets a
   // cache miss). We also re-fetch when the active master key changes so
   // switching wallets surfaces the new address.
-  const { isConnected, activeMasterKey } = useWallet();
-  const activeMasterKeyId = activeMasterKey?.id ?? null;
+  const { isConnected, activeWalletInfo } = useWallet();
+  const activeWalletIdentity = activeWalletInfo
+    ? {
+        masterKeyId: activeWalletInfo.masterKeyId,
+        subWalletIndex: activeWalletInfo.subWalletIndex,
+      }
+    : null;
+  const activeWalletKey = activeWalletIdentity
+    ? `${activeWalletIdentity.masterKeyId}:${activeWalletIdentity.subWalletIndex}`
+    : null;
 
   const isRegistered = addressInfo !== null;
 
   // Load on mount, then re-fetch when the SDK connects or the wallet changes.
   useEffect(() => {
-    void refreshStore();
+    void refreshStore(activeWalletIdentity);
     // refreshStore is module-stable; run whenever connection/wallet changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected, activeMasterKeyId]);
+  }, [isConnected, activeWalletKey]);
 
   // ========================================
   // Actions
   // ========================================
 
-  const refresh = useCallback((): Promise<void> => refreshStore(), []);
+  const refresh = useCallback(
+    (): Promise<void> => refreshStore(activeWalletIdentity),
+    [activeWalletKey],
+  );
 
   const checkAvailability = useCallback(
     async (username: string): Promise<{ available: boolean; error?: string }> => {

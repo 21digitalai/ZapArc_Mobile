@@ -52,6 +52,7 @@ export {
   validateUsername,
   type UsernameValidationResult,
   type LightningAddressServiceResult,
+  type LightningAddressWalletIdentity,
 } from './lightningAddressService';
 
 // Location service (country detection)

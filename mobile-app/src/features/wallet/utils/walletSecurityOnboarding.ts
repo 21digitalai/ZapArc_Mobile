@@ -43,6 +43,8 @@ export type SecurityReminderKind =
 export interface SecurityReminderContext {
   /** Active master key id — used to look up this wallet's local backup fingerprint. */
   masterKeyId?: string | null;
+  /** Active sub-wallet index — keeps Lightning Address state wallet-scoped. */
+  subWalletIndex?: number | null;
 }
 
 async function readTimestamp(key: string): Promise<number | null> {
@@ -192,7 +194,12 @@ export async function getActiveSecurityReminder(
   {
     let hasAddress = false;
     try {
-      const cached = await getCachedAddress();
+      const cached = context.masterKeyId != null && context.subWalletIndex != null
+        ? await getCachedAddress({
+            masterKeyId: context.masterKeyId,
+            subWalletIndex: context.subWalletIndex,
+          })
+        : await getCachedAddress();
       hasAddress = !!cached?.lightningAddress;
     } catch {
       hasAddress = false;

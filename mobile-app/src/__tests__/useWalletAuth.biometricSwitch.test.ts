@@ -40,6 +40,7 @@ jest.mock('../services/walletCacheService', () => ({
 }));
 
 import { storageService, settingsService } from '../services';
+import * as WalletCache from '../services/walletCacheService';
 import { primeSessionPin, useWalletAuth } from '../hooks/useWalletAuth';
 
 describe('useWalletAuth biometric master-wallet switching', () => {
@@ -136,5 +137,11 @@ describe('useWalletAuth biometric master-wallet switching', () => {
     expect(storageService.verifyMasterKeyPin).not.toHaveBeenCalled();
     expect(storageService.getBiometricPin).not.toHaveBeenCalled();
     expect(storageService.storeBiometricPin).not.toHaveBeenCalled();
+    expect(WalletCache.emitWalletSwitch).toHaveBeenCalledWith({
+      masterKeyId: 'wallet-b',
+      subWalletIndex: 2,
+      balance: 0,
+      transactions: [],
+    });
   });
 });
