@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.zaparc.app",
-      "buildNumber": "27",
+      "buildNumber": "28",
       "appleTeamId": "JY93CF5N7U",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
