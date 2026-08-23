@@ -1,4 +1,4 @@
-import { buildPaymentDiagnosticsExport, classifyReconciliation, DIAGNOSTIC_MAX_AGE_MS, DIAGNOSTIC_MAX_BYTES, DIAGNOSTIC_MAX_ENTRIES, prunePaymentDiagnostics, recordPaymentDiagnostic, sanitizeDiagnosticValue } from '../paymentDiagnostics';
+import { buildPaymentDiagnosticsExport, classifyReconciliation, DIAGNOSTIC_LOG_RING_MAX_ENTRIES, DIAGNOSTIC_MAX_AGE_MS, DIAGNOSTIC_MAX_BYTES, DIAGNOSTIC_MAX_ENTRIES, getSanitizedSdkLogs, prunePaymentDiagnostics, recordPaymentDiagnostic, recordSanitizedSdkLog, sanitizeDiagnosticValue } from '../paymentDiagnostics';
 
 jest.mock('@react-native-async-storage/async-storage', () => {
   let value: string | null = null;
@@ -22,6 +22,24 @@ describe('payment diagnostics privacy and reconciliation', () => {
       .toBe('balance_sync_inconsistency');
   });
 
+  it('flags a Returned HTLC with a reduced post-send balance for reconciliation', () => {
+    expect(classifyReconciliation({
+      htlcStatus: 'Returned', synced: true, pendingSendSats: 0, balanceBeforeSats: 100, balanceAfterSats: 90,
+    })).toBe('balance_sync_inconsistency');
+  });
+
+  it('keeps a bounded derived SDK log ring and never retains sensitive raw lines', async () => {
+    recordSanitizedSdkLog('info', 'wallet sync completed');
+    recordSanitizedSdkLog('error', 'payment failed: lnbc1secretinvoice');
+    for (let index = 0; index < DIAGNOSTIC_LOG_RING_MAX_ENTRIES + 3; index += 1) recordSanitizedSdkLog('debug', 'payment update');
+    const logs = getSanitizedSdkLogs();
+    expect(logs).toHaveLength(DIAGNOSTIC_LOG_RING_MAX_ENTRIES);
+    expect(logs.every((entry) => entry.event === 'payment_update')).toBe(true);
+    expect(JSON.stringify(logs)).not.toContain('lnbc1secretinvoice');
+    const payload = JSON.parse(await buildPaymentDiagnosticsExport({ reconciliation: 'unknown', sync: { attempted: false, succeeded: false }, payment: { id: 'logs' }, wallet: { authoritative: false } }));
+    expect(payload.relevantLogs).toEqual(logs);
+  });
+
   it('keeps failed payments reserved while pending balance remains', () => {
     expect(classifyReconciliation({ paymentStatus: 'failed', pendingSendSats: 1 }))
       .toBe('failed_but_funds_still_reserved');
@@ -43,7 +61,7 @@ describe('payment diagnostics privacy and reconciliation', () => {
       payment: { id: 'payment-1', status: 'failed', direction: 'send', amountSats: 42 },
       wallet: { balanceSats: 100, pendingSendSats: 42, authoritative: false },
     }));
-    expect(payload).toMatchObject({ schemaVersion: 1, payment: { id: 'payment-1' } });
+    expect(payload).toMatchObject({ schemaVersion: 1, app: { name: 'ZapArc Mobile' }, payment: { id: 'payment-1' } });
     expect(JSON.stringify(payload)).not.toContain('lnbc1privateinvoice');
     expect(payload.timeline[0]).not.toHaveProperty('detail');
   });
@@ -98,6 +116,18 @@ describe('payment diagnostics privacy and reconciliation', () => {
     }));
     expect(payload.timeline[0]).toMatchObject({ balanceSats: 100, pendingSendSats: 42, htlcStatus: '0', htlcExpiryMs: 123 });
     expect(JSON.stringify(payload)).not.toContain('lnbc1should-not-export');
+    expect(JSON.stringify(payload)).not.toContain('preimage');
+  });
+
+  it('keeps an allowlisted full send and event timeline', async () => {
+    await recordPaymentDiagnostic('payment-timeline', 'pre_send_snapshot', { balanceSats: 100, pendingSendSats: 0 });
+    await recordPaymentDiagnostic('payment-timeline', 'prepare_succeeded');
+    await recordPaymentDiagnostic('payment-timeline', 'submitted_pending', { htlcStatus: '0', htlcExpiryMs: 123 });
+    await recordPaymentDiagnostic('payment-timeline', 'event_failed', { htlcStatus: '2', balanceSats: 100, pendingSendSats: 0 });
+    const payload = JSON.parse(await buildPaymentDiagnosticsExport({ reconciliation: 'funds_returned', sync: { attempted: true, succeeded: true }, payment: { id: 'payment-timeline' }, wallet: { balanceSats: 100, authoritative: true } }));
+    expect(payload.timeline.map((event: { stage: string }) => event.stage)).toEqual([
+      'pre_send_snapshot', 'prepare_succeeded', 'submitted_pending', 'event_failed',
+    ]);
     expect(JSON.stringify(payload)).not.toContain('preimage');
   });
 });

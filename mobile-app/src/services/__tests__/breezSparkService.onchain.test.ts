@@ -28,6 +28,7 @@ const mockGetPayment = jest.fn();
 const mockListUnclaimedDeposits = jest.fn();
 const mockClaimDeposit = jest.fn();
 const mockListPayments = jest.fn().mockResolvedValue({ payments: [] });
+const mockInitLogging = jest.fn();
 
 jest.mock('react-native-fs', () => ({
   DocumentDirectoryPath: '/tmp',
@@ -66,6 +67,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
     SparkInvoice: { new: jest.fn((params) => ({ tag: 'SparkInvoice', params })) },
   },
   defaultConfig: jest.fn(() => ({})),
+  initLogging: (...args: unknown[]) => mockInitLogging(...args),
   connect: jest.fn().mockResolvedValue({
     sendPayment: (...args: unknown[]) => mockSendPayment(...args),
     receivePayment: (...args: unknown[]) => mockReceivePayment(...args),

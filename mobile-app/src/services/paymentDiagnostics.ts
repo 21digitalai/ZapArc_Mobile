@@ -5,6 +5,16 @@ export const DIAGNOSTIC_MAX_ENTRIES = 30;
 export const DIAGNOSTIC_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 /** The complete persisted journal stays deliberately small even with long error text. */
 export const DIAGNOSTIC_MAX_BYTES = 12_000;
+export const DIAGNOSTIC_LOG_RING_MAX_ENTRIES = 20;
+
+export interface SanitizedSdkLog {
+  at: string;
+  level: string;
+  /** A derived category, never a raw SDK log line. */
+  event: 'sdk_connected' | 'sdk_disconnected' | 'wallet_sync' | 'payment_update' | 'htlc_update';
+}
+
+const sdkLogRing: SanitizedSdkLog[] = [];
 
 export type ReconciliationCode =
   | 'funds_reserved_until_expiry' | 'overdue_stuck_reconciliation'
@@ -33,9 +43,11 @@ export interface PaymentDiagnosticsExport {
   sync: { attempted: boolean; succeeded: boolean; failure?: string };
   /** Individual source failures keep partial exports honest and actionable. */
   sourceFailures?: { payment?: string; paymentFallback?: string; wallet?: string };
+  app: { name: string; version: string; sdkVersion: string; platform: string };
   payment: { id: string; status?: string; direction?: string; amountSats?: number; feeSats?: number; timestamp?: number; paymentHash?: string; htlcStatus?: string; htlcExpiryMs?: number };
   wallet: { balanceSats?: number; pendingSendSats?: number; pendingReceiveSats?: number; authoritative: boolean };
   timeline: PaymentDiagnostic['events'];
+  relevantLogs: SanitizedSdkLog[];
 }
 
 const SENSITIVE = /(seed|mnemonic|private.?key|preimage|proof|invoice|bolt11|lnurl|lightning.?address|recipient|pubkey|description|comment|api.?key|token)/i;
@@ -46,6 +58,32 @@ export function sanitizeDiagnosticValue(value: unknown): string | undefined {
   const trimmed = value.trim();
   if (!trimmed || SENSITIVE.test(trimmed)) return undefined;
   return trimmed.slice(0, 240);
+}
+
+/**
+ * SDK log lines can contain payment requests and wallet data. Keep only a
+ * deterministic category from an explicitly safe operational vocabulary.
+ */
+export function recordSanitizedSdkLog(level: unknown, line: unknown): void {
+  if (typeof line !== 'string' || SENSITIVE.test(line)) return;
+  const normalized = line.toLowerCase();
+  let event: SanitizedSdkLog['event'] | undefined;
+  if (/\bdisconnect(?:ed|ing)?\b/.test(normalized)) event = 'sdk_disconnected';
+  else if (/\bconnect(?:ed|ing)?\b/.test(normalized)) event = 'sdk_connected';
+  else if (/\bsync(?:ed|ing)?\b/.test(normalized)) event = 'wallet_sync';
+  else if (/\bhtlc\b/.test(normalized)) event = 'htlc_update';
+  else if (/\bpayment\b/.test(normalized)) event = 'payment_update';
+  if (!event) return;
+  sdkLogRing.push({
+    at: new Date().toISOString(),
+    level: typeof level === 'string' && /^(trace|debug|info|warn|warning|error)$/i.test(level) ? level.toLowerCase() : 'info',
+    event,
+  });
+  if (sdkLogRing.length > DIAGNOSTIC_LOG_RING_MAX_ENTRIES) sdkLogRing.splice(0, sdkLogRing.length - DIAGNOSTIC_LOG_RING_MAX_ENTRIES);
+}
+
+export function getSanitizedSdkLogs(): SanitizedSdkLog[] {
+  return sdkLogRing.map((entry) => ({ ...entry }));
 }
 
 export function classifyReconciliation(input: {
@@ -69,7 +107,9 @@ export function classifyReconciliation(input: {
   }
   if (preimageShared) return 'settling_or_claimable';
   if (returned) {
-    return input.synced && !input.pendingSendSats
+    const balanceReduced = input.balanceBeforeSats !== undefined && input.balanceAfterSats !== undefined
+      && input.balanceAfterSats < input.balanceBeforeSats;
+    return input.synced && !input.pendingSendSats && !balanceReduced
       ? 'funds_returned' : 'balance_sync_inconsistency';
   }
   if ((input.paymentStatus || '').toLowerCase() === 'failed' && input.pendingSendSats) {
@@ -125,13 +165,22 @@ export async function getPaymentDiagnostic(paymentId: string): Promise<PaymentDi
   return retained.find((item) => item.paymentId === paymentId) || null;
 }
 
+/** Return one allowlisted historical balance snapshot for reconciliation only. */
+export async function getPaymentDiagnosticBalance(paymentId: string, stage: string): Promise<number | undefined> {
+  const journal = await getPaymentDiagnostic(paymentId);
+  const event = journal?.events.find((candidate) => candidate.stage === stage);
+  return event?.balanceSats;
+}
+
 /** Build a deliberately small, user-reviewable support payload. */
-export async function buildPaymentDiagnosticsExport(input: Omit<PaymentDiagnosticsExport, 'schemaVersion' | 'generatedAt' | 'timeline'>): Promise<string> {
+export async function buildPaymentDiagnosticsExport(input: Omit<PaymentDiagnosticsExport, 'schemaVersion' | 'generatedAt' | 'timeline' | 'relevantLogs' | 'app'> & { app?: PaymentDiagnosticsExport['app'] }): Promise<string> {
   const journal = await getPaymentDiagnostic(input.payment.id);
   return JSON.stringify({
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     ...input,
+    app: input.app || { name: 'ZapArc Mobile', version: 'unknown', sdkVersion: 'unknown', platform: 'unknown' },
     timeline: journal?.events || [],
+    relevantLogs: getSanitizedSdkLogs(),
   } satisfies PaymentDiagnosticsExport, null, 2);
 }

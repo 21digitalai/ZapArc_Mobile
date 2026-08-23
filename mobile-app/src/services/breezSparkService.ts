@@ -7,9 +7,10 @@
 // - Development builds (npx expo run:android)
 // - Production builds
 import { BREEZ_API_KEY, BREEZ_STORAGE_DIR } from '../config';
+import { Platform } from 'react-native';
 import { getExchangeRates, getCachedRates } from '../utils/currency';
 import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
-import { buildPaymentDiagnosticsExport, classifyReconciliation, recordPaymentDiagnostic, sanitizeDiagnosticValue } from './paymentDiagnostics';
+import { buildPaymentDiagnosticsExport, classifyReconciliation, getPaymentDiagnosticBalance, recordPaymentDiagnostic, recordSanitizedSdkLog, sanitizeDiagnosticValue } from './paymentDiagnostics';
 // Push notifications now flow via Breez's webhook registration + relay.
 // Foreground UX still comes from the local notification/event listeners.
 
@@ -482,6 +483,9 @@ function toSdkPaymentRequest(input: string): unknown {
 let sdkInstance: any = null;
 let _isInitialized = false;
 let cachedResolvedSwapTokens: ResolvedSwapToken[] | null = null;
+const DIAGNOSTICS_APP_METADATA = {
+  name: 'ZapArc Mobile', version: '1.1.9', sdkVersion: 'breez-sdk-spark-react-native@0.19.0', platform: Platform.OS,
+};
 
 // Event listeners
 type PaymentEventCallback = (payment: TransactionInfo) => void;
@@ -1359,6 +1363,14 @@ export async function initializeSDK(
       await RNFS.mkdir(storageDir);
     }
 
+    // Breez 0.19 supports an app Logger callback. Never retain its raw line:
+    // the diagnostics ring stores only a small, allowlisted derived category.
+    try {
+      BreezSDK.initLogging(undefined, { log: (entry: { level: unknown; line: unknown }) => recordSanitizedSdkLog(entry.level, entry.line) }, 'info');
+    } catch (loggingError) {
+      console.warn('⚠️ [BreezSparkService] Diagnostics logger unavailable:', loggingError);
+    }
+
 
     sdkInstance = await BreezSDK.connect({
       config,
@@ -1685,7 +1697,14 @@ async function setupEventListeners(): Promise<void> {
               description: String(paymentData?.description || ''),
             };
             if (payment.id && payment.type === 'send') {
-              void recordPaymentDiagnostic(payment.id, `event_${payment.status}`);
+              const rawHtlc = paymentData?.details && typeof paymentData.details === 'object'
+                && (paymentData.details as Record<string, unknown>).tag === 'Spark'
+                ? ((paymentData.details as Record<string, unknown>).inner as Record<string, unknown> | undefined)?.htlcDetails as Record<string, unknown> | undefined
+                : undefined;
+              void recordPaymentDiagnostic(payment.id, `event_${payment.status}`, {
+                htlcStatus: rawHtlc?.status === undefined ? undefined : String(rawHtlc.status),
+                htlcExpiryMs: rawHtlc?.expiryTime === undefined ? undefined : Number(rawHtlc.expiryTime) * 1000,
+              });
             }
 
             // Only send push notification for RECEIVED payments
@@ -1902,6 +1921,8 @@ export async function payInvoice(
   }
 
   try {
+    let balanceBefore: WalletBalance | null = null;
+    try { balanceBefore = await getBalance(); } catch { /* diagnostics remain partial */ }
     const prepareResponse = await sdkInstance.prepareSendPayment({
       paymentRequest: toSdkPaymentRequest(paymentRequest),
       amount: _amountSat ? BigInt(_amountSat) : undefined,
@@ -1915,7 +1936,21 @@ export async function payInvoice(
     const paymentId = response.payment?.id;
     const status = mapPaymentStatus(response.payment?.status);
     if (paymentId) {
-      void recordPaymentDiagnostic(paymentId, `submitted_${status}`);
+      const rawHtlc = response.payment?.details?.tag === 'Spark' ? response.payment.details.inner?.htlcDetails : undefined;
+      await recordPaymentDiagnostic(paymentId, 'pre_send_snapshot', {
+        balanceSats: balanceBefore?.balanceSat, pendingSendSats: balanceBefore?.pendingSendSat, pendingReceiveSats: balanceBefore?.pendingReceiveSat,
+      });
+      await recordPaymentDiagnostic(paymentId, 'prepare_succeeded');
+      await recordPaymentDiagnostic(paymentId, `submitted_${status}`, {
+        htlcStatus: rawHtlc?.status === undefined ? undefined : String(rawHtlc.status),
+        htlcExpiryMs: rawHtlc?.expiryTime === undefined ? undefined : Number(rawHtlc.expiryTime) * 1000,
+      });
+      try {
+        const balanceAfter = await getBalance();
+        await recordPaymentDiagnostic(paymentId, 'post_submit_snapshot', {
+          balanceSats: balanceAfter.balanceSat, pendingSendSats: balanceAfter.pendingSendSat, pendingReceiveSats: balanceAfter.pendingReceiveSat,
+        });
+      } catch { /* diagnostics remain partial */ }
       recentlySentPaymentIds.add(paymentId);
       if (__DEV__) {
         console.log('📤 [BreezSparkService] Tracking sent payment');
@@ -1972,7 +2007,7 @@ export async function payInvoice(
     }
 
     if (status === 'failed') {
-      if (paymentId) void recordPaymentDiagnostic(paymentId, 'submit_failed');
+      if (paymentId) void recordPaymentDiagnostic(paymentId, 'submit_failed', { detail: 'SDK returned failed status' });
       return { success: false, paymentId, status, error: 'Payment failed. Refresh this transaction to reconcile the current wallet state.' };
     }
     return { success: true, paymentId, status };
@@ -2699,6 +2734,8 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
     paymentStatus: payment?.status,
     synced: syncSucceeded,
     pendingSendSats: balance?.pendingSendSat,
+    balanceBeforeSats: (await getPaymentDiagnosticBalance(paymentId, 'pre_send_snapshot')),
+    balanceAfterSats: balance?.balanceSat,
   });
   await recordPaymentDiagnostic(paymentId, syncSucceeded ? 'export_reconciled' : 'export_partial', {
     detail: syncFailure,
@@ -2712,6 +2749,7 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
     reconciliation,
     sync: { attempted: true, succeeded: syncSucceeded, ...(syncFailure ? { failure: syncFailure } : {}) },
     ...(Object.keys(sourceFailures).length ? { sourceFailures } : {}),
+    app: DIAGNOSTICS_APP_METADATA,
     payment: {
       id: paymentId,
       ...(payment ? { status: payment.status, direction: payment.type, amountSats: payment.amountSat, feeSats: payment.feeSat, timestamp: payment.timestamp } : {}),
