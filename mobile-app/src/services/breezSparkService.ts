@@ -9,6 +9,7 @@
 import { BREEZ_API_KEY, BREEZ_STORAGE_DIR } from '../config';
 import { getExchangeRates, getCachedRates } from '../utils/currency';
 import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
+import { recordPaymentDiagnostic } from './paymentDiagnostics';
 // Push notifications now flow via Breez's webhook registration + relay.
 // Foreground UX still comes from the local notification/event listeners.
 
@@ -3198,11 +3199,12 @@ export async function sendOnchainPayment(
     }
 
     if (status === 'failed') {
+      if (paymentId) void recordPaymentDiagnostic(paymentId, 'submit_failed');
       return {
         success: false,
         paymentId,
         status,
-        error: 'Payment failed — balance restored',
+        error: 'Payment failed. Refresh this transaction to reconcile the current wallet state.',
       };
     }
 
@@ -3273,11 +3275,12 @@ export async function sendPayment(
     const status = mapPaymentStatus(response.payment?.status);
 
     if (status === 'failed') {
+      if (paymentId) void recordPaymentDiagnostic(paymentId, 'submit_failed');
       return {
         success: false,
         paymentId,
         status,
-        error: 'Payment failed — balance restored',
+        error: 'Payment failed. Refresh this transaction to reconcile the current wallet state.',
       };
     }
 
