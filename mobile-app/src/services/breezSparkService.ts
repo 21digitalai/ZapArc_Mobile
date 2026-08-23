@@ -3352,17 +3352,14 @@ export async function sendOnchainPayment(
   }
 
   try {
-    // Import the SDK enum types for proper serialization
-    const { SendPaymentOptions, OnchainConfirmationSpeed } = require('@breeztech/breez-sdk-spark-react-native');
-
     const speedEnumValue =
       confirmationSpeed === 'fast'
-        ? OnchainConfirmationSpeed.Fast
+        ? BreezSDK.OnchainConfirmationSpeed.Fast
         : confirmationSpeed === 'slow'
-          ? OnchainConfirmationSpeed.Slow
-          : OnchainConfirmationSpeed.Medium;
+          ? BreezSDK.OnchainConfirmationSpeed.Slow
+          : BreezSDK.OnchainConfirmationSpeed.Medium;
 
-    const options = new SendPaymentOptions.BitcoinAddress({
+    const options = new BreezSDK.SendPaymentOptions.BitcoinAddress({
       confirmationSpeed: speedEnumValue,
     });
 
