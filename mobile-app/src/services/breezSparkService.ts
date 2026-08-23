@@ -508,6 +508,50 @@ function makeFetchConversionLimitsRequest(
   return BreezSDK.FetchConversionLimitsRequest.new({ conversionType, tokenIdentifier });
 }
 
+function makeReceivePaymentRequest(
+  paymentMethod: BreezSparkSdk.ReceivePaymentMethod,
+): BreezSparkSdk.ReceivePaymentRequest {
+  return BreezSDK.ReceivePaymentRequest.new({ paymentMethod });
+}
+
+function makePrepareLnurlPayRequest(
+  amount: bigint,
+  payRequest: BreezSparkSdk.LnurlPayRequestDetails,
+  comment: string | undefined,
+): BreezSparkSdk.PrepareLnurlPayRequest {
+  return BreezSDK.PrepareLnurlPayRequest.new({
+    amount,
+    payRequest,
+    comment,
+    validateSuccessActionUrl: undefined,
+    tokenIdentifier: undefined,
+    conversionOptions: undefined,
+    feePolicy: undefined,
+  });
+}
+
+function isLnurlPayRequestDetails(value: unknown): value is BreezSparkSdk.LnurlPayRequestDetails {
+  if (typeof value !== 'object' || value === null) return false;
+  const request = value as Record<string, unknown>;
+  return (
+    typeof request.callback === 'string' &&
+    typeof request.minSendable === 'bigint' &&
+    typeof request.maxSendable === 'bigint' &&
+    typeof request.metadataStr === 'string' &&
+    typeof request.commentAllowed === 'number' &&
+    typeof request.domain === 'string' &&
+    typeof request.url === 'string'
+  );
+}
+
+function makeSendPaymentRequest(
+  prepareResponse: BreezSparkSdk.PrepareSendPaymentResponse,
+  options: BreezSparkSdk.SendPaymentOptions | undefined,
+  idempotencyKey: string | undefined,
+): BreezSparkSdk.SendPaymentRequest {
+  return BreezSDK.SendPaymentRequest.new({ prepareResponse, options, idempotencyKey });
+}
+
 // =============================================================================
 // Service State
 // =============================================================================
@@ -1126,37 +1170,22 @@ export async function executeSwap(quote: SwapQuote): Promise<SwapOutcome> {
     // "Token identifier is required for from Bitcoin conversion" — even
     // though the data looks right. So: keep the returned reference, pass it
     // straight through.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const breezModule = require('@breeztech/breez-sdk-spark-react-native');
-    const { ConversionType, ReceivePaymentMethod } = breezModule;
-
     // Receive-side: use SparkInvoice (NOT SparkAddress) because
     // ReceivePaymentMethod.SparkAddress has NO fields — it can only generate a
     // plain sats-only address. For a BTC→USDB conversion we need the invoice
     // to carry `tokenIdentifier = USDB` so the Rust send layer can thread the
     // destination-token context through to the conversion step.
-    const receivePaymentMethod = ReceivePaymentMethod?.SparkInvoice?.new
-      ? ReceivePaymentMethod.SparkInvoice.new({
-          amount: undefined,
-          tokenIdentifier: quote.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
-          expiryTime: undefined,
-          description: undefined,
-          senderPublicKey: undefined,
-        })
-      : ({
-          tag: 'SparkInvoice',
-          inner: {
-            amount: undefined,
-            tokenIdentifier: quote.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
-            expiryTime: undefined,
-            description: undefined,
-            senderPublicKey: undefined,
-          },
-        } as any);
+    const receivePaymentMethod = BreezSDK.ReceivePaymentMethod.SparkInvoice.new({
+      amount: undefined,
+      tokenIdentifier: quote.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
+      expiryTime: undefined,
+      description: undefined,
+      senderPublicKey: undefined,
+    });
 
-    const recv = await sdkInstance.receivePayment?.({
-      paymentMethod: receivePaymentMethod,
-    } as any);
+    const recv = await sdkInstance.receivePayment(
+      makeReceivePaymentRequest(receivePaymentMethod),
+    );
     const paymentRequest = String(recv?.paymentRequest || '').trim();
     if (!paymentRequest) throw new Error('Failed to generate swap self-address on execute');
 
@@ -1171,33 +1200,32 @@ export async function executeSwap(quote: SwapQuote): Promise<SwapOutcome> {
 
     const conversionType =
       quote.direction === 'BTC_TO_USDB'
-        ? new ConversionType.FromBitcoin()
-        : new ConversionType.ToBitcoin({ fromTokenIdentifier: usdbToken.tokenIdentifier });
+        ? new BreezSDK.ConversionType.FromBitcoin()
+        : new BreezSDK.ConversionType.ToBitcoin({ fromTokenIdentifier: usdbToken.tokenIdentifier });
 
     // Per docs:
     //   FromBitcoin: top-level tokenIdentifier = destination token (USDB)
     //   ToBitcoin:   top-level tokenIdentifier = undefined
-    const fresh = await sdkInstance.prepareSendPayment?.({
+    const conversionOptions = BreezSDK.ConversionOptions.new({
+      conversionType,
+      maxSlippageBps: quote.slippageBps,
+      completionTimeoutSecs: 30,
+    });
+    const fresh = await sdkInstance.prepareSendPayment(BreezSDK.PrepareSendPaymentRequest.new({
       paymentRequest: toSdkPaymentRequest(paymentRequest),
       amount: storedAmount,
       tokenIdentifier: quote.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
-      conversionOptions: {
-        conversionType,
-        maxSlippageBps: quote.slippageBps,
-        completionTimeoutSecs: 30,
-      } as any,
+      conversionOptions,
       feePolicy: undefined,
-    } as any);
+    }));
 
     // Pass the fresh PrepareSendPaymentResponse verbatim — see
     // canonical snippet in
     // https://sdk-doc-spark.breez.technology/guide/token_conversion.html.
     // `options: undefined` because HTLC is only for on-chain Bitcoin.
-    const response = await sdkInstance.sendPayment?.({
-      prepareResponse: fresh,
-      options: undefined,
-      idempotencyKey: undefined,
-    } as any);
+    const response = await sdkInstance.sendPayment(
+      makeSendPaymentRequest(fresh, undefined, undefined),
+    );
 
     if (paymentLooksRefunded(response?.payment)) {
       // TODO T15: prune losing branch after spike-results.md confirms mechanism.
@@ -3266,14 +3294,18 @@ export async function prepareSendPayment(
   if (parsedTag === 'LightningAddress' || parsedTag === 'LnurlPay') {
     const payRequest = parsedTag === 'LightningAddress' ? parsedInner?.payRequest : parsedInner;
     if (payRequest) {
+      if (!isLnurlPayRequestDetails(payRequest)) {
+        throw new Error('Native SDK returned an invalid LNURL-pay request.');
+      }
       assertLnurlCommentAllowed(comment, payRequest.commentAllowed);
       if (__DEV__) console.log('🔗 [BreezSparkService] Preparing native LNURL-pay');
-      const lnurlPrepare = await sdkInstance.prepareLnurlPay({
-        amount: BigInt(amountSat || 0),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        payRequest: payRequest as any,
-        comment,
-      });
+      const lnurlPrepare = await sdkInstance.prepareLnurlPay(
+        makePrepareLnurlPayRequest(
+          BigInt(amountSat || 0),
+          payRequest,
+          comment,
+        ),
+      );
       return {
         __lnurlPay: true,
         prepareResponse: lnurlPrepare,

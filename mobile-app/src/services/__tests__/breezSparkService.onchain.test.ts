@@ -40,6 +40,9 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
   GetInfoRequest: { new: jest.fn((params) => params) },
   ListPaymentsRequest: { new: jest.fn((params) => params) },
   PrepareSendPaymentRequest: { new: jest.fn((params) => params) },
+  PrepareLnurlPayRequest: { new: jest.fn((params) => params) },
+  ReceivePaymentRequest: { new: jest.fn((params) => params) },
+  SendPaymentRequest: { new: jest.fn((params) => params) },
   PaymentRequest: {
     Input: {
       new: ({ input }: { input: string }) => ({
@@ -70,6 +73,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
     Bolt11Invoice: { new: jest.fn((params) => ({ tag: 'Bolt11Invoice', params })) },
     SparkInvoice: { new: jest.fn((params) => ({ tag: 'SparkInvoice', params })) },
   },
+  ConversionOptions: { new: jest.fn((params) => params) },
   defaultConfig: jest.fn(() => ({})),
   initLogging: (...args: unknown[]) => mockInitLogging(...args),
   connect: jest.fn().mockResolvedValue({
@@ -255,7 +259,11 @@ describe('BreezSparkService LNURL comments', () => {
   it('passes a valid recipient comment to native prepareLnurlPay', async () => {
     const svc = require('../breezSparkService');
     await svc.initializeSDK('test mnemonic words go here twelve words');
-    const payRequest = { commentAllowed: 40 };
+    const payRequest = {
+      callback: 'https://example.com/callback', minSendable: 1n, maxSendable: 2_000_000n,
+      metadataStr: '[]', commentAllowed: 40, domain: 'example.com', url: 'https://example.com/lnurl',
+      address: 'alice@example.com', allowsNostr: undefined, nostrPubkey: undefined,
+    };
     mockParse.mockResolvedValueOnce({ tag: 'LightningAddress', inner: { payRequest } });
     mockPrepareLnurlPay.mockResolvedValueOnce({ feeSats: 2n, amountSats: 1000n });
 
@@ -348,7 +356,11 @@ describe('BreezSparkService LNURL comments', () => {
   it('routes the public Lightning Address helper through the comment-aware send path', async () => {
     const svc = require('../breezSparkService');
     await svc.initializeSDK('test mnemonic words go here twelve words');
-    const payRequest = { commentAllowed: 40 };
+    const payRequest = {
+      callback: 'https://example.com/callback', minSendable: 1n, maxSendable: 2_000_000n,
+      metadataStr: '[]', commentAllowed: 40, domain: 'example.com', url: 'https://example.com/lnurl',
+      address: 'alice@example.com', allowsNostr: undefined, nostrPubkey: undefined,
+    };
     mockParse.mockResolvedValueOnce({ tag: 'LightningAddress', inner: { payRequest } });
     mockPrepareLnurlPay.mockResolvedValueOnce({ feeSats: 2n, amountSats: 1000n });
     mockLnurlPay.mockResolvedValueOnce({ payment: { id: 'commented-payment', status: 'succeeded' } });

@@ -63,6 +63,9 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => {
     ListPaymentsRequest: { new: jest.fn((params) => params) },
     FetchConversionLimitsRequest: { new: jest.fn((params) => params) },
     PrepareSendPaymentRequest: { new: jest.fn((params) => params) },
+    ReceivePaymentRequest: { new: jest.fn((params) => params) },
+    SendPaymentRequest: { new: jest.fn((params) => params) },
+    ConversionOptions: { new: jest.fn((params) => params) },
     PaymentRequest: {
       Input: {
         new: ({ input }: { input: string }) => ({
@@ -75,6 +78,9 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => {
     Network: { Mainnet: 'mainnet' },
     MaxFee: { NetworkRecommended: function (inner: unknown) { return { ...((inner as object) || {}) }; } },
     ConversionType: { FromBitcoin, ToBitcoin },
+    ReceivePaymentMethod: {
+      SparkInvoice: { new: jest.fn((params) => ({ tag: 'SparkInvoice', params })) },
+    },
     defaultConfig: jest.fn(() => ({})),
     connect: jest.fn().mockImplementation(async () => mockSdk),
   };
