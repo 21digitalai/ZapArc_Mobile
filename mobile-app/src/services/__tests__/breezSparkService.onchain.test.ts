@@ -37,6 +37,9 @@ jest.mock('react-native-fs', () => ({
 }));
 
 jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
+  GetInfoRequest: { new: jest.fn((params) => params) },
+  ListPaymentsRequest: { new: jest.fn((params) => params) },
+  PrepareSendPaymentRequest: { new: jest.fn((params) => params) },
   PaymentRequest: {
     Input: {
       new: ({ input }: { input: string }) => ({
