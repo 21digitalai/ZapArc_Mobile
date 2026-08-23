@@ -13,6 +13,7 @@ import {
   customMinutesToExpirySecs,
   INVOICE_EXPIRY_PRESETS,
   isInvoiceExpiryPreset,
+  normalizeInvoiceExpirySecs,
 } from './invoiceExpiry';
 
 function formatExpiry(seconds: number, t: (key: string) => string): string {
@@ -34,7 +35,7 @@ export function InvoiceExpirySettingsScreen(): React.JSX.Element {
   const [customMinutes, setCustomMinutes] = useState('');
   const [error, setError] = useState('');
   useEffect(() => {
-    const seconds = settings?.invoiceExpirySecs || 86400;
+    const seconds = normalizeInvoiceExpirySecs(settings?.invoiceExpirySecs);
     setSelected(isInvoiceExpiryPreset(seconds) ? String(seconds) : 'custom');
     if (!isInvoiceExpiryPreset(seconds)) setCustomMinutes(String(Math.round(seconds / 60)));
   }, [settings]);

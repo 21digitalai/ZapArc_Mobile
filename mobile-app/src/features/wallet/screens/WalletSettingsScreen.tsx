@@ -15,6 +15,7 @@ import { useAppTheme } from '../../../contexts/ThemeContext';
 import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_COLOR } from '../../../utils/theme-helpers';
 import { getActiveSecurityReminder } from '../utils/walletSecurityOnboarding';
 import { createSafeBackHandler } from '../utils/safeBack';
+import { normalizeInvoiceExpirySecs } from './settings/invoiceExpiry';
 
 // =============================================================================
 // Component
@@ -82,7 +83,7 @@ export function WalletSettingsScreen(): React.JSX.Element {
   };
 
   const getInvoiceExpiryDisplay = (): string => {
-    const seconds = settings?.invoiceExpirySecs || 86400;
+    const seconds = normalizeInvoiceExpirySecs(settings?.invoiceExpirySecs);
     if (seconds % 86400 === 0) return `${seconds / 86400} ${t(seconds === 86400 ? 'settings.day' : 'settings.days')}`;
     if (seconds % 3600 === 0) return `${seconds / 3600} ${t(seconds === 3600 ? 'settings.hour' : 'settings.hours')}`;
     return `${seconds / 60} ${t(seconds === 60 ? 'settings.minute' : 'settings.minutes')}`;

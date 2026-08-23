@@ -281,10 +281,44 @@ describe('BreezSparkService.receivePayment expiry', () => {
     expect(mockReceivePayment).toHaveBeenCalledWith({
       paymentMethod: expect.objectContaining({
         tag: 'SparkInvoice',
-        params: expect.objectContaining({ expiryTime: 1_700_003_600n }),
+        params: expect.objectContaining({ expiryTime: 1_700_003_660n }),
       }),
     });
     now.mockRestore();
+  });
+
+  it('clamps legacy short expiry settings to one hour on both receive paths', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockReceivePayment.mockResolvedValue({ paymentRequest: 'request', fee: 0n });
+    mockParse.mockResolvedValue({ inner: {} });
+
+    await svc.receivePayment(42, undefined, { expirySecs: 900 });
+    expect(mockReceivePayment).toHaveBeenLastCalledWith({
+      paymentMethod: expect.objectContaining({
+        tag: 'Bolt11Invoice',
+        params: expect.objectContaining({ expirySecs: 3_600 }),
+      }),
+    });
+
+    await svc.receivePayment(0, undefined, { tokenIdentifier: 'usdb', usdbAmount: 1, expirySecs: 900 });
+    expect(mockReceivePayment).toHaveBeenLastCalledWith({
+      paymentMethod: expect.objectContaining({
+        tag: 'SparkInvoice',
+        params: expect.objectContaining({ expiryTime: 1_700_003_660n }),
+      }),
+    });
+    now.mockRestore();
+  });
+
+  it('replaces Breez expiry-too-soon internals with actionable receive copy', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockReceivePayment.mockRejectedValueOnce({ tag: 'SparkError', inner: ['expiry time too soon'] });
+
+    await expect(svc.receivePayment(42, undefined, { expirySecs: 3_600 }))
+      .rejects.toThrow('Invoice expiry must be at least 1 hour. Choose 1 hour or longer and try again.');
   });
 
   it('keeps any-amount SparkAddress reusable without expiry or parse calls', async () => {

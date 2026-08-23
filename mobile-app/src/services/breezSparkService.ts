@@ -2228,7 +2228,12 @@ export async function receivePayment(
 
   try {
     let paymentMethod: any;
-    const expirySecs = Math.min(7 * 24 * 60 * 60, Math.max(60, Math.round(options?.expirySecs || 86400)));
+    const MIN_INVOICE_EXPIRY_SECS = 60 * 60;
+    const SPARK_ABSOLUTE_EXPIRY_MARGIN_SECS = 60;
+    const expirySecs = Math.min(
+      7 * 24 * 60 * 60,
+      Math.max(MIN_INVOICE_EXPIRY_SECS, Math.round(options?.expirySecs || 86400)),
+    );
 
     if (options?.tokenIdentifier) {
       // USDB / token receive path. SparkAddress is the "any amount" form;
@@ -2246,7 +2251,11 @@ export async function receivePayment(
         paymentMethod = BreezSDK.ReceivePaymentMethod.SparkInvoice.new({
           amount: baseUnits,
           tokenIdentifier: options.tokenIdentifier,
-          expiryTime: BigInt(Math.floor(Date.now() / 1000) + expirySecs),
+          // SparkInvoice uses an absolute timestamp. Preserve the requested
+          // lifetime after bridge/network latency by adding a small margin.
+          expiryTime: BigInt(
+            Math.floor(Date.now() / 1000) + expirySecs + SPARK_ABSOLUTE_EXPIRY_MARGIN_SECS,
+          ),
           description: description || undefined,
           senderPublicKey: undefined,
         });
@@ -2306,6 +2315,9 @@ export async function receivePayment(
     };
   } catch (error) {
     console.error('Failed to create receive invoice:', error);
+    if (/expir(?:y|ation).{0,24}too soon|too soon.{0,24}expir/i.test(extractSdkErrorMessage(error, ''))) {
+      throw new Error('Invoice expiry must be at least 1 hour. Choose 1 hour or longer and try again.');
+    }
     throw error;
   }
 }
