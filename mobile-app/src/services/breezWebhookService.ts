@@ -36,6 +36,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type * as BreezSparkSdk from '@breeztech/breez-sdk-spark-react-native';
 import * as Crypto from 'expo-crypto';
 
 // URL of the deployed relay Cloud Function. The Function parses
@@ -166,7 +167,7 @@ export async function registerBreezWebhook(
   // Load the module lazily to avoid top-level-import crashes (pattern used
   // elsewhere in breezSparkService for the same reason).
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const breezModule = require('@breeztech/breez-sdk-spark-react-native');
+  const breezModule: typeof BreezSparkSdk = require('@breeztech/breez-sdk-spark-react-native');
   const { WebhookEventType } = breezModule;
 
   const eventTypes = [
@@ -174,16 +175,14 @@ export async function registerBreezWebhook(
     // a wallet identifier AND the one we need for "someone paid you"
     // notifications. See breezWebhookService.ts header for why we skip
     // the other three types.
-    typeof WebhookEventType?.LightningReceiveFinished?.new === 'function'
-      ? WebhookEventType.LightningReceiveFinished.new()
-      : { tag: 'LightningReceiveFinished' },
+    WebhookEventType.LightningReceiveFinished.new(),
   ];
 
   try {
     console.log('🔔 [BreezWebhook] registering', {
       url,
       eventTypesCount: eventTypes.length,
-      eventType0: (eventTypes[0] as any)?.tag,
+      eventType0: eventTypes[0].tag,
     });
     const resp = await sdk.registerWebhook({
       url,

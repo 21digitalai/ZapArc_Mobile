@@ -8,6 +8,7 @@
 // - Production builds
 import { BREEZ_API_KEY, BREEZ_STORAGE_DIR } from '../config';
 import { Platform } from 'react-native';
+import type * as BreezSparkSdk from '@breeztech/breez-sdk-spark-react-native';
 import { getExchangeRates, getCachedRates } from '../utils/currency';
 import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
 import { buildPaymentDiagnosticsExport, classifyReconciliation, getPaymentDiagnosticBalance, recordPaymentDiagnostic, recordSanitizedSdkLog, sanitizeDiagnosticValue } from './paymentDiagnostics';
@@ -53,7 +54,7 @@ export function extractSdkErrorMessage(error: unknown, fallback = 'Payment faile
     // UniFFI errors extend Error, but their Error.message is often only the
     // wrapper (for example "SdkError.SparkError"). Prefer the useful payload
     // stored in `inner`, including the tuple-shaped `inner: [string]` used by
-    // Breez Spark 0.19.
+    // Breez Spark generated error payloads.
     const wrapperOnly = !!direct && /^(?:sdk|depositclaim)?error[.: _-]|sparkerror$/i.test(direct);
     if (nested && (!direct || wrapperOnly)) return nested;
     if (direct) return direct;
@@ -460,15 +461,15 @@ export type SwapOutcome =
 // missing core dependency in a wallet must crash the app loudly at startup,
 // not silently let the UI render with a no-op SDK and orphan the user.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const BreezSDK = require('@breeztech/breez-sdk-spark-react-native');
+const BreezSDK: typeof BreezSparkSdk = require('@breeztech/breez-sdk-spark-react-native');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const RNFS = require('react-native-fs');
 const _isNativeAvailable = true;
 console.log('✅ [BreezSparkService] Native SDK loaded successfully');
 
 /**
- * Breez Spark 0.19 models payment destinations as a PaymentRequest enum.
- * Passing a raw string (the pre-0.19 request shape) reaches UniFFI with no
+ * Breez Spark models payment destinations as a PaymentRequest enum.
+ * Passing a raw string (the pre-enum request shape) reaches UniFFI with no
  * enum tag and throws UnexpectedEnumCase before the native call can run.
  */
 function toSdkPaymentRequest(input: string): unknown {
@@ -484,7 +485,7 @@ let sdkInstance: any = null;
 let _isInitialized = false;
 let cachedResolvedSwapTokens: ResolvedSwapToken[] | null = null;
 const DIAGNOSTICS_APP_METADATA = {
-  name: 'ZapArc Mobile', version: '1.1.9', sdkVersion: 'breez-sdk-spark-react-native@0.19.0', platform: Platform.OS,
+  name: 'ZapArc Mobile', version: '1.1.9', sdkVersion: 'breez-sdk-spark-react-native@0.22.3', platform: Platform.OS,
 };
 
 // Event listeners
@@ -714,6 +715,7 @@ async function getUsdbBalanceBaseUnits(tokenIdentifier: string): Promise<bigint>
       description: '__nodeId_probe__',
       amountSats: BigInt(1),
       expirySecs: 60,
+      paymentHash: undefined,
     });
     
     const response = await sdkInstance.receivePayment({ paymentMethod });
@@ -1363,7 +1365,7 @@ export async function initializeSDK(
       await RNFS.mkdir(storageDir);
     }
 
-    // Breez 0.19 supports an app Logger callback. Never retain its raw line:
+    // Breez Spark supports an app Logger callback. Never retain its raw line:
     // the diagnostics ring stores only a small, allowlisted derived category.
     try {
       BreezSDK.initLogging(undefined, { log: (entry: { level: unknown; line: unknown }) => recordSanitizedSdkLog(entry.level, entry.line) }, 'info');
@@ -2078,11 +2080,14 @@ export async function receivePayment(
       // BTC path — Bolt11 with optional amount.
       const invoiceParams: {
         description: string;
-        amountSats?: bigint;
+        amountSats: bigint | undefined;
         expirySecs: number;
+        paymentHash: undefined;
       } = {
         description: description || '',
+        amountSats: undefined,
         expirySecs,
+        paymentHash: undefined,
       };
       if (amountSat && amountSat > 0) {
         invoiceParams.amountSats = BigInt(amountSat);
@@ -2253,7 +2258,7 @@ async function getBitcoinTipHeight(): Promise<number | undefined> {
 }
 
 /**
- * Returns an exact best-effort Bitcoin confirmation count. Breez 0.19 only
+ * Returns an exact best-effort Bitcoin confirmation count. Breez Spark only
  * exposes the binary `isMature` flag, so explorer failures intentionally
  * return undefined and leave the claim flow unaffected.
  */

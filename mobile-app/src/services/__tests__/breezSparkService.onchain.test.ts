@@ -403,7 +403,7 @@ describe('BreezSparkService.getPayment', () => {
     jest.clearAllMocks();
   });
 
-  it('maps Breez 0.19 payment amount, fees, and timestamp fields', async () => {
+  it('maps Breez 0.22.3 payment amount, fees, and timestamp fields', async () => {
     const svc = require('../breezSparkService');
     await svc.initializeSDK('test mnemonic words go here twelve words');
     mockGetPayment.mockResolvedValueOnce({
@@ -626,7 +626,7 @@ describe('BreezSparkService BOLT11 native compatibility', () => {
     expect(mockParse).not.toHaveBeenCalled();
   });
 
-  it('prepares BOLT11 with the Breez 0.19 PaymentRequest enum shape', async () => {
+  it('prepares BOLT11 with the Breez 0.22.3 PaymentRequest enum shape', async () => {
     const svc = require('../breezSparkService');
     await svc.initializeSDK('test mnemonic words go here twelve words');
     mockPrepareSendPayment.mockResolvedValueOnce({ paymentMethod: { tag: 'Bolt11' } });
