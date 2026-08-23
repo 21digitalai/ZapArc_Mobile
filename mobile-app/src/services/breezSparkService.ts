@@ -1904,6 +1904,7 @@ export async function payInvoice(
 
     // Track this payment ID so we don't show "Payment Received" notification for it
     const paymentId = response.payment?.id;
+    const status = mapPaymentStatus(response.payment?.status);
     if (paymentId) {
       void recordPaymentDiagnostic(paymentId, `submitted_${status}`);
       recentlySentPaymentIds.add(paymentId);
@@ -1961,7 +1962,6 @@ export async function payInvoice(
           }
     }
 
-    const status = mapPaymentStatus(response.payment?.status);
     if (status === 'failed') {
       if (paymentId) void recordPaymentDiagnostic(paymentId, 'submit_failed');
       return { success: false, paymentId, status, error: 'Payment failed. Refresh this transaction to reconcile the current wallet state.' };
