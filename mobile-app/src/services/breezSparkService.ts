@@ -472,8 +472,33 @@ console.log('✅ [BreezSparkService] Native SDK loaded successfully');
  * Passing a raw string (the pre-enum request shape) reaches UniFFI with no
  * enum tag and throws UnexpectedEnumCase before the native call can run.
  */
-function toSdkPaymentRequest(input: string): unknown {
+function toSdkPaymentRequest(input: string): BreezSparkSdk.PaymentRequest {
   return BreezSDK.PaymentRequest.Input.new({ input });
+}
+
+/**
+ * The generated records deliberately distinguish omitted fields from older
+ * hand-built object literals. Keep construction at this native boundary so
+ * SDK call sites cannot accidentally drift from the 0.22 contract.
+ */
+function makeGetInfoRequest(ensureSynced = false): BreezSparkSdk.GetInfoRequest {
+  return BreezSDK.GetInfoRequest.new({ ensureSynced });
+}
+
+function makeListPaymentsRequest(): BreezSparkSdk.ListPaymentsRequest {
+  return BreezSDK.ListPaymentsRequest.new({});
+}
+
+function makePrepareSendPaymentRequest(
+  paymentRequest: string,
+  amount?: bigint,
+  tokenIdentifier?: string,
+): BreezSparkSdk.PrepareSendPaymentRequest {
+  return BreezSDK.PrepareSendPaymentRequest.new({
+    paymentRequest: toSdkPaymentRequest(paymentRequest),
+    amount,
+    tokenIdentifier,
+  });
 }
 
 // =============================================================================
@@ -1402,7 +1427,7 @@ export async function initializeSDK(
     try {
       const [lnAddress, info] = await Promise.all([
         getLightningAddress(),
-        sdkInstance.getInfo({}),
+        sdkInstance.getInfo(makeGetInfoRequest()),
       ]);
       const identityPubkey = info?.identityPubkey;
       if (lnAddress?.lightningAddress && identityPubkey) {
@@ -1846,7 +1871,7 @@ export async function getBalance(): Promise<WalletBalance> {
   try {
     // First try to get balance from getInfo()
     try {
-      const info = await sdkInstance.getInfo({ ensureSynced: true });
+      const info = await sdkInstance.getInfo(makeGetInfoRequest(true));
       if (info) {
         return {
           balanceSat: Number(info.balanceSats || 0),
@@ -1865,7 +1890,7 @@ export async function getBalance(): Promise<WalletBalance> {
     }
 
     // Fallback: Calculate from payments
-    const response = await sdkInstance.listPayments({});
+    const response = await sdkInstance.listPayments(makeListPaymentsRequest());
     const payments = response.payments || [];
 
     let balanceSat = 0;
@@ -1925,10 +1950,9 @@ export async function payInvoice(
   try {
     let balanceBefore: WalletBalance | null = null;
     try { balanceBefore = await getBalance(); } catch { /* diagnostics remain partial */ }
-    const prepareResponse = await sdkInstance.prepareSendPayment({
-      paymentRequest: toSdkPaymentRequest(paymentRequest),
-      amount: _amountSat ? BigInt(_amountSat) : undefined,
-    });
+    const prepareResponse = await sdkInstance.prepareSendPayment(
+      makePrepareSendPaymentRequest(paymentRequest, _amountSat ? BigInt(_amountSat) : undefined),
+    );
 
     const response = await sdkInstance.sendPayment({
       prepareResponse,
@@ -2704,7 +2728,7 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
   try {
     if (!sdkInstance) throw new Error('Wallet SDK unavailable');
     // getInfo with ensureSynced is the SDK's authoritative export-time read.
-    authoritativeInfo = await sdkInstance.getInfo({ ensureSynced: true });
+    authoritativeInfo = await sdkInstance.getInfo(makeGetInfoRequest(true));
     syncSucceeded = true;
   } catch (error) {
     syncFailure = extractSafeDiagnosticFailure(error, 'Wallet sync unavailable');
@@ -3260,9 +3284,7 @@ export async function prepareSendPayment(
   if (!parsedTag && isAtAddress) {
     if (__DEV__) console.log('🔗 [BreezSparkService] Manual LNURL-pay fallback');
     const bolt11 = await lightningAddressToBolt11(trimmed, amountSat || 0, comment);
-    return await sdkInstance.prepareSendPayment({
-      paymentRequest: toSdkPaymentRequest(bolt11),
-    });
+    return await sdkInstance.prepareSendPayment(makePrepareSendPaymentRequest(bolt11));
   }
 
   // 3) Everything else (Bolt11 / Spark / Bitcoin / amountless invoices) →
@@ -3272,11 +3294,13 @@ export async function prepareSendPayment(
     if (comment) {
       throw new Error('Comments can only be sent to Lightning Address or LNURL-pay recipients. Remove the comment to continue.');
     }
-    return await sdkInstance.prepareSendPayment({
-      paymentRequest: toSdkPaymentRequest(trimmed),
-      amount: amountSat ? BigInt(amountSat) : undefined,
-      tokenIdentifier: options?.tokenIdentifier,
-    });
+    return await sdkInstance.prepareSendPayment(
+      makePrepareSendPaymentRequest(
+        trimmed,
+        amountSat ? BigInt(amountSat) : undefined,
+        options?.tokenIdentifier,
+      ),
+    );
   } catch (error) {
     logInvoiceDecodeDiagnostic('prepare', trimmed, error);
     throw error;
