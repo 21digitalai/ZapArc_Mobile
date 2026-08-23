@@ -15,6 +15,16 @@ export interface PaymentDiagnostic {
   events: Array<{ at: string; stage: string; detail?: string }>;
 }
 
+export interface PaymentDiagnosticsExport {
+  schemaVersion: 1;
+  generatedAt: string;
+  reconciliation: ReconciliationCode;
+  sync: { attempted: boolean; succeeded: boolean; failure?: string };
+  payment: { id: string; status?: string; direction?: string; amountSats?: number; feeSats?: number; timestamp?: number };
+  wallet: { balanceSats?: number; pendingSendSats?: number; pendingReceiveSats?: number; authoritative: boolean };
+  timeline: PaymentDiagnostic['events'];
+}
+
 const SENSITIVE = /(seed|mnemonic|private.?key|preimage|proof|invoice|bolt11|lnurl|lightning.?address|recipient|pubkey|description|comment|api.?key|token)/i;
 
 /** Keep only deterministic, non-sensitive support evidence. */
@@ -73,4 +83,15 @@ export async function getPaymentDiagnostic(paymentId: string): Promise<PaymentDi
   const retained = prune(entries);
   if (retained.length !== entries.length) await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(retained));
   return retained.find((item) => item.paymentId === paymentId) || null;
+}
+
+/** Build a deliberately small, user-reviewable support payload. */
+export async function buildPaymentDiagnosticsExport(input: Omit<PaymentDiagnosticsExport, 'schemaVersion' | 'generatedAt' | 'timeline'>): Promise<string> {
+  const journal = await getPaymentDiagnostic(input.payment.id);
+  return JSON.stringify({
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    ...input,
+    timeline: journal?.events || [],
+  } satisfies PaymentDiagnosticsExport, null, 2);
 }

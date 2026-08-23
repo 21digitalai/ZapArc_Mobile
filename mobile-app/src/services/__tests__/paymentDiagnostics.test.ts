@@ -1,4 +1,12 @@
-import { classifyReconciliation, sanitizeDiagnosticValue } from '../paymentDiagnostics';
+import { buildPaymentDiagnosticsExport, classifyReconciliation, recordPaymentDiagnostic, sanitizeDiagnosticValue } from '../paymentDiagnostics';
+
+jest.mock('@react-native-async-storage/async-storage', () => {
+  let value: string | null = null;
+  return {
+    getItem: jest.fn(async () => value),
+    setItem: jest.fn(async (_key: string, next: string) => { value = next; }),
+  };
+});
 
 describe('payment diagnostics privacy and reconciliation', () => {
   it('redacts sensitive values while retaining short generic SDK details', () => {
@@ -17,5 +25,18 @@ describe('payment diagnostics privacy and reconciliation', () => {
   it('keeps failed payments reserved while pending balance remains', () => {
     expect(classifyReconciliation({ paymentStatus: 'failed', pendingSendSats: 1 }))
       .toBe('failed_but_funds_still_reserved');
+  });
+
+  it('exports only the allowlisted payment, wallet, and lifecycle fields', async () => {
+    await recordPaymentDiagnostic('payment-1', 'submit_failed', 'lnbc1privateinvoice');
+    const payload = JSON.parse(await buildPaymentDiagnosticsExport({
+      reconciliation: 'unknown',
+      sync: { attempted: true, succeeded: false, failure: 'sync unavailable' },
+      payment: { id: 'payment-1', status: 'failed', direction: 'send', amountSats: 42 },
+      wallet: { balanceSats: 100, pendingSendSats: 42, authoritative: false },
+    }));
+    expect(payload).toMatchObject({ schemaVersion: 1, payment: { id: 'payment-1' } });
+    expect(JSON.stringify(payload)).not.toContain('lnbc1privateinvoice');
+    expect(payload.timeline[0]).not.toHaveProperty('detail');
   });
 });

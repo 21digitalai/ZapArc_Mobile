@@ -9,7 +9,7 @@
 import { BREEZ_API_KEY, BREEZ_STORAGE_DIR } from '../config';
 import { getExchangeRates, getCachedRates } from '../utils/currency';
 import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
-import { recordPaymentDiagnostic } from './paymentDiagnostics';
+import { buildPaymentDiagnosticsExport, classifyReconciliation, recordPaymentDiagnostic } from './paymentDiagnostics';
 // Push notifications now flow via Breez's webhook registration + relay.
 // Foreground UX still comes from the local notification/event listeners.
 
@@ -1959,7 +1959,8 @@ export async function payInvoice(
 
     const status = mapPaymentStatus(response.payment?.status);
     if (status === 'failed') {
-      return { success: false, paymentId, status, error: 'Payment failed — balance restored' };
+      if (paymentId) void recordPaymentDiagnostic(paymentId, 'submit_failed');
+      return { success: false, paymentId, status, error: 'Payment failed. Refresh this transaction to reconcile the current wallet state.' };
     }
     return { success: true, paymentId, status };
   } catch (error) {
@@ -2612,6 +2613,49 @@ export async function getPayment(paymentId: string): Promise<TransactionInfo | n
     console.error('Failed to get payment:', error);
     return null;
   }
+}
+
+/**
+ * Reconcile a single payment immediately before the user copies diagnostics.
+ * The payload only contains allowlisted transaction and balance fields.
+ */
+export async function exportPaymentDiagnostics(paymentId: string): Promise<string> {
+  let syncSucceeded = false;
+  let syncFailure: string | undefined;
+  try {
+    await syncWallet();
+    syncSucceeded = true;
+  } catch (error) {
+    syncFailure = extractSdkErrorMessage(error, 'Wallet sync unavailable');
+  }
+
+  let payment: TransactionInfo | null = null;
+  let balance: WalletBalance | null = null;
+  try { payment = await getPayment(paymentId); } catch (error) {
+    syncFailure = syncFailure || extractSdkErrorMessage(error, 'Payment lookup unavailable');
+  }
+  try { balance = await getBalance(); } catch (error) {
+    syncFailure = syncFailure || extractSdkErrorMessage(error, 'Balance lookup unavailable');
+  }
+
+  const reconciliation = classifyReconciliation({
+    paymentStatus: payment?.status,
+    synced: syncSucceeded,
+    pendingSendSats: balance?.pendingSendSat,
+  });
+  await recordPaymentDiagnostic(paymentId, syncSucceeded ? 'export_reconciled' : 'export_partial', syncFailure);
+  return buildPaymentDiagnosticsExport({
+    reconciliation,
+    sync: { attempted: true, succeeded: syncSucceeded, ...(syncFailure ? { failure: syncFailure } : {}) },
+    payment: {
+      id: paymentId,
+      ...(payment ? { status: payment.status, direction: payment.type, amountSats: payment.amountSat, feeSats: payment.feeSat, timestamp: payment.timestamp } : {}),
+    },
+    wallet: {
+      ...(balance ? { balanceSats: balance.balanceSat, pendingSendSats: balance.pendingSendSat, pendingReceiveSats: balance.pendingReceiveSat } : {}),
+      authoritative: syncSucceeded,
+    },
+  });
 }
 
 /**

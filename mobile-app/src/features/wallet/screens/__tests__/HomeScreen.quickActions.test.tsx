@@ -471,7 +471,7 @@ describe('HomeScreen quick actions', () => {
       mockPaymentListener?.({ id: 'failed-1', type: 'send', status: 'failed', amountSat: 42 });
     });
 
-    await waitFor(() => expect(screen.getByText('Payment failed — balance restored')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Payment needs reconciliation')).toBeTruthy());
     expect(screen.queryByText('Payment sent')).toBeNull();
     expect(mockRefreshBalance).toHaveBeenCalled();
     expect(mockRefreshTransactions).toHaveBeenCalled();
@@ -529,7 +529,7 @@ describe('HomeScreen quick actions', () => {
 
     await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
     await act(async () => { jest.advanceTimersByTime(2000); });
-    await waitFor(() => expect(screen.getByText('Payment failed — balance restored')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Payment needs reconciliation')).toBeTruthy());
     expect(screen.queryByText('Payment pending')).toBeNull();
     expect(mockGetPayment).toHaveBeenCalledWith('fast-failed');
     expect(mockRefreshBalance).toHaveBeenCalled();
@@ -559,7 +559,7 @@ describe('HomeScreen quick actions', () => {
 
   it.each([
     ['completed', 'Payment sent'],
-    ['failed', 'Payment failed — balance restored'],
+    ['failed', 'Payment needs reconciliation'],
   ])('keeps a fast Pending to %s terminal banner visible for its full duration', async (status, terminalTitle) => {
     jest.useFakeTimers();
     mockUseLocalSearchParams.mockReturnValue({
@@ -600,7 +600,7 @@ describe('HomeScreen quick actions', () => {
 
   it.each([
     ['completed', 'Payment sent'],
-    ['failed', 'Payment failed — balance restored'],
+    ['failed', 'Payment needs reconciliation'],
   ])('does not extend the %s terminal banner when its event is duplicated', async (status, terminalTitle) => {
     jest.useFakeTimers();
     const paymentId = `duplicate-terminal-${status}`;
@@ -632,7 +632,7 @@ describe('HomeScreen quick actions', () => {
 
   it.each([
     ['completed', 'Payment sent'],
-    ['failed', 'Payment failed — balance restored'],
+    ['failed', 'Payment needs reconciliation'],
   ])('replaces Pending immediately when %s arrives at the minimum dwell', async (status, terminalTitle) => {
     jest.useFakeTimers();
     mockUseLocalSearchParams.mockReturnValue({
@@ -653,7 +653,7 @@ describe('HomeScreen quick actions', () => {
 
   it.each([
     ['completed', 'Payment sent'],
-    ['failed', 'Payment failed — balance restored'],
+    ['failed', 'Payment needs reconciliation'],
   ])('replaces Pending immediately when %s arrives after the minimum dwell', async (status, terminalTitle) => {
     jest.useFakeTimers();
     mockUseLocalSearchParams.mockReturnValue({
@@ -761,7 +761,7 @@ describe('HomeScreen quick actions', () => {
 
     await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
     await act(async () => { jest.advanceTimersByTime(2000); });
-    await waitFor(() => expect(screen.getByText('Payment failed — balance restored')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Payment needs reconciliation')).toBeTruthy());
     expect(mockRefreshBalance).toHaveBeenCalled();
     expect(mockRefreshTransactions).toHaveBeenCalled();
     jest.useRealTimers();

@@ -511,7 +511,7 @@ export function HomeScreen(): React.JSX.Element {
         showToast({ icon: '↑', title: 'Payment sent', subtitle: payment.description || (asset === 'USDB' ? 'USDB' : 'Lightning'), trailing: `-${formatted}`, tone: 'accent' });
         return;
       }
-      showToast({ icon: '✕', title: 'Payment failed — balance restored', subtitle: payment.description || 'Try again or contact support', tone: 'danger' });
+      showToast({ icon: '✕', title: 'Payment needs reconciliation', subtitle: 'Refresh its transaction details to confirm the current wallet state', tone: 'danger' });
     };
 
     if (payment.status === 'pending') {

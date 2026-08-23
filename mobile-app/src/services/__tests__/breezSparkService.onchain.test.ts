@@ -128,7 +128,7 @@ describe('BreezSparkService.sendOnchainPayment', () => {
 
   it.each([
     ['pending', { success: true, status: 'pending' }],
-    ['failed', { success: false, status: 'failed', error: 'Payment failed — balance restored' }],
+    ['failed', { success: false, status: 'failed', error: 'Payment failed. Refresh this transaction to reconcile the current wallet state.' }],
   ])('maps an immediate %s on-chain SDK response', async (sdkStatus, expected) => {
     const svc = require('../breezSparkService');
     await svc.initializeSDK('test mnemonic words go here twelve words');
@@ -158,7 +158,7 @@ describe('BreezSparkService.sendPayment', () => {
   it.each([
     ['succeeded', { success: true, status: 'completed' }],
     ['pending', { success: true, status: 'pending' }],
-    ['failed', { success: false, status: 'failed', error: 'Payment failed — balance restored' }],
+    ['failed', { success: false, status: 'failed', error: 'Payment failed. Refresh this transaction to reconcile the current wallet state.' }],
   ])('maps an immediate %s SDK response instead of assuming success', async (sdkStatus, expected) => {
     const svc = require('../breezSparkService');
     await svc.initializeSDK('test mnemonic words go here twelve words');

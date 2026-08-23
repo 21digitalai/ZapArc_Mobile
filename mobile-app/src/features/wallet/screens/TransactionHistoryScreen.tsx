@@ -29,6 +29,7 @@ import type { Transaction } from '../types';
 import { buildTransactionRows, type TransactionRow, type WalletAsset } from '../utils/transactionRows';
 import { createSafeBackHandler } from '../utils/safeBack';
 import { loadPaymentComment, shouldShowPaymentComment } from '../utils/paymentComment';
+import { exportPaymentDiagnostics } from '../../../services/breezSparkService';
 
 // =============================================================================
 // Types
@@ -70,6 +71,7 @@ export function TransactionHistoryScreen(): React.JSX.Element {
   const [selectedSwapRow, setSelectedSwapRow] = useState<TransactionRow | null>(null);
   const [selectedTxNote, setSelectedTxNote] = useState<string | null>(null);
   const [selectedTxRecipient, setSelectedTxRecipient] = useState<string | null>(null);
+  const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
   // Full-text popover for truncated detail values. Holds the label + full
   // value + the on-screen anchor rect (measured from the tapped row) so we
   // can float a bubble just above it.
@@ -148,6 +150,21 @@ export function TransactionHistoryScreen(): React.JSX.Element {
       setRefreshing(false);
     }
   }, [refreshTransactions]);
+
+  const copyDiagnostics = useCallback(async (): Promise<void> => {
+    if (!selectedTransaction?.id || diagnosticsBusy) return;
+    setDiagnosticsBusy(true);
+    try {
+      const payload = await exportPaymentDiagnostics(selectedTransaction.id);
+      await Clipboard.setStringAsync(payload);
+      ToastAndroid && ToastAndroid.show?.('Diagnostics copied', ToastAndroid.SHORT);
+      await refreshTransactions();
+    } catch {
+      ToastAndroid && ToastAndroid.show?.('Could not prepare diagnostics', ToastAndroid.SHORT);
+    } finally {
+      setDiagnosticsBusy(false);
+    }
+  }, [diagnosticsBusy, refreshTransactions, selectedTransaction]);
 
   // Refresh transactions and settings when screen comes into focus
   useFocusEffect(
@@ -481,6 +498,21 @@ export function TransactionHistoryScreen(): React.JSX.Element {
               )}
             </View>
 
+            <View style={styles.diagnosticsActions}>
+              <Button
+                mode="outlined"
+                icon="content-copy"
+                loading={diagnosticsBusy}
+                disabled={diagnosticsBusy}
+                onPress={copyDiagnostics}
+              >
+                Copy diagnostics
+              </Button>
+              {(tx.status === 'failed' || tx.status === 'pending') && (
+                <Button mode="text" disabled={diagnosticsBusy} onPress={copyDiagnostics}>Refresh</Button>
+              )}
+            </View>
+
             {/* Close Button */}
             <Button
               mode="outlined"
@@ -757,6 +789,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 16,
     gap: 8,
+  },
+  diagnosticsActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 8,
   },
   filterChip: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
