@@ -501,6 +501,13 @@ function makePrepareSendPaymentRequest(
   });
 }
 
+function makeFetchConversionLimitsRequest(
+  conversionType: BreezSparkSdk.ConversionType,
+  tokenIdentifier?: string,
+): BreezSparkSdk.FetchConversionLimitsRequest {
+  return BreezSDK.FetchConversionLimitsRequest.new({ conversionType, tokenIdentifier });
+}
+
 // =============================================================================
 // Service State
 // =============================================================================
@@ -897,17 +904,20 @@ export async function fetchSwapLimits(direction: SwapDirection): Promise<SwapLim
   let response: unknown;
   try {
     if (direction === 'BTC_TO_USDB') {
-      response = await sdkInstance.fetchConversionLimits?.({
-        conversionType: BreezSDK.ConversionType.FromBitcoin.new(),
-        tokenIdentifier: usdbToken.tokenIdentifier,
-      });
+      response = await sdkInstance.fetchConversionLimits?.(
+        makeFetchConversionLimitsRequest(
+          BreezSDK.ConversionType.FromBitcoin.new(),
+          usdbToken.tokenIdentifier,
+        ),
+      );
     } else {
-      response = await sdkInstance.fetchConversionLimits?.({
-        conversionType: BreezSDK.ConversionType.ToBitcoin.new({
-          fromTokenIdentifier: usdbToken.tokenIdentifier,
-        }),
-        tokenIdentifier: undefined,
-      });
+      response = await sdkInstance.fetchConversionLimits?.(
+        makeFetchConversionLimitsRequest(
+          BreezSDK.ConversionType.ToBitcoin.new({
+            fromTokenIdentifier: usdbToken.tokenIdentifier,
+          }),
+        ),
+      );
     }
     console.log('🔬 [fetchSwapLimits] ok', { direction, response });
   } catch (error) {

@@ -61,6 +61,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => {
   return {
     GetInfoRequest: { new: jest.fn((params) => params) },
     ListPaymentsRequest: { new: jest.fn((params) => params) },
+    FetchConversionLimitsRequest: { new: jest.fn((params) => params) },
     PrepareSendPaymentRequest: { new: jest.fn((params) => params) },
     PaymentRequest: {
       Input: {
