@@ -433,9 +433,9 @@ export function mapBreezPaymentDetails(
       return {
         tag: details.tag,
         description: details.inner.description,
-        htlcStatus: String(htlc.status),
-        htlcExpiryMs: Number(htlc.expiryTime) * 1000,
-        paymentHash: htlc.paymentHash,
+        htlcStatus: htlc ? String(htlc.status) : undefined,
+        htlcExpiryMs: htlc ? Number(htlc.expiryTime) * 1000 : undefined,
+        paymentHash: htlc ? htlc.paymentHash : undefined,
         ...mapBreezConversionInfo(details.inner.conversionInfo),
       };
     }
@@ -674,12 +674,29 @@ function makeSendPaymentRequest(
   return BreezSDK.SendPaymentRequest.new({ prepareResponse, options, idempotencyKey });
 }
 
+/** UniFFI represents some parsed-input union payloads as a one-item tuple. */
+function unwrapParsedInner<T>(value: T | readonly [T]): T {
+  if (Array.isArray(value)) return value[0] as T;
+  return value as T;
+}
+
+function readInvoiceExpiry(value: unknown): { timestamp?: number; expiry?: number } {
+  const inner = Array.isArray(value) ? value[0] : value;
+  if (!inner || typeof inner !== 'object') return {};
+  const record = inner as Record<string, unknown>;
+  const timestamp = Number(record.timestamp);
+  const expiry = Number(record.expiry);
+  return {
+    timestamp: Number.isFinite(timestamp) ? timestamp : undefined,
+    expiry: Number.isFinite(expiry) ? expiry : undefined,
+  };
+}
+
 // =============================================================================
 // Service State
 // =============================================================================
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let sdkInstance: any = null;
+let sdkInstance: BreezSparkSdk.BreezSdkInterface | null = null;
 let _isInitialized = false;
 let cachedResolvedSwapTokens: ResolvedSwapToken[] | null = null;
 const DIAGNOSTICS_APP_METADATA = {
@@ -893,7 +910,8 @@ function extractUsdbBalanceBaseUnitsFromObject(value: unknown, tokenIdentifier: 
 }
 
 async function getUsdbBalanceBaseUnits(tokenIdentifier: string): Promise<bigint> {
-  const info = await sdkInstance.getInfo?.({ ensureSynced: true });
+  if (!sdkInstance) return 0n;
+  const info = await sdkInstance.getInfo(makeGetInfoRequest(true));
   return extractUsdbBalanceBaseUnitsFromObject(info?.tokenBalances, tokenIdentifier);
 }
 
@@ -923,8 +941,8 @@ async function getUsdbBalanceBaseUnits(tokenIdentifier: string): Promise<bigint>
     const parsed = await sdkInstance.parse(invoice);
     
     if (parsed.tag === 'Bolt11Invoice' && parsed.inner) {
-      const innerData = Array.isArray(parsed.inner) ? parsed.inner[0] : parsed.inner;
-      const nodeId = innerData?.payeePubkey || innerData?.destination || innerData?.nodeId;
+      const innerData = unwrapParsedInner(parsed.inner);
+      const nodeId = innerData.payeePubkey;
       if (nodeId) {
         console.log('✅ [BreezSparkService] Got node ID:', nodeId.substring(0, 20) + '...');
         return nodeId;
@@ -960,18 +978,14 @@ export async function resolveSwapTokens(): Promise<ResolvedSwapToken[]> {
   }
 
   try {
-    const issuer = await sdkInstance.getTokenIssuer?.();
-    if (typeof issuer === 'string' && issuer.length > 0) {
-      tokenIdentifiers.add(issuer);
-    } else {
-      walkObjectForIdentifiers(issuer, tokenIdentifiers);
-    }
+    // The 0.22 interface returns a TokenIssuer object, not an identifier.
+    walkObjectForIdentifiers(sdkInstance.getTokenIssuer(), tokenIdentifiers);
   } catch (error) {
     console.warn('⚠️ [BreezSparkService] getTokenIssuer discovery failed:', error);
   }
 
   try {
-    const info = await sdkInstance.getInfo?.({ ensureSynced: true });
+    const info = await sdkInstance.getInfo(makeGetInfoRequest(true));
     walkObjectForIdentifiers(info?.tokenBalances, tokenIdentifiers);
   } catch (error) {
     console.warn('⚠️ [BreezSparkService] getInfo token discovery failed:', error);
@@ -985,15 +999,12 @@ export async function resolveSwapTokens(): Promise<ResolvedSwapToken[]> {
     );
   }
 
-  const metadataResponse = await sdkInstance.getTokensMetadata?.(
+  const metadataResponse = await sdkInstance.getTokensMetadata(
     makeGetTokensMetadataRequest(Array.from(tokenIdentifiers)),
   );
 
   const metadataList: Array<Record<string, unknown>> =
-    metadataResponse?.tokensMetadata ||
-    metadataResponse?.metadata ||
-    metadataResponse ||
-    [];
+    metadataResponse.tokensMetadata;
 
   if (!Array.isArray(metadataList) || metadataList.length === 0) {
     throw new Error('USDB token metadata unavailable');
@@ -1025,7 +1036,7 @@ export async function getTokenBalances(): Promise<Array<Record<string, unknown>>
   if (!_isNativeAvailable || !sdkInstance) {
     throw new Error('SDK not available');
   }
-  const info = await sdkInstance.getInfo?.({ ensureSynced: true });
+  const info = await sdkInstance.getInfo(makeGetInfoRequest(true));
   const raw = info?.tokenBalances;
 
   // SDK returns `Map<string, TokenBalance>` where TokenBalance =
@@ -1049,8 +1060,6 @@ export async function getTokenBalances(): Promise<Array<Record<string, unknown>>
 
   if (raw instanceof Map) {
     for (const [k, v] of raw.entries()) pushEntry(k, v);
-  } else if (Array.isArray(raw)) {
-    for (const v of raw) pushEntry(undefined, v);
   } else if (raw && typeof raw === 'object') {
     for (const [k, v] of Object.entries(raw as Record<string, unknown>)) pushEntry(k, v);
   }
@@ -2149,8 +2158,8 @@ export async function payInvoice(
 
               // Check if this is a Lightning Address (preferred - unique per wallet)
               if (parsed.tag === 'LightningAddress' && parsed.inner) {
-                const innerData = Array.isArray(parsed.inner) ? parsed.inner[0] : parsed.inner;
-                recipientIdentifier = innerData?.lightningAddress || innerData?.address;
+                const innerData = unwrapParsedInner(parsed.inner);
+                recipientIdentifier = innerData.address;
                 identifierType = 'lightningAddress';
                 if (__DEV__) {
                   console.log('🔍 [BreezSparkService] Detected Lightning Address recipient');
@@ -2166,8 +2175,8 @@ export async function payInvoice(
               }
               // Fall back to Bolt11 invoice parsing (may have LSP pubkey, not unique)
               else if (parsed.tag === 'Bolt11Invoice' && parsed.inner) {
-                 const innerData = Array.isArray(parsed.inner) ? parsed.inner[0] : parsed.inner;
-                 recipientIdentifier = innerData?.payeePubkey || innerData?.destination || innerData?.nodeId;
+                 const innerData = unwrapParsedInner(parsed.inner);
+                 recipientIdentifier = innerData.payeePubkey;
                  if (__DEV__) {
                    console.log('🔍 [BreezSparkService] Extracted recipient pubkey from invoice');
                  }
@@ -2279,15 +2288,12 @@ export async function receivePayment(
       : undefined;
     if (expiresAt !== undefined) try {
       const parsed = await sdkInstance.parse(response.paymentRequest);
-      const inner = Array.isArray(parsed?.inner) ? parsed.inner[0] : parsed?.inner;
-      const details = inner?.invoiceDetails || inner;
-      const timestamp = Number(details?.timestamp);
-      const expiry = Number(details?.expiry);
-      const absoluteExpiry = Number(details?.expiryTime ?? details?.expiresAt);
-      if (Number.isFinite(absoluteExpiry) && absoluteExpiry > 0) {
-        expiresAt = absoluteExpiry > 1e12 ? absoluteExpiry : absoluteExpiry * 1000;
-      } else if (Number.isFinite(timestamp) && timestamp > 0 && Number.isFinite(expiry) && expiry > 0) {
-        expiresAt = (timestamp + expiry) * 1000;
+      // Typed Bolt12 responses carry no expiry, while older native bridges
+      // supplied a BOLT11-compatible record. Keep that persisted/native edge
+      // tolerant without leaking it into the typed SDK boundary.
+      const expiryDetails = readInvoiceExpiry(parsed.inner);
+      if (expiryDetails.timestamp !== undefined && expiryDetails.expiry !== undefined) {
+        expiresAt = (expiryDetails.timestamp + expiryDetails.expiry) * 1000;
       }
     } catch (parseError) {
       console.warn('[BreezSparkService] Could not read generated invoice expiry; using requested lifetime', parseError);
@@ -2495,7 +2501,7 @@ export async function listPayments(): Promise<TransactionInfo[]> {
     // instead of two separate send/receive rows.
     const byConversionId = new Map<string, any[]>();
     for (const p of payments) {
-      const cid = p?.details?.inner?.conversionInfo?.conversionId;
+      const cid = mapBreezPaymentDetails(p.details)?.conversionId;
       if (typeof cid === 'string' && cid.length > 0) {
         const bucket = byConversionId.get(cid) ?? [];
         bucket.push(p);
@@ -2548,9 +2554,9 @@ export async function listPayments(): Promise<TransactionInfo[]> {
       // Ignore cache-read failures; we'll fall back to 0.
     }
     for (const p of payments) {
-      const convInfo = p?.details?.inner?.conversionInfo;
-      if (!convInfo) continue;
-      const cid = convInfo.conversionId;
+      const mappedDetails = mapBreezPaymentDetails(p.details);
+      const cid = mappedDetails?.conversionId;
+      if (!cid) continue;
       if (!cid || seenConversions.has(cid)) continue;
       seenConversions.add(cid);
 
@@ -2576,14 +2582,13 @@ export async function listPayments(): Promise<TransactionInfo[]> {
         }
       }
 
-      const fee = Number(toBig(convInfo.fee ?? 0));
+      const fee = Number(mappedDetails.conversionFee ?? 0);
 
       const rawTime = p?.timestamp ?? 0;
       let timestamp = typeof rawTime === 'bigint' ? Number(rawTime) : Number(rawTime);
       if (timestamp > 0 && timestamp < 1e10) timestamp *= 1000;
 
-      const innerMeta = p?.details?.inner?.metadata as Record<string, unknown> | undefined;
-      const tokenIdentifier = typeof innerMeta?.identifier === 'string' ? innerMeta.identifier : undefined;
+      const tokenIdentifier = mappedDetails.tokenIdentifier;
 
       out.push({
         id: String(p.id),
@@ -2808,7 +2813,7 @@ export async function syncWallet(): Promise<void> {
     return;
   }
 
-  await sdkInstance.syncWallet();
+  await sdkInstance.syncWallet({});
 }
 
 async function getPaymentOrThrow(paymentId: string): Promise<TransactionInfo | null> {
@@ -3019,7 +3024,7 @@ export async function registerLightningAddress(
       lightningAddress: result.lightningAddress || `${username}@breez.tips`,
       username: result.username || username,
       description: result.description || description || '',
-      lnurl: result.lnurl || '',
+      lnurl: result.lnurl.bech32,
     };
 
     console.log('✅ [BreezSparkService] Lightning Address registered:', addressInfo.lightningAddress);
@@ -3054,7 +3059,7 @@ export async function getLightningAddress(): Promise<LightningAddressInfo | null
       lightningAddress: result.lightningAddress,
       username: result.username || result.lightningAddress.split('@')[0],
       description: result.description || '',
-      lnurl: result.lnurl || '',
+      lnurl: result.lnurl.bech32,
     };
 
     console.log('✅ [BreezSparkService] Got Lightning Address:', addressInfo.lightningAddress);
@@ -3181,8 +3186,7 @@ export async function parsePaymentRequest(input: string): Promise<{
     // Check the parsed result type
     if (parsed.tag === 'Bolt11Invoice' && parsed.inner) {
       // The inner might be an array with the invoice details as first element
-      const innerData = Array.isArray(parsed.inner) ? parsed.inner[0] : parsed.inner;
-      const invoiceDetails = innerData?.invoiceDetails || innerData;
+      const invoiceDetails = unwrapParsedInner(parsed.inner);
 
       // Prefer the SDK's amount; fall back to decoding the invoice HRP if it's
       // absent for any reason, so the amount field is never left empty for an
@@ -3201,14 +3205,13 @@ export async function parsePaymentRequest(input: string): Promise<{
         isValid: true,
         amountSat,
         description: invoiceDetails?.description,
-        tokenIdentifier: invoiceDetails?.tokenIdentifier,
+        tokenIdentifier: undefined,
         expiresAt,
       };
     }
 
     if (parsed.tag === 'SparkInvoice' && parsed.inner) {
-      const innerData = Array.isArray(parsed.inner) ? parsed.inner[0] : parsed.inner;
-      const invoiceDetails = innerData?.invoiceDetails || innerData;
+      const invoiceDetails = unwrapParsedInner(parsed.inner);
 
       // SparkInvoiceDetails.amount is a U128 denominated in:
       //   - sats              when tokenIdentifier is absent (BTC-on-Spark)
@@ -3242,30 +3245,22 @@ export async function parsePaymentRequest(input: string): Promise<{
       return { type: 'lightningAddress', isValid: true };
     }
 
-    if (parsed.tag === 'Lnurl') {
-      return { type: 'lnurl', isValid: true };
-    }
-
     if (parsed.tag === 'BitcoinAddress') {
       return { type: 'bitcoinAddress', isValid: true };
     }
 
     if (parsed.tag === 'SparkAddress') {
-      const innerData = Array.isArray(parsed.inner) ? parsed.inner[0] : parsed.inner;
+      const innerData = unwrapParsedInner(parsed.inner);
       return {
         type: 'sparkAddress',
         isValid: true,
-        tokenIdentifier: innerData?.tokenIdentifier,
+        tokenIdentifier: undefined,
       };
     }
 
     // Lightning Address (user@domain) and LNURL-pay (lnurl1…). The amount is
     // not embedded — the user specifies it — so we just mark them valid and
     // route them through the native LNURL-pay flow in prepareSendPayment.
-    if (parsed.tag === 'LightningAddress') {
-      return { type: 'lightningAddress', isValid: true };
-    }
-
     if (parsed.tag === 'LnurlPay') {
       return { type: 'lnurl', isValid: true };
     }
@@ -3493,7 +3488,9 @@ export async function sendOnchainPayment(
       confirmationSpeed: speedEnumValue,
     });
 
-    const response = await sdkInstance.sendPayment(
+    const sdk = sdkInstance;
+    if (!sdk) throw new Error('Wallet SDK unavailable');
+    const response = await sdk.sendPayment(
       makeSendPaymentRequest(prepareResponse, options, idempotencyKey),
     );
 
@@ -3568,12 +3565,14 @@ export async function sendPayment(
     // prepareLnurlPay (see prepareSendPayment) and must be executed with
     // lnurlPay. Both responses expose the same `payment` field, so the
     // post-processing below is identical.
+    const sdk = sdkInstance;
+    if (!sdk) throw new Error('Wallet SDK unavailable');
     const response = prepareResponse?.__lnurlPay
-      ? await sdkInstance.lnurlPay({
+      ? await sdk.lnurlPay({
           prepareResponse: prepareResponse.prepareResponse,
           idempotencyKey,
         })
-      : await sdkInstance.sendPayment(
+      : await sdk.sendPayment(
           makeSendPaymentRequest(prepareResponse, undefined, idempotencyKey),
         );
 
@@ -3638,12 +3637,12 @@ export async function sendPayment(
             }
 
             if (parsed.tag === 'LightningAddress' && parsed.inner) {
-              const innerData = Array.isArray(parsed.inner) ? parsed.inner[0] : parsed.inner;
-              recipientIdentifier = innerData?.lightningAddress || innerData?.address;
+              const innerData = unwrapParsedInner(parsed.inner);
+              recipientIdentifier = innerData.address;
               identifierType = 'lightningAddress';
             } else if (parsed.tag === 'Bolt11Invoice' && parsed.inner) {
-              const innerData = Array.isArray(parsed.inner) ? parsed.inner[0] : parsed.inner;
-              recipientIdentifier = innerData?.payeePubkey || innerData?.destination || innerData?.nodeId;
+              const innerData = unwrapParsedInner(parsed.inner);
+              recipientIdentifier = innerData.payeePubkey;
               identifierType = 'pubKey';
             }
           } catch (parseErr) {
