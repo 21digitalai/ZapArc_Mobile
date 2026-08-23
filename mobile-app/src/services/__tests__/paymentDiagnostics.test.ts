@@ -27,6 +27,14 @@ describe('payment diagnostics privacy and reconciliation', () => {
       .toBe('failed_but_funds_still_reserved');
   });
 
+  it('classifies numeric Spark HTLC statuses from the installed RN SDK', () => {
+    expect(classifyReconciliation({ htlcStatus: '0', htlcExpiryMs: Date.now() + 60_000 }))
+      .toBe('funds_reserved_until_expiry');
+    expect(classifyReconciliation({ htlcStatus: '1' })).toBe('settling_or_claimable');
+    expect(classifyReconciliation({ htlcStatus: '2', synced: true, pendingSendSats: 0 }))
+      .toBe('funds_returned');
+  });
+
   it('exports only the allowlisted payment, wallet, and lifecycle fields', async () => {
     await recordPaymentDiagnostic('payment-1', 'submit_failed', 'lnbc1privateinvoice');
     const payload = JSON.parse(await buildPaymentDiagnosticsExport({

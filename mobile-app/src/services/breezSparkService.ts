@@ -312,6 +312,10 @@ export interface TransactionInfo {
   paymentType?: string;
   asset?: 'BTC' | 'USDB';
   tokenIdentifier?: string;
+  /** Allowlisted Spark HTLC evidence used only for user-requested diagnostics. */
+  htlcStatus?: string;
+  htlcExpiryMs?: number;
+  paymentHash?: string;
   /** 'swap' for token conversions, 'payment' for regular send/receive. */
   kind?: 'swap' | 'payment';
   /** Populated when kind === 'swap' — carries both sides of the conversion. */
@@ -2455,6 +2459,16 @@ export async function listPayments(): Promise<TransactionInfo[]> {
         : Number(voutRaw);
 
       const mappedStatus = mapPaymentStatus(payment.status);
+      const rawHtlc = detailsTag === 'spark' ? payment.details?.inner?.htlcDetails : undefined;
+      const htlcExpirySeconds = rawHtlc?.expiryTime;
+      const htlcExpiryMs = typeof htlcExpirySeconds === 'bigint'
+        ? Number(htlcExpirySeconds) * 1000
+        : typeof htlcExpirySeconds === 'number'
+          ? htlcExpirySeconds * 1000
+          : undefined;
+      const paymentHash = typeof rawHtlc?.paymentHash === 'string' && rawHtlc.paymentHash.length > 0
+        ? rawHtlc.paymentHash
+        : undefined;
       const failureReasonRaw =
         payment.failureReason ||
         payment.error ||
@@ -2555,6 +2569,9 @@ export async function listPayments(): Promise<TransactionInfo[]> {
         paymentType: normalizedPaymentType,
         asset,
         tokenIdentifier,
+        htlcStatus: rawHtlc?.status === undefined ? undefined : String(rawHtlc.status),
+        htlcExpiryMs,
+        paymentHash,
         kind,
         swap: swapInfo,
       };
@@ -2601,6 +2618,10 @@ export async function getPayment(paymentId: string): Promise<TransactionInfo | n
         ? Number(p.timestamp) * 1000
         : Number(p.timestamp) * 1000;
 
+      const rawHtlc = p.details?.tag === 'Spark' ? p.details.inner?.htlcDetails : undefined;
+      const htlcExpiryMs = rawHtlc
+        ? Number(rawHtlc.expiryTime) * 1000
+        : undefined;
       return {
         id: p.id,
         type: (p.paymentType === 'receive' || p.paymentType === 'Receive') ? 'receive' : 'send',
@@ -2610,6 +2631,9 @@ export async function getPayment(paymentId: string): Promise<TransactionInfo | n
         timestamp,
         description: p.details?.inner?.description || p.description,
         comment: extractLnurlPaymentComment(p),
+        htlcStatus: rawHtlc ? String(rawHtlc.status) : undefined,
+        htlcExpiryMs,
+        paymentHash: rawHtlc?.paymentHash,
       };
     }
     return null;
@@ -2643,6 +2667,8 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
   }
 
   const reconciliation = classifyReconciliation({
+    htlcStatus: payment?.htlcStatus,
+    htlcExpiryMs: payment?.htlcExpiryMs,
     paymentStatus: payment?.status,
     synced: syncSucceeded,
     pendingSendSats: balance?.pendingSendSat,
@@ -2654,6 +2680,9 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
     payment: {
       id: paymentId,
       ...(payment ? { status: payment.status, direction: payment.type, amountSats: payment.amountSat, feeSats: payment.feeSat, timestamp: payment.timestamp } : {}),
+      ...(payment?.paymentHash ? { paymentHash: payment.paymentHash } : {}),
+      ...(payment?.htlcStatus ? { htlcStatus: payment.htlcStatus } : {}),
+      ...(payment?.htlcExpiryMs ? { htlcExpiryMs: payment.htlcExpiryMs } : {}),
     },
     wallet: {
       ...(balance ? { balanceSats: balance.balanceSat, pendingSendSats: balance.pendingSendSat, pendingReceiveSats: balance.pendingReceiveSat } : {}),

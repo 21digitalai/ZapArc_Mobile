@@ -20,7 +20,7 @@ export interface PaymentDiagnosticsExport {
   generatedAt: string;
   reconciliation: ReconciliationCode;
   sync: { attempted: boolean; succeeded: boolean; failure?: string };
-  payment: { id: string; status?: string; direction?: string; amountSats?: number; feeSats?: number; timestamp?: number };
+  payment: { id: string; status?: string; direction?: string; amountSats?: number; feeSats?: number; timestamp?: number; paymentHash?: string; htlcStatus?: string; htlcExpiryMs?: number };
   wallet: { balanceSats?: number; pendingSendSats?: number; pendingReceiveSats?: number; authoritative: boolean };
   timeline: PaymentDiagnostic['events'];
 }
@@ -44,13 +44,18 @@ export function classifyReconciliation(input: {
   balanceBeforeSats?: number;
   balanceAfterSats?: number;
 }): ReconciliationCode {
-  const status = (input.htlcStatus || '').toLowerCase();
-  if (status === 'waitingforpreimage' || status === 'waiting_for_preimage') {
+  const rawStatus = input.htlcStatus || '';
+  const status = rawStatus.toLowerCase();
+  // SparkHtlcStatus is a numeric enum in the installed RN SDK.
+  const waitingForPreimage = status === 'waitingforpreimage' || status === 'waiting_for_preimage' || rawStatus === '0';
+  const preimageShared = status === 'preimageshared' || status === 'preimage_shared' || rawStatus === '1';
+  const returned = status === 'returned' || rawStatus === '2';
+  if (waitingForPreimage) {
     return input.htlcExpiryMs && input.htlcExpiryMs > Date.now()
       ? 'funds_reserved_until_expiry' : 'overdue_stuck_reconciliation';
   }
-  if (status === 'preimageshared' || status === 'preimage_shared') return 'settling_or_claimable';
-  if (status === 'returned') {
+  if (preimageShared) return 'settling_or_claimable';
+  if (returned) {
     return input.synced && !input.pendingSendSats
       ? 'funds_returned' : 'balance_sync_inconsistency';
   }
