@@ -1,4 +1,4 @@
-import { buildPaymentDiagnosticsExport, classifyReconciliation, recordPaymentDiagnostic, sanitizeDiagnosticValue } from '../paymentDiagnostics';
+import { buildPaymentDiagnosticsExport, classifyReconciliation, DIAGNOSTIC_MAX_AGE_MS, DIAGNOSTIC_MAX_BYTES, DIAGNOSTIC_MAX_ENTRIES, prunePaymentDiagnostics, recordPaymentDiagnostic, sanitizeDiagnosticValue } from '../paymentDiagnostics';
 
 jest.mock('@react-native-async-storage/async-storage', () => {
   let value: string | null = null;
@@ -57,5 +57,47 @@ describe('payment diagnostics privacy and reconciliation', () => {
       wallet: { authoritative: false },
     }));
     expect(payload.sourceFailures).toEqual({ payment: 'lookup unavailable', paymentFallback: 'not found' });
+  });
+
+  it('redacts sensitive text embedded in an otherwise generic SDK error', () => {
+    expect(sanitizeDiagnosticValue('network timeout; seed phrase follows')).toBeUndefined();
+    expect(sanitizeDiagnosticValue('retry failed: preimage=secret')).toBeUndefined();
+  });
+
+  it('evicts retained diagnostics by age, count, and serialized size', () => {
+    const now = Date.now();
+    const old = { paymentId: 'old', createdAt: new Date(now - DIAGNOSTIC_MAX_AGE_MS - 1).toISOString(), events: [] };
+    const many = Array.from({ length: DIAGNOSTIC_MAX_ENTRIES + 4 }, (_, index) => ({
+      paymentId: `payment-${index}`,
+      createdAt: new Date(now - index).toISOString(),
+      events: [{ at: new Date(now).toISOString(), stage: 'event', detail: 'x'.repeat(240) }],
+    }));
+    const retained = prunePaymentDiagnostics([old, ...many], now);
+    expect(retained).toHaveLength(DIAGNOSTIC_MAX_ENTRIES);
+    expect(retained.some((entry) => entry.paymentId === 'old')).toBe(false);
+
+    const oversized = Array.from({ length: 3 }, (_, index) => ({
+      paymentId: `large-${index}`,
+      createdAt: new Date(now).toISOString(),
+      events: Array.from({ length: 20 }, () => ({ at: new Date(now).toISOString(), stage: 'event', detail: 'x'.repeat(240) })),
+    }));
+    expect(JSON.stringify(prunePaymentDiagnostics(oversized, now)).length).toBeLessThanOrEqual(DIAGNOSTIC_MAX_BYTES);
+  });
+
+  it('stores only allowlisted lifecycle snapshots and HTLC transition fields', async () => {
+    await recordPaymentDiagnostic('payment-snapshot', 'event_pending', {
+      balanceSats: 100,
+      pendingSendSats: 42,
+      htlcStatus: '0',
+      htlcExpiryMs: 123,
+      detail: 'raw invoice lnbc1should-not-export',
+      preimage: 'never persisted',
+    });
+    const payload = JSON.parse(await buildPaymentDiagnosticsExport({
+      reconciliation: 'unknown', sync: { attempted: true, succeeded: false }, payment: { id: 'payment-snapshot' }, wallet: { authoritative: false },
+    }));
+    expect(payload.timeline[0]).toMatchObject({ balanceSats: 100, pendingSendSats: 42, htlcStatus: '0', htlcExpiryMs: 123 });
+    expect(JSON.stringify(payload)).not.toContain('lnbc1should-not-export');
+    expect(JSON.stringify(payload)).not.toContain('preimage');
   });
 });

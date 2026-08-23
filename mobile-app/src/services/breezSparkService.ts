@@ -9,7 +9,7 @@
 import { BREEZ_API_KEY, BREEZ_STORAGE_DIR } from '../config';
 import { getExchangeRates, getCachedRates } from '../utils/currency';
 import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
-import { buildPaymentDiagnosticsExport, classifyReconciliation, recordPaymentDiagnostic } from './paymentDiagnostics';
+import { buildPaymentDiagnosticsExport, classifyReconciliation, recordPaymentDiagnostic, sanitizeDiagnosticValue } from './paymentDiagnostics';
 // Push notifications now flow via Breez's webhook registration + relay.
 // Foreground UX still comes from the local notification/event listeners.
 
@@ -69,6 +69,11 @@ export function extractSdkErrorMessage(error: unknown, fallback = 'Payment faile
   };
 
   return readMessage(error) || fallback;
+}
+
+/** SDK errors can embed invoices or payment metadata; diagnostics retain only safe generic text. */
+function extractSafeDiagnosticFailure(error: unknown, fallback: string): string {
+  return sanitizeDiagnosticValue(extractSdkErrorMessage(error, fallback)) || fallback;
 }
 
 export type DepositClaimErrorInfo =
@@ -2599,13 +2604,12 @@ export async function syncWallet(): Promise<void> {
   await sdkInstance.syncWallet();
 }
 
-export async function getPayment(paymentId: string): Promise<TransactionInfo | null> {
+async function getPaymentOrThrow(paymentId: string): Promise<TransactionInfo | null> {
   if (!_isNativeAvailable || !sdkInstance) {
-    return null;
+    throw new Error('Wallet SDK unavailable');
   }
 
-  try {
-    const response = await sdkInstance.getPayment({ paymentId });
+  const response = await sdkInstance.getPayment({ paymentId });
     if (response.payment) {
       const p = response.payment;
       // Properly convert BigInt to number for amounts
@@ -2636,7 +2640,12 @@ export async function getPayment(paymentId: string): Promise<TransactionInfo | n
         paymentHash: rawHtlc?.paymentHash,
       };
     }
-    return null;
+  return null;
+}
+
+export async function getPayment(paymentId: string): Promise<TransactionInfo | null> {
+  try {
+    return await getPaymentOrThrow(paymentId);
   } catch (error) {
     console.error('Failed to get payment:', error);
     return null;
@@ -2658,20 +2667,20 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
     authoritativeInfo = await sdkInstance.getInfo({ ensureSynced: true });
     syncSucceeded = true;
   } catch (error) {
-    syncFailure = extractSdkErrorMessage(error, 'Wallet sync unavailable');
+    syncFailure = extractSafeDiagnosticFailure(error, 'Wallet sync unavailable');
   }
 
   let payment: TransactionInfo | null = null;
   let balance: WalletBalance | null = null;
-  try { payment = await getPayment(paymentId); } catch (error) {
-    sourceFailures.payment = extractSdkErrorMessage(error, 'Payment lookup unavailable');
+  try { payment = await getPaymentOrThrow(paymentId); } catch (error) {
+    sourceFailures.payment = extractSafeDiagnosticFailure(error, 'Payment lookup unavailable');
   }
   if (!payment) {
     try {
       payment = (await listPayments()).find((candidate) => candidate.id === paymentId) || null;
       if (!payment) sourceFailures.paymentFallback = 'Payment was not found in the authoritative payment list';
     } catch (error) {
-      sourceFailures.paymentFallback = extractSdkErrorMessage(error, 'Payment list fallback unavailable');
+      sourceFailures.paymentFallback = extractSafeDiagnosticFailure(error, 'Payment list fallback unavailable');
     }
   }
   try {
@@ -2681,7 +2690,7 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
       pendingReceiveSat: Number(authoritativeInfo.pendingReceiveSats || 0),
     } : await getBalance();
   } catch (error) {
-    sourceFailures.wallet = extractSdkErrorMessage(error, 'Balance lookup unavailable');
+    sourceFailures.wallet = extractSafeDiagnosticFailure(error, 'Balance lookup unavailable');
   }
 
   const reconciliation = classifyReconciliation({
@@ -2691,7 +2700,14 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
     synced: syncSucceeded,
     pendingSendSats: balance?.pendingSendSat,
   });
-  await recordPaymentDiagnostic(paymentId, syncSucceeded ? 'export_reconciled' : 'export_partial', syncFailure);
+  await recordPaymentDiagnostic(paymentId, syncSucceeded ? 'export_reconciled' : 'export_partial', {
+    detail: syncFailure,
+    balanceSats: balance?.balanceSat,
+    pendingSendSats: balance?.pendingSendSat,
+    pendingReceiveSats: balance?.pendingReceiveSat,
+    htlcStatus: payment?.htlcStatus,
+    htlcExpiryMs: payment?.htlcExpiryMs,
+  });
   return buildPaymentDiagnosticsExport({
     reconciliation,
     sync: { attempted: true, succeeded: syncSucceeded, ...(syncFailure ? { failure: syncFailure } : {}) },

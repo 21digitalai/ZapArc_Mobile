@@ -3,6 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const STORAGE_KEY = '@zaparc/payment_diagnostics_v1';
 export const DIAGNOSTIC_MAX_ENTRIES = 30;
 export const DIAGNOSTIC_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** The complete persisted journal stays deliberately small even with long error text. */
+export const DIAGNOSTIC_MAX_BYTES = 12_000;
 
 export type ReconciliationCode =
   | 'funds_reserved_until_expiry' | 'overdue_stuck_reconciliation'
@@ -12,7 +14,16 @@ export type ReconciliationCode =
 export interface PaymentDiagnostic {
   paymentId: string;
   createdAt: string;
-  events: Array<{ at: string; stage: string; detail?: string }>;
+  events: Array<{
+    at: string;
+    stage: string;
+    detail?: string;
+    balanceSats?: number;
+    pendingSendSats?: number;
+    pendingReceiveSats?: number;
+    htlcStatus?: string;
+    htlcExpiryMs?: number;
+  }>;
 }
 
 export interface PaymentDiagnosticsExport {
@@ -67,27 +78,49 @@ export function classifyReconciliation(input: {
   return 'unknown';
 }
 
-function prune(entries: PaymentDiagnostic[], now = Date.now()): PaymentDiagnostic[] {
-  return entries.filter((entry) => now - Date.parse(entry.createdAt) <= DIAGNOSTIC_MAX_AGE_MS)
-    .slice(-DIAGNOSTIC_MAX_ENTRIES);
+export function prunePaymentDiagnostics(entries: PaymentDiagnostic[], now = Date.now()): PaymentDiagnostic[] {
+  const retained = entries.filter((entry) => now - Date.parse(entry.createdAt) <= DIAGNOSTIC_MAX_AGE_MS)
+    .slice(-DIAGNOSTIC_MAX_ENTRIES)
+    .map((entry) => ({ ...entry, events: entry.events.slice(-20) }));
+  while (JSON.stringify(retained).length > DIAGNOSTIC_MAX_BYTES) {
+    const oldestWithEvents = retained.find((entry) => entry.events.length > 1);
+    if (oldestWithEvents) oldestWithEvents.events.shift();
+    else if (retained.length > 1) retained.shift();
+    else break;
+  }
+  return retained;
 }
 
 export async function recordPaymentDiagnostic(paymentId: string, stage: string, detail?: unknown): Promise<void> {
   if (!paymentId) return;
   const raw = await AsyncStorage.getItem(STORAGE_KEY);
   const entries: PaymentDiagnostic[] = raw ? JSON.parse(raw) : [];
-  const safeDetail = sanitizeDiagnosticValue(detail);
   const at = new Date().toISOString();
+  const input = detail && typeof detail === 'object' ? detail as Record<string, unknown> : { detail };
+  const safeDetail = sanitizeDiagnosticValue(input.detail);
+  const finite = (value: unknown): number | undefined => typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  const safeHtlcStatus = typeof input.htlcStatus === 'string' && /^(0|1|2|WaitingForPreimage|PreimageShared|Returned)$/.test(input.htlcStatus)
+    ? input.htlcStatus : undefined;
+  const event = {
+    at,
+    stage,
+    ...(safeDetail ? { detail: safeDetail } : {}),
+    ...(finite(input.balanceSats) !== undefined ? { balanceSats: finite(input.balanceSats) } : {}),
+    ...(finite(input.pendingSendSats) !== undefined ? { pendingSendSats: finite(input.pendingSendSats) } : {}),
+    ...(finite(input.pendingReceiveSats) !== undefined ? { pendingReceiveSats: finite(input.pendingReceiveSats) } : {}),
+    ...(safeHtlcStatus ? { htlcStatus: safeHtlcStatus } : {}),
+    ...(finite(input.htlcExpiryMs) !== undefined ? { htlcExpiryMs: finite(input.htlcExpiryMs) } : {}),
+  };
   const entry = entries.find((item) => item.paymentId === paymentId);
-  if (entry) entry.events.push({ at, stage, ...(safeDetail ? { detail: safeDetail } : {}) });
-  else entries.push({ paymentId, createdAt: at, events: [{ at, stage, ...(safeDetail ? { detail: safeDetail } : {}) }] });
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(prune(entries)));
+  if (entry) entry.events.push(event);
+  else entries.push({ paymentId, createdAt: at, events: [event] });
+  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(prunePaymentDiagnostics(entries)));
 }
 
 export async function getPaymentDiagnostic(paymentId: string): Promise<PaymentDiagnostic | null> {
   const raw = await AsyncStorage.getItem(STORAGE_KEY);
   const entries: PaymentDiagnostic[] = raw ? JSON.parse(raw) : [];
-  const retained = prune(entries);
+  const retained = prunePaymentDiagnostics(entries);
   if (retained.length !== entries.length) await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(retained));
   return retained.find((item) => item.paymentId === paymentId) || null;
 }
