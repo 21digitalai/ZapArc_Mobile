@@ -58,6 +58,10 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
   },
   Network: { Mainnet: 'mainnet' },
   PaymentStatus: { Completed: 0, Pending: 1, Failed: 2 },
+  PaymentDetails_Tags: {
+    Spark: 'Spark', Token: 'Token', Lightning: 'Lightning', Withdraw: 'Withdraw', Deposit: 'Deposit',
+  },
+  ConversionInfo_Tags: { Amm: 'Amm', Orchestra: 'Orchestra', Boltz: 'Boltz' },
   OnchainConfirmationSpeed: { Fast: 'fast', Medium: 'medium', Slow: 'slow' },
   MaxFee: {
     NetworkRecommended: function (inner: unknown) {
@@ -94,6 +98,49 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
     getInfo: jest.fn().mockResolvedValue({ identityPubkey: undefined }),
   }),
 }));
+
+describe('Breez payment detail adapters', () => {
+  it('maps Spark HTLC data and the typed AMM conversion payload', () => {
+    const { mapBreezPaymentDetails } = require('../breezSparkService');
+    const result = mapBreezPaymentDetails({
+      tag: 'Spark',
+      inner: {
+        invoiceDetails: undefined,
+        htlcDetails: { status: 'Pending', expiryTime: 123n, paymentHash: 'hash' },
+        conversionInfo: { tag: 'Amm', inner: { conversionId: 'conversion-1', fee: 7n } },
+      },
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      tag: 'Spark', htlcStatus: 'Pending', htlcExpiryMs: 123000,
+      paymentHash: 'hash', conversionId: 'conversion-1', conversionFee: 7n,
+    }));
+  });
+
+  it.each([
+    ['Token', { metadata: { identifier: 'btkn1', ticker: 'USDB' }, txHash: 'tx', txType: 'Send', invoiceDetails: undefined, conversionInfo: undefined }, { tokenIdentifier: 'btkn1', tokenTicker: 'USDB' }],
+    ['Lightning', { description: 'invoice', invoice: 'lnbc', destinationPubkey: 'pubkey', htlcDetails: { status: 'Completed', expiryTime: 5n, paymentHash: 'hash' }, lnurlPayInfo: undefined, lnurlWithdrawInfo: undefined, lnurlReceiveMetadata: undefined, conversionInfo: undefined }, { description: 'invoice', htlcExpiryMs: 5000 }],
+    ['Withdraw', { txId: 'withdraw-tx' }, { txid: 'withdraw-tx' }],
+    ['Deposit', { txId: 'deposit-tx', vout: 2 }, { txid: 'deposit-tx', vout: 2 }],
+  ])('maps the %s generated payment-details variant', (tag, inner, expected) => {
+    const { mapBreezPaymentDetails } = require('../breezSparkService');
+    expect(mapBreezPaymentDetails({ tag, inner })).toEqual(expect.objectContaining(expected));
+  });
+
+  it('does not expose newer cross-chain conversion details', () => {
+    const { mapBreezPaymentDetails } = require('../breezSparkService');
+    const result = mapBreezPaymentDetails({
+      tag: 'Spark',
+      inner: {
+        invoiceDetails: undefined,
+        htlcDetails: undefined,
+        conversionInfo: { tag: 'Orchestra', inner: { orderId: 'private-provider-id' } },
+      },
+    });
+
+    expect(result).toEqual({ tag: 'Spark', htlcStatus: undefined, htlcExpiryMs: undefined, paymentHash: undefined });
+  });
+});
 
 describe('BreezSparkService.sendOnchainPayment', () => {
   beforeEach(() => {

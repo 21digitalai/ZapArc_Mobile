@@ -362,6 +362,94 @@ export function extractLnurlPaymentComment(payment: unknown): string | undefined
     : undefined;
 }
 
+export interface BreezPaymentDetailsSnapshot {
+  tag: BreezSparkSdk.PaymentDetails_Tags;
+  description?: string;
+  txid?: string;
+  vout?: number;
+  tokenIdentifier?: string;
+  tokenTicker?: string;
+  htlcStatus?: string;
+  htlcExpiryMs?: number;
+  paymentHash?: string;
+  conversionId?: string;
+  conversionFee?: bigint;
+}
+
+function mapBreezConversionInfo(
+  conversion: BreezSparkSdk.ConversionInfo | undefined,
+): Pick<BreezPaymentDetailsSnapshot, 'conversionId' | 'conversionFee'> {
+  if (!conversion) return {};
+
+  // Only AMM conversions are ZapArc's existing BTC/USDB swap surface. The
+  // newer cross-chain providers remain intentionally unexposed by this app.
+  switch (conversion.tag) {
+    case BreezSDK.ConversionInfo_Tags.Amm:
+      return {
+        conversionId: conversion.inner.conversionId,
+        conversionFee: conversion.inner.fee,
+      };
+    case BreezSDK.ConversionInfo_Tags.Orchestra:
+    case BreezSDK.ConversionInfo_Tags.Boltz:
+      return {};
+    default: {
+      const unhandledConversion: never = conversion;
+      throw new Error(`Unhandled Breez conversion info: ${String(unhandledConversion)}`);
+    }
+  }
+}
+
+/**
+ * Converts the generated SDK union into the small, stable payment-detail
+ * surface ZapArc needs. Native SDK records deliberately do not cross into UI
+ * or diagnostics models; every currently-supported variant is handled here.
+ */
+export function mapBreezPaymentDetails(
+  details: BreezSparkSdk.PaymentDetails | undefined,
+): BreezPaymentDetailsSnapshot | undefined {
+  if (!details) return undefined;
+
+  switch (details.tag) {
+    case BreezSDK.PaymentDetails_Tags.Spark: {
+      const htlc = details.inner.htlcDetails;
+      return {
+        tag: details.tag,
+        htlcStatus: htlc ? String(htlc.status) : undefined,
+        htlcExpiryMs: htlc ? Number(htlc.expiryTime) * 1000 : undefined,
+        paymentHash: htlc ? htlc.paymentHash : undefined,
+        ...mapBreezConversionInfo(details.inner.conversionInfo),
+      };
+    }
+    case BreezSDK.PaymentDetails_Tags.Token: {
+      return {
+        tag: details.tag,
+        tokenIdentifier: details.inner.metadata.identifier,
+        tokenTicker: details.inner.metadata.ticker,
+        ...mapBreezConversionInfo(details.inner.conversionInfo),
+      };
+    }
+    case BreezSDK.PaymentDetails_Tags.Lightning: {
+      const htlc = details.inner.htlcDetails;
+      return {
+        tag: details.tag,
+        description: details.inner.description,
+        htlcStatus: String(htlc.status),
+        htlcExpiryMs: Number(htlc.expiryTime) * 1000,
+        paymentHash: htlc.paymentHash,
+        ...mapBreezConversionInfo(details.inner.conversionInfo),
+      };
+    }
+    case BreezSDK.PaymentDetails_Tags.Withdraw:
+      return { tag: details.tag, txid: details.inner.txId };
+    case BreezSDK.PaymentDetails_Tags.Deposit:
+      return { tag: details.tag, txid: details.inner.txId, vout: details.inner.vout };
+    default: {
+      const unhandledDetails: never = details;
+      throw new Error(`Unhandled Breez payment details: ${String(unhandledDetails)}`);
+    }
+  }
+}
+
 export interface DepositInfo {
   txid: string;
   vout: number;
