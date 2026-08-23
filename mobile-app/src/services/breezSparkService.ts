@@ -3490,11 +3490,9 @@ export async function sendOnchainPayment(
       confirmationSpeed: speedEnumValue,
     });
 
-    const response = await sdkInstance.sendPayment({
-      prepareResponse,
-      idempotencyKey,
-      options,
-    });
+    const response = await sdkInstance.sendPayment(
+      makeSendPaymentRequest(prepareResponse, options, idempotencyKey),
+    );
 
     const paymentId = response.payment?.id;
     const status = mapPaymentStatus(response.payment?.status);
@@ -3572,10 +3570,9 @@ export async function sendPayment(
           prepareResponse: prepareResponse.prepareResponse,
           idempotencyKey,
         })
-      : await sdkInstance.sendPayment({
-          prepareResponse,
-          idempotencyKey,
-        });
+      : await sdkInstance.sendPayment(
+          makeSendPaymentRequest(prepareResponse, undefined, idempotencyKey),
+        );
 
     // Track this payment ID so we don't show "Payment Received" notification for it
     const paymentId = response.payment?.id;
