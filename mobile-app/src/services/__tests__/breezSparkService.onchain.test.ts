@@ -54,6 +54,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
     },
   },
   Network: { Mainnet: 'mainnet' },
+  PaymentStatus: { Completed: 0, Pending: 1, Failed: 2 },
   OnchainConfirmationSpeed: { Fast: 'fast', Medium: 'medium', Slow: 'slow' },
   MaxFee: {
     NetworkRecommended: function (inner: unknown) {
@@ -398,6 +399,17 @@ describe('BreezSparkService received LNURL comment mapping', () => {
     expect(extractLnurlPaymentComment({ details: { tag: 'Lightning', inner: { lnurlReceiveMetadata: { senderComment: '  ' } } } })).toBeUndefined();
     expect(extractLnurlPaymentComment({ details: { tag: 'Lightning', inner: { lnurlReceiveMetadata: { senderComment: 'x'.repeat(1001) } } } })).toBeUndefined();
     expect(extractLnurlPaymentComment({ details: { tag: 'Token', inner: { lnurlReceiveMetadata: { senderComment: 'not a payment message' } } } })).toBeUndefined();
+  });
+});
+
+describe('Breez payment status adapter', () => {
+  it.each([
+    [0, 'completed'],
+    [1, 'pending'],
+    [2, 'failed'],
+  ])('maps the official PaymentStatus value %s to %s', (status, expected) => {
+    const { mapBreezPaymentStatus } = require('../breezSparkService');
+    expect(mapBreezPaymentStatus(status)).toBe(expected);
   });
 });
 

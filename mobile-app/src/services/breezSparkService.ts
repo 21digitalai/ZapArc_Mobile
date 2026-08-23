@@ -3559,7 +3559,28 @@ export function addPaymentListener(
 // Helper Functions
 // =============================================================================
 
+export function mapBreezPaymentStatus(
+  status: BreezSparkSdk.PaymentStatus,
+): 'pending' | 'completed' | 'failed' {
+  switch (status) {
+    case BreezSDK.PaymentStatus.Completed:
+      return 'completed';
+    case BreezSDK.PaymentStatus.Pending:
+      return 'pending';
+    case BreezSDK.PaymentStatus.Failed:
+      return 'failed';
+    default: {
+      const unhandledStatus: never = status;
+      throw new Error(`Unhandled Breez payment status: ${String(unhandledStatus)}`);
+    }
+  }
+}
+
 function mapPaymentStatus(status: unknown): 'pending' | 'completed' | 'failed' {
+  if (typeof status === 'number' && Object.values(BreezSDK.PaymentStatus).includes(status)) {
+    return mapBreezPaymentStatus(status as BreezSparkSdk.PaymentStatus);
+  }
+
   // Handle numeric status codes from Breez SDK
   if (typeof status === 'number') {
     if (status === 0) return 'completed'; // Completed
