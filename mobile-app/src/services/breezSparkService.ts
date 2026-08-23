@@ -2798,7 +2798,15 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
       ...(payment?.htlcExpiryMs ? { htlcExpiryMs: payment.htlcExpiryMs } : {}),
     },
     wallet: {
-      ...(balance ? { balanceSats: balance.balanceSat, pendingSendSats: balance.pendingSendSat, pendingReceiveSats: balance.pendingReceiveSat } : {}),
+      ...(balance ? {
+        balanceSats: balance.balanceSat,
+        pendingSendSats: balance.pendingSendSat,
+        // Pending receive funds are unrelated noise for outgoing diagnostics
+        // unless there is actually a pending receive to report.
+        ...(payment?.type !== 'send' || balance.pendingReceiveSat
+          ? { pendingReceiveSats: balance.pendingReceiveSat }
+          : {}),
+      } : {}),
       authoritative: syncSucceeded,
     },
   });

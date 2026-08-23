@@ -14,6 +14,11 @@ export interface SanitizedSdkLog {
   event: 'sdk_connected' | 'sdk_disconnected' | 'wallet_sync' | 'payment_update' | 'htlc_update';
 }
 
+export interface SanitizedSdkLogSummary extends SanitizedSdkLog {
+  count: number;
+  lastAt: string;
+}
+
 const sdkLogRing: SanitizedSdkLog[] = [];
 
 export type ReconciliationCode =
@@ -47,7 +52,8 @@ export interface PaymentDiagnosticsExport {
   payment: { id: string; status?: string; direction?: string; amountSats?: number; feeSats?: number; timestamp?: number; paymentHash?: string; htlcStatus?: string; htlcExpiryMs?: number };
   wallet: { balanceSats?: number; pendingSendSats?: number; pendingReceiveSats?: number; authoritative: boolean };
   timeline: PaymentDiagnostic['events'];
-  relevantLogs: SanitizedSdkLog[];
+  /** Repeated derived SDK categories are collapsed to keep exports readable. */
+  relevantLogs: SanitizedSdkLogSummary[];
 }
 
 const SENSITIVE = /(seed|mnemonic|private.?key|preimage|proof|invoice|bolt11|lnurl|lightning.?address|recipient|pubkey|description|comment|api.?key|token)/i;
@@ -84,6 +90,25 @@ export function recordSanitizedSdkLog(level: unknown, line: unknown): void {
 
 export function getSanitizedSdkLogs(): SanitizedSdkLog[] {
   return sdkLogRing.map((entry) => ({ ...entry }));
+}
+
+/**
+ * Raw Breez lines are intentionally never retained. Collapse the safe derived
+ * categories so a retry loop does not produce dozens of identical rows.
+ */
+export function summarizeSanitizedSdkLogs(logs = getSanitizedSdkLogs()): SanitizedSdkLogSummary[] {
+  const summaries = new Map<string, SanitizedSdkLogSummary>();
+  for (const log of logs) {
+    const key = `${log.level}:${log.event}`;
+    const existing = summaries.get(key);
+    if (existing) {
+      existing.count += 1;
+      existing.lastAt = log.at;
+    } else {
+      summaries.set(key, { ...log, count: 1, lastAt: log.at });
+    }
+  }
+  return [...summaries.values()];
 }
 
 export function classifyReconciliation(input: {
@@ -175,12 +200,15 @@ export async function getPaymentDiagnosticBalance(paymentId: string, stage: stri
 /** Build a deliberately small, user-reviewable support payload. */
 export async function buildPaymentDiagnosticsExport(input: Omit<PaymentDiagnosticsExport, 'schemaVersion' | 'generatedAt' | 'timeline' | 'relevantLogs' | 'app'> & { app?: PaymentDiagnosticsExport['app'] }): Promise<string> {
   const journal = await getPaymentDiagnostic(input.payment.id);
+  // The export event repeats the top-level sync/wallet/HTLC snapshot and adds
+  // no historical evidence, so keep it persisted but omit it from copied JSON.
+  const timeline = (journal?.events || []).filter((event) => !event.stage.startsWith('export_'));
   return JSON.stringify({
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     ...input,
     app: input.app || { name: 'ZapArc Mobile', version: 'unknown', sdkVersion: 'unknown', platform: 'unknown' },
-    timeline: journal?.events || [],
-    relevantLogs: getSanitizedSdkLogs(),
+    timeline,
+    relevantLogs: summarizeSanitizedSdkLogs(),
   } satisfies PaymentDiagnosticsExport, null, 2);
 }

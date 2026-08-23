@@ -1,4 +1,4 @@
-import { buildPaymentDiagnosticsExport, classifyReconciliation, DIAGNOSTIC_LOG_RING_MAX_ENTRIES, DIAGNOSTIC_MAX_AGE_MS, DIAGNOSTIC_MAX_BYTES, DIAGNOSTIC_MAX_ENTRIES, getSanitizedSdkLogs, prunePaymentDiagnostics, recordPaymentDiagnostic, recordSanitizedSdkLog, sanitizeDiagnosticValue } from '../paymentDiagnostics';
+import { buildPaymentDiagnosticsExport, classifyReconciliation, DIAGNOSTIC_LOG_RING_MAX_ENTRIES, DIAGNOSTIC_MAX_AGE_MS, DIAGNOSTIC_MAX_BYTES, DIAGNOSTIC_MAX_ENTRIES, getSanitizedSdkLogs, prunePaymentDiagnostics, recordPaymentDiagnostic, recordSanitizedSdkLog, sanitizeDiagnosticValue, summarizeSanitizedSdkLogs } from '../paymentDiagnostics';
 
 jest.mock('@react-native-async-storage/async-storage', () => {
   let value: string | null = null;
@@ -37,7 +37,10 @@ describe('payment diagnostics privacy and reconciliation', () => {
     expect(logs.every((entry) => entry.event === 'payment_update')).toBe(true);
     expect(JSON.stringify(logs)).not.toContain('lnbc1secretinvoice');
     const payload = JSON.parse(await buildPaymentDiagnosticsExport({ reconciliation: 'unknown', sync: { attempted: false, succeeded: false }, payment: { id: 'logs' }, wallet: { authoritative: false } }));
-    expect(payload.relevantLogs).toEqual(logs);
+    expect(payload.relevantLogs).toEqual(summarizeSanitizedSdkLogs(logs));
+    expect(payload.relevantLogs).toEqual([
+      expect.objectContaining({ event: 'payment_update', level: 'debug', count: DIAGNOSTIC_LOG_RING_MAX_ENTRIES }),
+    ]);
   });
 
   it('keeps failed payments reserved while pending balance remains', () => {
@@ -129,5 +132,19 @@ describe('payment diagnostics privacy and reconciliation', () => {
       'pre_send_snapshot', 'prepare_succeeded', 'submitted_pending', 'event_failed',
     ]);
     expect(JSON.stringify(payload)).not.toContain('preimage');
+  });
+
+  it('omits duplicate export snapshots from the copied timeline', async () => {
+    await recordPaymentDiagnostic('payment-compact', 'event_pending');
+    await recordPaymentDiagnostic('payment-compact', 'export_reconciled', {
+      balanceSats: 100, pendingSendSats: 0, htlcStatus: '2',
+    });
+    const payload = JSON.parse(await buildPaymentDiagnosticsExport({
+      reconciliation: 'funds_returned',
+      sync: { attempted: true, succeeded: true },
+      payment: { id: 'payment-compact' },
+      wallet: { balanceSats: 100, pendingSendSats: 0, authoritative: true },
+    }));
+    expect(payload.timeline.map((event: { stage: string }) => event.stage)).toEqual(['event_pending']);
   });
 });
