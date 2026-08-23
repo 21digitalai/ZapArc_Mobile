@@ -283,7 +283,14 @@ describe('BreezSparkService LNURL comments', () => {
   ])('rejects an unsupported or over-limit native comment before payment', async (commentAllowed, comment, message) => {
     const svc = require('../breezSparkService');
     await svc.initializeSDK('test mnemonic words go here twelve words');
-    mockParse.mockResolvedValueOnce({ tag: 'LnurlPay', inner: { commentAllowed } });
+    mockParse.mockResolvedValueOnce({
+      tag: 'LnurlPay',
+      inner: {
+        callback: 'https://example.com/callback', minSendable: 1n, maxSendable: 2_000_000n,
+        metadataStr: '[]', commentAllowed, domain: 'example.com', url: 'https://example.com/lnurl',
+        address: undefined, allowsNostr: undefined, nostrPubkey: undefined,
+      },
+    });
 
     await expect(svc.prepareSendPayment('lnurl1example', 1000, { comment }))
       .rejects.toThrow(message);
