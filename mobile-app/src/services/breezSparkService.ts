@@ -610,6 +610,18 @@ function makeReceivePaymentRequest(
   return BreezSDK.ReceivePaymentRequest.new({ paymentMethod });
 }
 
+function makeSparkInvoicePaymentMethod(
+  tokenIdentifier: string | undefined,
+): BreezSparkSdk.ReceivePaymentMethod {
+  return BreezSDK.ReceivePaymentMethod.SparkInvoice.new({
+    amount: undefined,
+    tokenIdentifier,
+    expiryTime: undefined,
+    description: undefined,
+    senderPublicKey: undefined,
+  });
+}
+
 function makePrepareLnurlPayRequest(
   amount: bigint,
   payRequest: BreezSparkSdk.LnurlPayRequestDetails,
@@ -1095,18 +1107,13 @@ export async function prepareSwap(params: PrepareSwapParams): Promise<SwapQuote>
     // ReceivePaymentMethod.SparkAddress has NO inner fields (can only emit a
     // plain sats-only address), so we need SparkInvoice to attach a
     // destination tokenIdentifier for BTC→USDB.
-    receivePayment = await sdkInstance.receivePayment?.({
-      paymentMethod: {
-        tag: 'SparkInvoice',
-        inner: {
-          amount: undefined,
-          tokenIdentifier: params.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
-          expiryTime: undefined,
-          description: undefined,
-          senderPublicKey: undefined,
-        },
-      },
-    });
+    receivePayment = await sdkInstance.receivePayment(
+      makeReceivePaymentRequest(
+        makeSparkInvoicePaymentMethod(
+          params.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
+        ),
+      ),
+    );
     console.log('🔬 [prepareSwap] receivePayment ok', {
       paymentRequest: String(receivePayment?.paymentRequest || '').slice(0, 60) + '...',
     });

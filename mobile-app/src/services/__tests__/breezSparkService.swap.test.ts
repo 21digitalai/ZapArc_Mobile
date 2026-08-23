@@ -79,7 +79,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => {
     MaxFee: { NetworkRecommended: function (inner: unknown) { return { ...((inner as object) || {}) }; } },
     ConversionType: { FromBitcoin, ToBitcoin },
     ReceivePaymentMethod: {
-      SparkInvoice: { new: jest.fn((params) => ({ tag: 'SparkInvoice', params })) },
+      SparkInvoice: { new: jest.fn((inner) => ({ tag: 'SparkInvoice', inner })) },
     },
     defaultConfig: jest.fn(() => ({})),
     connect: jest.fn().mockImplementation(async () => mockSdk),
