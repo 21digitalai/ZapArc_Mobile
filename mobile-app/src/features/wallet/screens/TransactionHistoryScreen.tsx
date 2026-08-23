@@ -151,13 +151,17 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     }
   }, [refreshTransactions]);
 
-  const copyDiagnostics = useCallback(async (): Promise<void> => {
+  const reconcileDiagnostics = useCallback(async (copy: boolean): Promise<void> => {
     if (!selectedTransaction?.id || diagnosticsBusy) return;
     setDiagnosticsBusy(true);
     try {
       const payload = await exportPaymentDiagnostics(selectedTransaction.id);
-      await Clipboard.setStringAsync(payload);
-      ToastAndroid && ToastAndroid.show?.('Diagnostics copied', ToastAndroid.SHORT);
+      if (copy) {
+        await Clipboard.setStringAsync(payload);
+        ToastAndroid && ToastAndroid.show?.('Diagnostics copied', ToastAndroid.SHORT);
+      } else {
+        ToastAndroid && ToastAndroid.show?.('Reconciliation refreshed', ToastAndroid.SHORT);
+      }
       await refreshTransactions();
     } catch {
       ToastAndroid && ToastAndroid.show?.('Could not prepare diagnostics', ToastAndroid.SHORT);
@@ -504,12 +508,12 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                 icon="content-copy"
                 loading={diagnosticsBusy}
                 disabled={diagnosticsBusy}
-                onPress={copyDiagnostics}
+                onPress={() => reconcileDiagnostics(true)}
               >
                 Copy diagnostics
               </Button>
               {(tx.status === 'failed' || tx.status === 'pending') && (
-                <Button mode="text" disabled={diagnosticsBusy} onPress={copyDiagnostics}>Refresh</Button>
+                <Button mode="text" disabled={diagnosticsBusy} onPress={() => reconcileDiagnostics(false)}>Refresh</Button>
               )}
             </View>
 

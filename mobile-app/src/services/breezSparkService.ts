@@ -1675,6 +1675,9 @@ async function setupEventListeners(): Promise<void> {
               timestamp: Date.now(),
               description: String(paymentData?.description || ''),
             };
+            if (payment.id && payment.type === 'send') {
+              void recordPaymentDiagnostic(payment.id, `event_${payment.status}`);
+            }
 
             // Only send push notification for RECEIVED payments
             // Skip if: not received, no amount, or we recently sent this payment ourselves
@@ -1902,6 +1905,7 @@ export async function payInvoice(
     // Track this payment ID so we don't show "Payment Received" notification for it
     const paymentId = response.payment?.id;
     if (paymentId) {
+      void recordPaymentDiagnostic(paymentId, `submitted_${status}`);
       recentlySentPaymentIds.add(paymentId);
       if (__DEV__) {
         console.log('📤 [BreezSparkService] Tracking sent payment');
