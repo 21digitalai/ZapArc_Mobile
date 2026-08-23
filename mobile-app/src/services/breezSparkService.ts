@@ -2025,9 +2025,12 @@ export async function getBalance(): Promise<WalletBalance> {
       const info = await sdkInstance.getInfo(makeGetInfoRequest(true));
       if (info) {
         return {
-          balanceSat: Number(info.balanceSats || 0),
-          pendingSendSat: Number(info.pendingSendSats || 0),
-          pendingReceiveSat: Number(info.pendingReceiveSats || 0),
+          // GetInfoResponse in Breez 0.22.3 contains only the settled balance.
+          // Pending totals are unavailable on this fast path; the payment-list
+          // fallback below derives them from typed Payment records.
+          balanceSat: Number(info.balanceSats),
+          pendingSendSat: 0,
+          pendingReceiveSat: 0,
         };
       }
     } catch (infoError) {
@@ -2049,17 +2052,12 @@ export async function getBalance(): Promise<WalletBalance> {
     let pendingReceiveSat = 0;
 
     for (const payment of payments) {
-      // Spark SDK uses object status and plural Sats
-      const status = mapPaymentStatus(payment.status);
-      const paymentType = (payment.paymentType === 'receive' || String(payment.paymentType).toLowerCase() === 'receive') ? 'receive' : 'send';
-      
-      const amount = typeof payment.amountSats === 'bigint' 
-        ? Number(payment.amountSats) 
-        : Number(payment.amountSats || 0);
-        
-      const fees = typeof payment.feesSats === 'bigint' 
-        ? Number(payment.feesSats) 
-        : Number(payment.feesSats || 0);
+      const status = mapBreezPaymentStatus(payment.status);
+      const paymentType = payment.paymentType === BreezSDK.PaymentType.Receive
+        ? 'receive'
+        : 'send';
+      const amount = Number(payment.amount);
+      const fees = Number(payment.fees);
 
       if (status === 'completed') {
         if (paymentType === 'receive') {
@@ -2105,9 +2103,9 @@ export async function payInvoice(
       makePrepareSendPaymentRequest(paymentRequest, _amountSat ? BigInt(_amountSat) : undefined),
     );
 
-    const response = await sdkInstance.sendPayment({
-      prepareResponse,
-    });
+    const response = await sdkInstance.sendPayment(
+      makeSendPaymentRequest(prepareResponse, undefined, undefined),
+    );
 
     // Track this payment ID so we don't show "Payment Received" notification for it
     const paymentId = response.payment?.id;
