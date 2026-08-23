@@ -30,6 +30,7 @@ import { buildTransactionRows, type TransactionRow, type WalletAsset } from '../
 import { createSafeBackHandler } from '../utils/safeBack';
 import { loadPaymentComment, shouldShowPaymentComment } from '../utils/paymentComment';
 import { exportPaymentDiagnostics } from '../../../services/breezSparkService';
+import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 
 // =============================================================================
 // Types
@@ -689,7 +690,16 @@ export function TransactionHistoryScreen(): React.JSX.Element {
         )}
 
         {/* Transaction Details Modal */}
-        {renderDetailsModal()}
+        <TransactionDetailsModal
+          transaction={selectedTransaction}
+          swapRow={selectedSwapRow}
+          activeWalletInfo={activeWalletInfo}
+          refreshTransactions={refreshTransactions}
+          onClose={() => {
+            setSelectedTransaction(null);
+            setSelectedSwapRow(null);
+          }}
+        />
       </SafeAreaView>
     </LinearGradient>
   );

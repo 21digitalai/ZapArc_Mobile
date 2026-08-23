@@ -37,6 +37,7 @@ import { formatFiat, usdbToFiat } from '../../../utils/currency';
 import { SaveContactPrompt } from '../../addressBook';
 import { AssetSelectorPill } from '../components/AssetSelectorPill';
 import { AssetPickerSheet } from '../components/AssetPickerSheet';
+import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import { getAssetMeta } from '../registry/assetRegistry';
 import type { Transaction } from '../types';
 import { buildTransactionRows, type TransactionRow } from '../utils/transactionRows';
@@ -1301,7 +1302,16 @@ export function HomeScreen(): React.JSX.Element {
         </ScrollView>
 
         {/* Transaction Details Modal */}
-        {selectedTransaction && renderDetailsModal()}
+        <TransactionDetailsModal
+          transaction={selectedTransaction}
+          swapRow={selectedSwapRow}
+          activeWalletInfo={activeWalletInfo}
+          refreshTransactions={refreshTransactions}
+          onClose={() => {
+            setSelectedTransaction(null);
+            setSelectedSwapRow(null);
+          }}
+        />
 
         {/* Asset picker (replaces the BTC/USDB tab bar). Tapping the
             asset pill above the balance opens this sheet. v1 keeps this
