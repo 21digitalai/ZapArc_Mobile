@@ -156,11 +156,21 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     setDiagnosticsBusy(true);
     try {
       const payload = await exportPaymentDiagnostics(selectedTransaction.id);
+      const reconciliation = JSON.parse(payload).reconciliation as string | undefined;
       if (copy) {
         await Clipboard.setStringAsync(payload);
         ToastAndroid && ToastAndroid.show?.('Diagnostics copied', ToastAndroid.SHORT);
       } else {
-        ToastAndroid && ToastAndroid.show?.('Reconciliation refreshed', ToastAndroid.SHORT);
+        const messages: Record<string, string> = {
+          funds_reserved_until_expiry: 'Funds remain reserved until the listed expiry.',
+          overdue_stuck_reconciliation: 'Payment is overdue. Keep diagnostics for support.',
+          settling_or_claimable: 'Payment is still settling. Refresh again shortly.',
+          funds_returned: 'Wallet sync confirms the funds were returned.',
+          balance_sync_inconsistency: 'Wallet balance needs another sync before it can be confirmed.',
+          failed_but_funds_still_reserved: 'Payment failed, but funds are still reserved.',
+          unknown: 'Current wallet state could not be confirmed. Diagnostics remain available.',
+        };
+        ToastAndroid && ToastAndroid.show?.(messages[reconciliation || 'unknown'], ToastAndroid.LONG);
       }
       await refreshTransactions();
     } catch {

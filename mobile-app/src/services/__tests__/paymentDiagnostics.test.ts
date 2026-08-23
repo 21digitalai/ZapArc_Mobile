@@ -47,4 +47,15 @@ describe('payment diagnostics privacy and reconciliation', () => {
     expect(JSON.stringify(payload)).not.toContain('lnbc1privateinvoice');
     expect(payload.timeline[0]).not.toHaveProperty('detail');
   });
+
+  it('retains separate partial-export source failures without sensitive values', async () => {
+    const payload = JSON.parse(await buildPaymentDiagnosticsExport({
+      reconciliation: 'unknown',
+      sync: { attempted: true, succeeded: false, failure: 'sync unavailable' },
+      sourceFailures: { payment: 'lookup unavailable', paymentFallback: 'not found' },
+      payment: { id: 'payment-2' },
+      wallet: { authoritative: false },
+    }));
+    expect(payload.sourceFailures).toEqual({ payment: 'lookup unavailable', paymentFallback: 'not found' });
+  });
 });

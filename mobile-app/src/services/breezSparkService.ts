@@ -2650,8 +2650,12 @@ export async function getPayment(paymentId: string): Promise<TransactionInfo | n
 export async function exportPaymentDiagnostics(paymentId: string): Promise<string> {
   let syncSucceeded = false;
   let syncFailure: string | undefined;
+  const sourceFailures: { payment?: string; paymentFallback?: string; wallet?: string } = {};
+  let authoritativeInfo: { balanceSats?: unknown; pendingSendSats?: unknown; pendingReceiveSats?: unknown } | null = null;
   try {
-    await syncWallet();
+    if (!sdkInstance) throw new Error('Wallet SDK unavailable');
+    // getInfo with ensureSynced is the SDK's authoritative export-time read.
+    authoritativeInfo = await sdkInstance.getInfo({ ensureSynced: true });
     syncSucceeded = true;
   } catch (error) {
     syncFailure = extractSdkErrorMessage(error, 'Wallet sync unavailable');
@@ -2660,10 +2664,24 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
   let payment: TransactionInfo | null = null;
   let balance: WalletBalance | null = null;
   try { payment = await getPayment(paymentId); } catch (error) {
-    syncFailure = syncFailure || extractSdkErrorMessage(error, 'Payment lookup unavailable');
+    sourceFailures.payment = extractSdkErrorMessage(error, 'Payment lookup unavailable');
   }
-  try { balance = await getBalance(); } catch (error) {
-    syncFailure = syncFailure || extractSdkErrorMessage(error, 'Balance lookup unavailable');
+  if (!payment) {
+    try {
+      payment = (await listPayments()).find((candidate) => candidate.id === paymentId) || null;
+      if (!payment) sourceFailures.paymentFallback = 'Payment was not found in the authoritative payment list';
+    } catch (error) {
+      sourceFailures.paymentFallback = extractSdkErrorMessage(error, 'Payment list fallback unavailable');
+    }
+  }
+  try {
+    balance = authoritativeInfo ? {
+      balanceSat: Number(authoritativeInfo.balanceSats || 0),
+      pendingSendSat: Number(authoritativeInfo.pendingSendSats || 0),
+      pendingReceiveSat: Number(authoritativeInfo.pendingReceiveSats || 0),
+    } : await getBalance();
+  } catch (error) {
+    sourceFailures.wallet = extractSdkErrorMessage(error, 'Balance lookup unavailable');
   }
 
   const reconciliation = classifyReconciliation({
@@ -2677,6 +2695,7 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
   return buildPaymentDiagnosticsExport({
     reconciliation,
     sync: { attempted: true, succeeded: syncSucceeded, ...(syncFailure ? { failure: syncFailure } : {}) },
+    ...(Object.keys(sourceFailures).length ? { sourceFailures } : {}),
     payment: {
       id: paymentId,
       ...(payment ? { status: payment.status, direction: payment.type, amountSats: payment.amountSat, feeSats: payment.feeSat, timestamp: payment.timestamp } : {}),

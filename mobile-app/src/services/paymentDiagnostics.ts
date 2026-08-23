@@ -20,6 +20,8 @@ export interface PaymentDiagnosticsExport {
   generatedAt: string;
   reconciliation: ReconciliationCode;
   sync: { attempted: boolean; succeeded: boolean; failure?: string };
+  /** Individual source failures keep partial exports honest and actionable. */
+  sourceFailures?: { payment?: string; paymentFallback?: string; wallet?: string };
   payment: { id: string; status?: string; direction?: string; amountSats?: number; feeSats?: number; timestamp?: number; paymentHash?: string; htlcStatus?: string; htlcExpiryMs?: number };
   wallet: { balanceSats?: number; pendingSendSats?: number; pendingReceiveSats?: number; authoritative: boolean };
   timeline: PaymentDiagnostic['events'];
