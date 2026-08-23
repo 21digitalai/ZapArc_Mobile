@@ -894,20 +894,16 @@ export async function fetchSwapLimits(direction: SwapDirection): Promise<SwapLim
   if (!usdbToken) throw new Error('USDB token unavailable');
   console.log('🔬 [fetchSwapLimits] start', { direction, usdbTokenIdentifier: usdbToken.tokenIdentifier });
 
-  // Lazily resolve ConversionType factory; avoids top-level-import crash.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { ConversionType } = require('@breeztech/breez-sdk-spark-react-native');
-
   let response: unknown;
   try {
     if (direction === 'BTC_TO_USDB') {
       response = await sdkInstance.fetchConversionLimits?.({
-        conversionType: ConversionType.FromBitcoin.new(),
+        conversionType: BreezSDK.ConversionType.FromBitcoin.new(),
         tokenIdentifier: usdbToken.tokenIdentifier,
       });
     } else {
       response = await sdkInstance.fetchConversionLimits?.({
-        conversionType: ConversionType.ToBitcoin.new({
+        conversionType: BreezSDK.ConversionType.ToBitcoin.new({
           fromTokenIdentifier: usdbToken.tokenIdentifier,
         }),
         tokenIdentifier: undefined,
@@ -1038,11 +1034,9 @@ export async function prepareSwap(params: PrepareSwapParams): Promise<SwapQuote>
       tokenIdentifier: params.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
       conversionOptions: {
         conversionType: (() => {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          const { ConversionType } = require('@breeztech/breez-sdk-spark-react-native');
           return params.direction === 'BTC_TO_USDB'
-            ? ConversionType.FromBitcoin.new()
-            : ConversionType.ToBitcoin.new({ fromTokenIdentifier: usdbToken.tokenIdentifier });
+            ? BreezSDK.ConversionType.FromBitcoin.new()
+            : BreezSDK.ConversionType.ToBitcoin.new({ fromTokenIdentifier: usdbToken.tokenIdentifier });
         })(),
         maxSlippageBps: params.slippageBps,
         completionTimeoutSecs: 30,
