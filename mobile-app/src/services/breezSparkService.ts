@@ -589,12 +589,22 @@ function makePrepareSendPaymentRequest(
   paymentRequest: string,
   amount?: bigint,
   tokenIdentifier?: string,
+  conversionOptions?: BreezSparkSdk.ConversionOptions,
+  feePolicy?: BreezSparkSdk.FeePolicy,
 ): BreezSparkSdk.PrepareSendPaymentRequest {
   return BreezSDK.PrepareSendPaymentRequest.new({
     paymentRequest: toSdkPaymentRequest(paymentRequest),
     amount,
     tokenIdentifier,
+    conversionOptions,
+    feePolicy,
   });
+}
+
+function makeGetTokensMetadataRequest(
+  tokenIdentifiers: string[],
+): BreezSparkSdk.GetTokensMetadataRequest {
+  return BreezSDK.GetTokensMetadataRequest.new({ tokenIdentifiers });
 }
 
 function makeFetchConversionLimitsRequest(
@@ -971,9 +981,9 @@ export async function resolveSwapTokens(): Promise<ResolvedSwapToken[]> {
     );
   }
 
-  const metadataResponse = await sdkInstance.getTokensMetadata?.({
-    tokenIdentifiers: Array.from(tokenIdentifiers),
-  });
+  const metadataResponse = await sdkInstance.getTokensMetadata?.(
+    makeGetTokensMetadataRequest(Array.from(tokenIdentifiers)),
+  );
 
   const metadataList: Array<Record<string, unknown>> =
     metadataResponse?.tokensMetadata ||
@@ -1185,20 +1195,22 @@ export async function prepareSwap(params: PrepareSwapParams): Promise<SwapQuote>
       usdRate: rates?.usd,
     });
 
-    preparedPayment = await sdkInstance.prepareSendPayment?.({
-      paymentRequest: toSdkPaymentRequest(paymentRequest),
-      amount: amountForSdk,
-      tokenIdentifier: params.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
-      conversionOptions: {
-        conversionType: (() => {
-          return params.direction === 'BTC_TO_USDB'
-            ? BreezSDK.ConversionType.FromBitcoin.new()
-            : BreezSDK.ConversionType.ToBitcoin.new({ fromTokenIdentifier: usdbToken.tokenIdentifier });
-        })(),
-        maxSlippageBps: params.slippageBps,
-        completionTimeoutSecs: 30,
-      },
+    const conversionType = params.direction === 'BTC_TO_USDB'
+      ? BreezSDK.ConversionType.FromBitcoin.new()
+      : BreezSDK.ConversionType.ToBitcoin.new({ fromTokenIdentifier: usdbToken.tokenIdentifier });
+    const conversionOptions = BreezSDK.ConversionOptions.new({
+      conversionType,
+      maxSlippageBps: params.slippageBps,
+      completionTimeoutSecs: 30,
     });
+    preparedPayment = await sdkInstance.prepareSendPayment?.(
+      makePrepareSendPaymentRequest(
+        paymentRequest,
+        amountForSdk,
+        params.direction === 'BTC_TO_USDB' ? usdbToken.tokenIdentifier : undefined,
+        conversionOptions,
+      ),
+    );
     console.log('🔬 [prepareSwap] prepareSendPayment ok', {
       hasResponse: !!preparedPayment,
     });
