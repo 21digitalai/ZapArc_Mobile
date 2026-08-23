@@ -2499,7 +2499,7 @@ export async function listPayments(): Promise<TransactionInfo[]> {
     // Group payments by conversionId (shared across both legs of a swap)
     // so a single swap becomes ONE Transaction with both sides populated,
     // instead of two separate send/receive rows.
-    const byConversionId = new Map<string, any[]>();
+    const byConversionId = new Map<string, BreezSparkSdk.Payment[]>();
     for (const p of payments) {
       const cid = mapBreezPaymentDetails(p.details)?.conversionId;
       if (typeof cid === 'string' && cid.length > 0) {
@@ -2513,7 +2513,7 @@ export async function listPayments(): Promise<TransactionInfo[]> {
     const pairedPaymentIds = new Set<string>();
     for (const bucket of byConversionId.values()) {
       if (bucket.length >= 2) {
-        for (const p of bucket) pairedPaymentIds.add(String(p?.id));
+        for (const p of bucket) pairedPaymentIds.add(p.id);
       }
     }
 
@@ -2522,12 +2522,10 @@ export async function listPayments(): Promise<TransactionInfo[]> {
     // for swap-pair construction.
     const toBig = (v: unknown): bigint =>
       typeof v === 'bigint' ? v : BigInt(String(v ?? '0'));
-    const isTokenLeg = (p: any): boolean => {
-      const mNum = p?.method;
-      const dTag = String(p?.details?.tag ?? '').toLowerCase();
-      return mNum === 2 || dTag === 'token';
-    };
-    const legAmount = (p: any): number => Number(toBig(p?.amount ?? p?.amountSats ?? p?.amountSat ?? 0));
+    const isTokenLeg = (payment: BreezSparkSdk.Payment): boolean =>
+      payment.method === BreezSDK.PaymentMethod.Token
+      || payment.details?.tag === BreezSDK.PaymentDetails_Tags.Token;
+    const legAmount = (payment: BreezSparkSdk.Payment): number => Number(payment.amount);
 
     // Breez emits only the RECEIVE side of each conversion as a Payment
     // (the send is internal to the conversion). So every conversion shows
@@ -2584,8 +2582,7 @@ export async function listPayments(): Promise<TransactionInfo[]> {
 
       const fee = Number(mappedDetails.conversionFee ?? 0);
 
-      const rawTime = p?.timestamp ?? 0;
-      let timestamp = typeof rawTime === 'bigint' ? Number(rawTime) : Number(rawTime);
+      let timestamp = Number(p.timestamp);
       if (timestamp > 0 && timestamp < 1e10) timestamp *= 1000;
 
       const tokenIdentifier = mappedDetails.tokenIdentifier;
@@ -2595,7 +2592,7 @@ export async function listPayments(): Promise<TransactionInfo[]> {
         type: 'receive', // the user-facing leg — they received the destination asset
         amountSat: 0, // unused for swaps — per-tab amount is in swap.{from,to}Amount
         feeSat: fee,
-        status: mapPaymentStatus(p?.status),
+        status: mapBreezPaymentStatus(p.status),
         timestamp: timestamp || Date.now(),
         description: '',
         method: 'lightning',
@@ -2618,179 +2615,44 @@ export async function listPayments(): Promise<TransactionInfo[]> {
     // Second pass: remaining non-swap payments mapped individually.
     // Skip anything we already emitted as a swap row.
     const swapHandledIds = new Set(out.map((r) => r.id));
-    const remaining = payments.filter((p: any) => !swapHandledIds.has(String(p?.id)));
-    const individuals = remaining.map((payment: any) => {
-      // Try multiple field name variations (SDK may return different formats)
-      const rawAmount = payment.amount ?? payment.amountSats ?? payment.amountSat ?? 0;
-      const amountSat = typeof rawAmount === 'bigint' ? Number(rawAmount) : Number(rawAmount);
-
-      const rawFees = payment.fees ?? payment.feesSats ?? payment.feeSat ?? payment.fee ?? 0;
-      const feeSat = typeof rawFees === 'bigint' ? Number(rawFees) : Number(rawFees);
-
-      const rawTime = payment.timestamp ?? payment.createdAt ?? 0;
-      let timestamp = typeof rawTime === 'bigint' ? Number(rawTime) : Number(rawTime);
-      // Convert from seconds to milliseconds if needed
-      if (timestamp > 0 && timestamp < 10000000000) {
-        timestamp *= 1000;
-      }
-
-      // Determine payment type - try multiple formats
-      let type: 'receive' | 'send' = 'send';
-      const paymentType = payment.paymentType;
-      if (
-        paymentType === 1 || 
-        paymentType === '1' || 
-        paymentType === 'receive' || 
-        String(paymentType).toLowerCase() === 'receive'
-      ) {
-        type = 'receive';
-      }
-
-      const description = payment.details?.inner?.description || payment.details?.description || payment.description || '';
+    const remaining = payments.filter((payment) => !swapHandledIds.has(payment.id));
+    const individuals = remaining.map((payment) => {
+      const amountSat = Number(payment.amount);
+      const feeSat = Number(payment.fees);
+      const timestamp = Number(payment.timestamp) * 1000;
+      const type: 'receive' | 'send' = payment.paymentType === BreezSDK.PaymentType.Receive ? 'receive' : 'send';
+      const details = mapBreezPaymentDetails(payment.details);
+      const description = details?.description || '';
       const comment = extractLnurlPaymentComment(payment);
-
-      // RN SDK: method is numeric (0=lightning, 3=deposit, others TBD), details uses {tag, inner}
-      // Web SDK: method is string ("lightning", "deposit"), details uses {type, txId}
-      const methodNum = payment.method;
-      const detailsTag = String(payment.details?.tag || '').toLowerCase();
-      const methodStr = String(methodNum ?? '').toLowerCase();
-
-      // RN SDK method numbers: 0=Lightning, 1=Spark, 3=Deposit (on-chain receive), 4=Withdraw (on-chain send)
-      const isOnchain =
-        methodNum === 3 ||
-        methodNum === 4 ||
-        detailsTag === 'deposit' ||
-        detailsTag === 'withdraw' ||
-        methodStr.includes('deposit') ||
-        methodStr.includes('withdraw');
-
-      const method: 'lightning' | 'onchain' = isOnchain ? 'onchain' : 'lightning';
-
-      const txid = payment.details?.inner?.txId || payment.details?.txId || payment.details?.txid || payment.txid;
-      const voutRaw =
-        payment.details?.inner?.vout
-        ?? payment.details?.vout
-        ?? payment.vout;
-      const onchainVout = voutRaw === undefined || voutRaw === null
-        ? undefined
-        : Number(voutRaw);
-
-      const mappedStatus = mapPaymentStatus(payment.status);
-      const rawHtlc = detailsTag === 'spark' ? payment.details?.inner?.htlcDetails : undefined;
-      const htlcExpirySeconds = rawHtlc?.expiryTime;
-      const htlcExpiryMs = typeof htlcExpirySeconds === 'bigint'
-        ? Number(htlcExpirySeconds) * 1000
-        : typeof htlcExpirySeconds === 'number'
-          ? htlcExpirySeconds * 1000
-          : undefined;
-      const paymentHash = typeof rawHtlc?.paymentHash === 'string' && rawHtlc.paymentHash.length > 0
-        ? rawHtlc.paymentHash
-        : undefined;
-      const failureReasonRaw =
-        payment.failureReason ||
-        payment.error ||
-        payment.claimError ||
-        payment.details?.error ||
-        payment.details?.failureReason ||
-        payment.details?.claimError ||
-        payment.status?.failedReason;
-      const failureReason =
-        typeof failureReasonRaw === 'string'
-          ? failureReasonRaw
-          : failureReasonRaw
-            ? JSON.stringify(failureReasonRaw)
-            : undefined;
-
-      const rawPaymentType = String(payment.paymentType ?? '').trim();
-      const paymentTypeNormalized = rawPaymentType.toLowerCase();
-      // Token payments: details.tag === 'Token', with inner.metadata.identifier
-      // holding the tokenIdentifier (btkn1…) and inner.metadata.ticker === 'USDB'.
-      // Other payment details variants (Spark / Lightning) don't carry a token.
-      const innerMeta = payment.details?.inner?.metadata as Record<string, unknown> | undefined;
-      const tokenIdentifierRaw =
-        innerMeta?.identifier ||
-        innerMeta?.tokenIdentifier ||
-        payment.details?.inner?.tokenIdentifier ||
-        payment.details?.tokenIdentifier ||
-        payment.tokenIdentifier;
-      const tokenIdentifier =
-        typeof tokenIdentifierRaw === 'string' && tokenIdentifierRaw.trim().length > 0
-          ? tokenIdentifierRaw.trim()
-          : undefined;
-      const currencyRaw = String(
-        payment.currency ||
-        payment.asset ||
-        payment.details?.currency ||
-        payment.details?.inner?.currency ||
-        payment.details?.inner?.ticker ||
-        innerMeta?.ticker ||
-        innerMeta?.symbol ||
-        ''
-      ).toUpperCase();
-      const isTokenByTag = detailsTag === 'token' || methodNum === 2;
-      const asset: 'BTC' | 'USDB' =
-        currencyRaw === 'USDB' || isTokenByTag || tokenIdentifier ? 'USDB' : 'BTC';
-
-      // Detect a swap. Breez surfaces both legs of a conversion on a single
-      // Payment record via `conversionDetails = { from, to, status }`. Each
-      // side is a ConversionStep with `amount`, `fee`, and `tokenMetadata`.
-      // If tokenMetadata is set the step is in token base units; otherwise
-      // it's in sats (BTC).
-      const convDetails = (payment as any).conversionDetails as
-        | {
-            from?: { amount?: unknown; fee?: unknown; tokenMetadata?: { identifier?: string; ticker?: string; decimals?: number } | null };
-            to?: { amount?: unknown; fee?: unknown; tokenMetadata?: { identifier?: string; ticker?: string; decimals?: number } | null };
-          }
-        | undefined;
-
-      let kind: 'swap' | 'payment' = 'payment';
-      let swapInfo: TransactionInfo['swap'];
-      let normalizedPaymentType = paymentTypeNormalized || undefined;
-      if (convDetails?.from && convDetails?.to) {
-        const toBig = (v: unknown): bigint =>
-          typeof v === 'bigint' ? v : BigInt(String(v ?? '0'));
-        const fromIsToken = !!convDetails.from.tokenMetadata;
-        const toIsToken = !!convDetails.to.tokenMetadata;
-        const fromAsset: 'BTC' | 'USDB' = fromIsToken ? 'USDB' : 'BTC';
-        const toAsset: 'BTC' | 'USDB' = toIsToken ? 'USDB' : 'BTC';
-        const direction: 'BTC_TO_USDB' | 'USDB_TO_BTC' =
-          fromAsset === 'BTC' ? 'BTC_TO_USDB' : 'USDB_TO_BTC';
-        kind = 'swap';
-        normalizedPaymentType = 'conversion';
-        swapInfo = {
-          direction,
-          fromAsset,
-          fromAmount: Number(toBig(convDetails.from.amount)),
-          fromFee: Number(toBig(convDetails.from.fee)),
-          toAsset,
-          toAmount: Number(toBig(convDetails.to.amount)),
-          toFee: Number(toBig(convDetails.to.fee)),
-        };
-      }
+      const method: 'lightning' | 'onchain' = payment.method === BreezSDK.PaymentMethod.Deposit
+        || payment.method === BreezSDK.PaymentMethod.Withdraw
+        ? 'onchain'
+        : 'lightning';
+      const asset: 'BTC' | 'USDB' = payment.method === BreezSDK.PaymentMethod.Token
+        || details?.tag === BreezSDK.PaymentDetails_Tags.Token
+        ? 'USDB'
+        : 'BTC';
+      const tokenIdentifier = details?.tokenIdentifier;
 
       return {
         id: payment.id,
         type,
         amountSat,
         feeSat,
-        status: mappedStatus,
+        status: mapBreezPaymentStatus(payment.status),
         timestamp: timestamp || Date.now(),
         description,
         comment,
         method,
-        txid: txid ? String(txid) : undefined,
-        onchainVout: Number.isInteger(onchainVout) && (onchainVout as number) >= 0
-          ? onchainVout
-          : undefined,
-        failureReason,
-        paymentType: normalizedPaymentType,
+        txid: details?.txid,
+        onchainVout: details?.vout,
+        paymentType: undefined,
         asset,
         tokenIdentifier,
-        htlcStatus: rawHtlc?.status === undefined ? undefined : String(rawHtlc.status),
-        htlcExpiryMs,
-        paymentHash,
-        kind,
-        swap: swapInfo,
+        htlcStatus: details?.htlcStatus,
+        htlcExpiryMs: details?.htlcExpiryMs,
+        paymentHash: details?.paymentHash,
+        kind: 'payment' as const,
       };
     });
 

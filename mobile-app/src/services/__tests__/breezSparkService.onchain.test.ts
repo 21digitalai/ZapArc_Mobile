@@ -61,6 +61,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
   Network: { Mainnet: 'mainnet' },
   PaymentStatus: { Completed: 0, Pending: 1, Failed: 2 },
   PaymentType: { Send: 0, Receive: 1 },
+  PaymentMethod: { Lightning: 0, Spark: 1, Token: 2, Deposit: 3, Withdraw: 4, Unknown: 5 },
   PaymentDetails_Tags: {
     Spark: 'Spark', Token: 'Token', Lightning: 'Lightning', Withdraw: 'Withdraw', Deposit: 'Deposit',
   },
@@ -446,7 +447,7 @@ describe('BreezSparkService received LNURL comment mapping', () => {
     await svc.initializeSDK('test mnemonic words go here twelve words');
     mockListPayments.mockResolvedValueOnce({
       payments: [{
-        id: 'incoming-lud12-comment', paymentType: 'receive', status: 'succeeded',
+        id: 'incoming-lud12-comment', paymentType: 1, status: 0,
         amount: 42n, fees: 0n, timestamp: 1n, method: 0,
         details: { tag: 'Lightning', inner: {
           description: 'Invoice description',
@@ -642,11 +643,11 @@ describe('BreezSparkService deposit claim handling', () => {
     mockListPayments.mockResolvedValueOnce({
       payments: [{
         id: 'completed-deposit',
-        paymentType: 'Receive',
+        paymentType: 1,
         method: 3,
         amount: 24_200n,
         fees: 800n,
-        status: 'Succeeded',
+        status: 0,
         timestamp: 1_700_000_000n,
         details: {
           tag: 'Deposit',
