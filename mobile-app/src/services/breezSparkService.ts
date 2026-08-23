@@ -802,7 +802,7 @@ async function getUsdbBalanceBaseUnits(tokenIdentifier: string): Promise<bigint>
       paymentHash: undefined,
     });
     
-    const response = await sdkInstance.receivePayment({ paymentMethod });
+    const response = await sdkInstance.receivePayment(makeReceivePaymentRequest(paymentMethod));
     const invoice = response.paymentRequest;
     
     // Parse the invoice to get our own pubkey
@@ -2159,9 +2159,7 @@ export async function receivePayment(
       paymentMethod = BreezSDK.ReceivePaymentMethod.Bolt11Invoice.new(invoiceParams);
     }
 
-    const response = await sdkInstance.receivePayment({
-      paymentMethod,
-    });
+    const response = await sdkInstance.receivePayment(makeReceivePaymentRequest(paymentMethod));
 
     // Spark addresses are reusable and intentionally do not expose invoice
     // expiry semantics to the receive UI. Expiring payment requests prefer
@@ -2227,11 +2225,9 @@ export async function receiveOnchain(): Promise<OnchainReceiveInfo> {
     // deposit address if one exists, otherwise create a fresh one. Calling
     // .new() with no args (the old signature) crashes inside the SDK with
     // "cannot read property newAddress of undefined".
-    const response = await sdkInstance.receivePayment({
-      paymentMethod: BreezSDK.ReceivePaymentMethod.BitcoinAddress.new({
-        newAddress: undefined,
-      }),
-    });
+    const response = await sdkInstance.receivePayment(makeReceivePaymentRequest(
+      BreezSDK.ReceivePaymentMethod.BitcoinAddress.new({ newAddress: undefined }),
+    ));
 
     // ReceivePaymentResponse.fee is the on-chain claim fee in sats (U128).
     let claimFeeSats: number | null = null;
@@ -2840,11 +2836,9 @@ export async function getSparkAddress(): Promise<string> {
   }
 
   try {
-    const response = await sdkInstance.receivePayment({
-      paymentMethod: {
-        type: 'sparkAddress',
-      },
-    });
+    const response = await sdkInstance.receivePayment(makeReceivePaymentRequest(
+      BreezSDK.ReceivePaymentMethod.SparkAddress.new(),
+    ));
 
     return response.paymentRequest;
   } catch (error) {
