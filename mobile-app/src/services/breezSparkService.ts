@@ -3559,8 +3559,7 @@ export function addPaymentListener(
 // Helper Functions
 // =============================================================================
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapPaymentStatus(status: any): 'pending' | 'completed' | 'failed' {
+function mapPaymentStatus(status: unknown): 'pending' | 'completed' | 'failed' {
   // Handle numeric status codes from Breez SDK
   if (typeof status === 'number') {
     if (status === 0) return 'completed'; // Completed
@@ -3570,12 +3569,13 @@ function mapPaymentStatus(status: any): 'pending' | 'completed' | 'failed' {
   }
   
   // Handle object status (e.g., { type: 'completed' })
-  let s: string;
-  if (typeof status === 'object' && status !== null) {
-    s = (status.type || status.variant || '').toLowerCase();
-  } else {
-    s = String(status || '').toLowerCase();
-  }
+  const statusRecord = typeof status === 'object' && status !== null
+    ? status as Record<string, unknown>
+    : undefined;
+  const statusTag = statusRecord?.type ?? statusRecord?.variant;
+  const s = typeof statusTag === 'string'
+    ? statusTag.toLowerCase()
+    : String(status || '').toLowerCase();
   
   if (s === 'completed' || s === 'complete' || s === 'succeeded') {
     return 'completed';
