@@ -485,8 +485,16 @@ function makeGetInfoRequest(ensureSynced = false): BreezSparkSdk.GetInfoRequest 
   return BreezSDK.GetInfoRequest.new({ ensureSynced });
 }
 
-function makeListPaymentsRequest(): BreezSparkSdk.ListPaymentsRequest {
-  return BreezSDK.ListPaymentsRequest.new({});
+function makeListPaymentsRequest(sortAscending?: boolean): BreezSparkSdk.ListPaymentsRequest {
+  return BreezSDK.ListPaymentsRequest.new({ sortAscending });
+}
+
+function makeClaimDepositRequest(
+  txid: string,
+  vout: number,
+  maxFee: BreezSparkSdk.MaxFee | undefined,
+): BreezSparkSdk.ClaimDepositRequest {
+  return BreezSDK.ClaimDepositRequest.new({ txid, vout, maxFee });
 }
 
 function makePrepareSendPaymentRequest(
@@ -2353,14 +2361,14 @@ export async function claimDeposit(txid: string, vout: number): Promise<void> {
   }
 
   // Use network-recommended fees with leeway to prevent maxDepositClaimFeeExceeded
-  let maxFee: unknown;
+  let maxFee: BreezSparkSdk.MaxFee | undefined;
   try {
     maxFee = new BreezSDK.MaxFee.NetworkRecommended({ leewaySatPerVbyte: BigInt(2) });
   } catch {
     // Fall back to no maxFee (SDK default)
   }
 
-  await sdkInstance.claimDeposit({ txid, vout, maxFee });
+  await sdkInstance.claimDeposit(makeClaimDepositRequest(txid, vout, maxFee));
 }
 
 /**
@@ -2373,9 +2381,7 @@ export async function listPayments(): Promise<TransactionInfo[]> {
   }
 
   try {
-    const response = await sdkInstance.listPayments({
-      sortAscending: false,
-    });
+    const response = await sdkInstance.listPayments(makeListPaymentsRequest(false));
 
     const payments = response.payments || [];
 
