@@ -577,6 +577,10 @@ function makeListPaymentsRequest(sortAscending?: boolean): BreezSparkSdk.ListPay
   return BreezSDK.ListPaymentsRequest.new({ sortAscending });
 }
 
+function makeGetPaymentRequest(paymentId: string): BreezSparkSdk.GetPaymentRequest {
+  return BreezSDK.GetPaymentRequest.new({ paymentId });
+}
+
 function makeClaimDepositRequest(
   txid: string,
   vout: number,
@@ -2814,37 +2818,26 @@ async function getPaymentOrThrow(paymentId: string): Promise<TransactionInfo | n
     throw new Error('Wallet SDK unavailable');
   }
 
-  const response = await sdkInstance.getPayment({ paymentId });
-    if (response.payment) {
-      const p = response.payment;
-      // Properly convert BigInt to number for amounts
-      const amountSat = typeof p.amount === 'bigint'
-        ? Number(p.amount)
-        : Number(p.amount);
-      const feeSat = typeof p.fees === 'bigint' ? Number(p.fees) : Number(p.fees || 0);
-      // Convert timestamp from seconds to milliseconds
-      const timestamp = typeof p.timestamp === 'bigint'
-        ? Number(p.timestamp) * 1000
-        : Number(p.timestamp) * 1000;
-
-      const rawHtlc = p.details?.tag === 'Spark' ? p.details.inner?.htlcDetails : undefined;
-      const htlcExpiryMs = rawHtlc
-        ? Number(rawHtlc.expiryTime) * 1000
-        : undefined;
-      return {
-        id: p.id,
-        type: (p.paymentType === 'receive' || p.paymentType === 'Receive') ? 'receive' : 'send',
-        amountSat,
-        feeSat,
-        status: mapPaymentStatus(p.status),
-        timestamp,
-        description: p.details?.inner?.description || p.description,
-        comment: extractLnurlPaymentComment(p),
-        htlcStatus: rawHtlc ? String(rawHtlc.status) : undefined,
-        htlcExpiryMs,
-        paymentHash: rawHtlc?.paymentHash,
-      };
-    }
+  const response = await sdkInstance.getPayment(makeGetPaymentRequest(paymentId));
+  if (response.payment) {
+    const payment = response.payment;
+    const details = mapBreezPaymentDetails(payment.details);
+    return {
+      id: payment.id,
+      type: payment.paymentType === BreezSDK.PaymentType.Receive ? 'receive' : 'send',
+      amountSat: Number(payment.amount),
+      feeSat: Number(payment.fees),
+      status: mapBreezPaymentStatus(payment.status),
+      timestamp: Number(payment.timestamp) * 1000,
+      description: details?.description,
+      comment: extractLnurlPaymentComment(payment),
+      txid: details?.txid,
+      onchainVout: details?.vout,
+      htlcStatus: details?.htlcStatus,
+      htlcExpiryMs: details?.htlcExpiryMs,
+      paymentHash: details?.paymentHash,
+    };
+  }
   return null;
 }
 

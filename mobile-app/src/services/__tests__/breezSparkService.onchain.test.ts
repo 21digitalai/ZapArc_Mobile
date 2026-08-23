@@ -38,6 +38,7 @@ jest.mock('react-native-fs', () => ({
 
 jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
   GetInfoRequest: { new: jest.fn((params) => params) },
+  GetPaymentRequest: { new: jest.fn((params) => params) },
   GetTokensMetadataRequest: { new: jest.fn((params) => params) },
   ListPaymentsRequest: { new: jest.fn((params) => params) },
   PrepareSendPaymentRequest: { new: jest.fn((params) => params) },
@@ -59,6 +60,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
   },
   Network: { Mainnet: 'mainnet' },
   PaymentStatus: { Completed: 0, Pending: 1, Failed: 2 },
+  PaymentType: { Send: 0, Receive: 1 },
   PaymentDetails_Tags: {
     Spark: 'Spark', Token: 'Token', Lightning: 'Lightning', Withdraw: 'Withdraw', Deposit: 'Deposit',
   },
@@ -491,8 +493,8 @@ describe('BreezSparkService.getPayment', () => {
     mockGetPayment.mockResolvedValueOnce({
       payment: {
         id: 'payment-019',
-        paymentType: 'Send',
-        status: 'Succeeded',
+        paymentType: 0,
+        status: 0,
         amount: 1250n,
         fees: 10n,
         timestamp: 1720000000n,
