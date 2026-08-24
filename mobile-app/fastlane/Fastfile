@@ -285,7 +285,8 @@ platform :ios do
       app_version: expo["version"],
       release_notes: { "en-US" => File.read(abs(notes_path)).strip },
       skip_metadata: false, skip_screenshots: true, skip_binary_upload: true,
-      force: true, submit_for_review: true, precheck_include_in_app_purchases: false,
+      force: true, submit_for_review: true, reject_if_possible: true,
+      precheck_include_in_app_purchases: false,
       submission_information: { add_id_info_uses_idfa: false },
     )
   end
@@ -293,6 +294,7 @@ platform :ios do
   desc "Build the IPA and submit it to App Review"
   lane :release do
     build
+    upload_testflight
     submit_for_review
   end
 end
