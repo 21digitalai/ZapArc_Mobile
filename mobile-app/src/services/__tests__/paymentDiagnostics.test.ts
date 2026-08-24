@@ -1,4 +1,4 @@
-import { buildPaymentDiagnosticsExport, classifyReconciliation, DIAGNOSTIC_LOG_RING_MAX_ENTRIES, DIAGNOSTIC_MAX_AGE_MS, DIAGNOSTIC_MAX_BYTES, DIAGNOSTIC_MAX_ENTRIES, getSanitizedSdkLogs, prunePaymentDiagnostics, recordPaymentDiagnostic, recordSanitizedSdkLog, sanitizeDiagnosticValue, summarizeSanitizedSdkLogs } from '../paymentDiagnostics';
+import { buildPaymentDiagnosticsExport, classifyReconciliation, DIAGNOSTIC_LOG_RING_MAX_ENTRIES, DIAGNOSTIC_MAX_AGE_MS, DIAGNOSTIC_MAX_BYTES, DIAGNOSTIC_MAX_ENTRIES, getSanitizedSdkLogs, prunePaymentDiagnostics, recordPaymentDiagnostic, recordSanitizedSdkLog, sanitizeDiagnosticValue, sanitizeSdkLogMessage, summarizeSanitizedSdkLogs } from '../paymentDiagnostics';
 
 jest.mock('@react-native-async-storage/async-storage', () => {
   let value: string | null = null;
@@ -13,6 +13,38 @@ describe('payment diagnostics privacy and reconciliation', () => {
     expect(sanitizeDiagnosticValue('network timeout')).toBe('network timeout');
     expect(sanitizeDiagnosticValue('lnbc1secretinvoice')).toBeUndefined();
     expect(sanitizeDiagnosticValue('seed phrase leaked')).toBeUndefined();
+  });
+
+  it('retains actionable SDK error text while redacting wallet identifiers and secrets', () => {
+    const invoice = `lnbc${'1'.repeat(80)}`;
+    const hash = 'a'.repeat(64);
+    const safe = sanitizeSdkLogMessage(`wallet sync failed code=Timeout invoice=${invoice} payment_hash=${hash} /private/wallet/data/file`);
+    expect(safe).toMatchObject({ code: 'Timeout', redacted: true });
+    expect(safe.message).toContain('wallet sync failed');
+    expect(safe.message).toContain('invoice=[redacted]');
+    expect(safe.message).toContain('[redacted:hex]');
+    expect(safe.message).toContain('[redacted:path]');
+    expect(safe.fingerprint).toMatch(/^log-[0-9a-f]{8}$/);
+    expect(safe.message).not.toContain(invoice);
+    expect(safe.message).not.toContain(hash);
+  });
+
+  it('keeps structured Breez error evidence in the exported log summary', () => {
+    recordSanitizedSdkLog('error', 'wallet sync failed kind=Connectivity code=DeadlineExceeded');
+    recordSanitizedSdkLog('error', 'wallet sync failed kind=Connectivity code=DeadlineExceeded');
+    const summary = summarizeSanitizedSdkLogs().at(-1);
+    expect(summary).toMatchObject({
+      source: 'breez_logger',
+      level: 'error',
+      event: 'wallet_sync',
+      kind: 'Connectivity',
+      code: 'DeadlineExceeded',
+      message: 'wallet sync failed kind=Connectivity code=DeadlineExceeded',
+      count: 2,
+      redacted: false,
+    });
+    expect(summary?.firstAt).toBeTruthy();
+    expect(summary?.lastAt).toBeTruthy();
   });
 
   it('classifies returned funds only with synced, cleared pending evidence', () => {

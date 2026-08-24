@@ -10,11 +10,18 @@ export const DIAGNOSTIC_LOG_RING_MAX_ENTRIES = 20;
 export interface SanitizedSdkLog {
   at: string;
   level: string;
-  /** A derived category, never a raw SDK log line. */
+  source: 'breez_logger';
+  /** A derived category; raw SDK log lines are never retained. */
   event: 'sdk_connected' | 'sdk_disconnected' | 'wallet_sync' | 'payment_update' | 'htlc_update';
+  message?: string;
+  code?: string;
+  kind?: string;
+  fingerprint: string;
+  redacted: boolean;
 }
 
-export interface SanitizedSdkLogSummary extends SanitizedSdkLog {
+export interface SanitizedSdkLogSummary extends Omit<SanitizedSdkLog, 'at'> {
+  firstAt: string;
   count: number;
   lastAt: string;
 }
@@ -57,6 +64,18 @@ export interface PaymentDiagnosticsExport {
 }
 
 const SENSITIVE = /(seed|mnemonic|private.?key|preimage|proof|invoice|bolt11|lnurl|lightning.?address|recipient|pubkey|description|comment|api.?key|token)/i;
+const LOG_REDACTIONS: Array<[RegExp, string]> = [
+  [/\b(?:lnbc|lntb|lnbcrt)[0-9a-z]+\b/gi, '[redacted:invoice]'],
+  [/\blnurl1[0-9a-z]+\b/gi, '[redacted:lnurl]'],
+  [/\b(?:bc1|tb1|bcrt1)[0-9a-z]{20,}\b/gi, '[redacted:bitcoin-address]'],
+  [/\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b/g, '[redacted:bitcoin-address]'],
+  [/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[redacted:address]'],
+  [/\b[0-9a-f]{64,}\b/gi, '[redacted:hex]'],
+  [/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '[redacted:id]'],
+  [/\b(seed|mnemonic|private_?key|preimage|proof|api_?key|token|invoice|bolt11|lnurl|recipient|pubkey)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]'],
+  [/(?:\/[A-Za-z0-9._-]+){3,}/g, '[redacted:path]'],
+  [/\b[A-Za-z0-9+/_=-]{48,}\b/g, '[redacted:encoded]'],
+];
 
 /** Keep only deterministic, non-sensitive support evidence. */
 export function sanitizeDiagnosticValue(value: unknown): string | undefined {
@@ -66,12 +85,40 @@ export function sanitizeDiagnosticValue(value: unknown): string | undefined {
   return trimmed.slice(0, 240);
 }
 
+function fingerprintLogLine(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `log-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+/** Redact identifiers and secret-bearing values before retaining SDK text. */
+export function sanitizeSdkLogMessage(value: unknown): { message?: string; fingerprint?: string; redacted: boolean; code?: string; kind?: string } {
+  if (typeof value !== 'string') return { redacted: false };
+  const original = value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!original) return { redacted: false };
+  let message = original;
+  for (const [pattern, replacement] of LOG_REDACTIONS) message = message.replace(pattern, replacement);
+  const redacted = message !== original;
+  const code = message.match(/\bcode\s*[:=]\s*([A-Za-z][A-Za-z0-9_.-]{0,63})\b/i)?.[1];
+  const kind = message.match(/\bkind\s*[:=]\s*([A-Za-z][A-Za-z0-9_.-]{0,63})\b/i)?.[1];
+  return {
+    message: message.slice(0, 500),
+    fingerprint: fingerprintLogLine(original),
+    redacted,
+    ...(code ? { code } : {}),
+    ...(kind ? { kind } : {}),
+  };
+}
+
 /**
  * SDK log lines can contain payment requests and wallet data. Keep only a
  * deterministic category from an explicitly safe operational vocabulary.
  */
 export function recordSanitizedSdkLog(level: unknown, line: unknown): void {
-  if (typeof line !== 'string' || SENSITIVE.test(line)) return;
+  if (typeof line !== 'string') return;
   const normalized = line.toLowerCase();
   let event: SanitizedSdkLog['event'] | undefined;
   if (/\bdisconnect(?:ed|ing)?\b/.test(normalized)) event = 'sdk_disconnected';
@@ -80,10 +127,15 @@ export function recordSanitizedSdkLog(level: unknown, line: unknown): void {
   else if (/\bhtlc\b/.test(normalized)) event = 'htlc_update';
   else if (/\bpayment\b/.test(normalized)) event = 'payment_update';
   if (!event) return;
+  const safe = sanitizeSdkLogMessage(line);
+  if (!safe.fingerprint) return;
   sdkLogRing.push({
     at: new Date().toISOString(),
     level: typeof level === 'string' && /^(trace|debug|info|warn|warning|error)$/i.test(level) ? level.toLowerCase() : 'info',
+    source: 'breez_logger',
     event,
+    ...safe,
+    fingerprint: safe.fingerprint,
   });
   if (sdkLogRing.length > DIAGNOSTIC_LOG_RING_MAX_ENTRIES) sdkLogRing.splice(0, sdkLogRing.length - DIAGNOSTIC_LOG_RING_MAX_ENTRIES);
 }
@@ -93,19 +145,20 @@ export function getSanitizedSdkLogs(): SanitizedSdkLog[] {
 }
 
 /**
- * Raw Breez lines are intentionally never retained. Collapse the safe derived
- * categories so a retry loop does not produce dozens of identical rows.
+ * Raw Breez lines are intentionally never retained. Collapse identical safe
+ * messages so a retry loop does not produce dozens of duplicate rows.
  */
 export function summarizeSanitizedSdkLogs(logs = getSanitizedSdkLogs()): SanitizedSdkLogSummary[] {
   const summaries = new Map<string, SanitizedSdkLogSummary>();
   for (const log of logs) {
-    const key = `${log.level}:${log.event}`;
+    const key = `${log.level}:${log.event}:${log.fingerprint}`;
     const existing = summaries.get(key);
     if (existing) {
       existing.count += 1;
       existing.lastAt = log.at;
     } else {
-      summaries.set(key, { ...log, count: 1, lastAt: log.at });
+      const { at, ...safeLog } = log;
+      summaries.set(key, { ...safeLog, firstAt: at, count: 1, lastAt: at });
     }
   }
   return [...summaries.values()];
