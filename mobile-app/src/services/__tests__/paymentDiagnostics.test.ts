@@ -1,4 +1,4 @@
-import { buildPaymentDiagnosticsExport, classifyReconciliation, DIAGNOSTIC_LOG_RING_MAX_ENTRIES, DIAGNOSTIC_MAX_AGE_MS, DIAGNOSTIC_MAX_BYTES, DIAGNOSTIC_MAX_ENTRIES, getSanitizedSdkLogs, prunePaymentDiagnostics, recordPaymentDiagnostic, recordSanitizedSdkLog, sanitizeDiagnosticValue, sanitizeSdkLogMessage, summarizeSanitizedSdkLogs } from '../paymentDiagnostics';
+import { buildPaymentDiagnosticsExport, classifyReconciliation, DIAGNOSTIC_LOG_RING_MAX_ENTRIES, DIAGNOSTIC_MAX_AGE_MS, DIAGNOSTIC_MAX_BYTES, DIAGNOSTIC_MAX_ENTRIES, getRelevantSdkLogSummaries, getSanitizedSdkLogs, prunePaymentDiagnostics, recordPaymentDiagnostic, recordSanitizedSdkLog, sanitizeDiagnosticValue, sanitizeSdkLogMessage, summarizeSanitizedSdkLogs, summarizeSuccessfulSync } from '../paymentDiagnostics';
 
 jest.mock('@react-native-async-storage/async-storage', () => {
   let value: string | null = null;
@@ -47,6 +47,13 @@ describe('payment diagnostics privacy and reconciliation', () => {
     expect(summary?.lastAt).toBeTruthy();
   });
 
+  it('does not retain routine successful-sync internals in the bounded ring', () => {
+    const before = getSanitizedSdkLogs().length;
+    recordSanitizedSdkLog('info', 'Sync trigger changed: internal mutex details');
+    recordSanitizedSdkLog('info', 'emit(Synced) completed in 5ms');
+    expect(getSanitizedSdkLogs()).toHaveLength(before);
+  });
+
   it('classifies returned funds only with synced, cleared pending evidence', () => {
     expect(classifyReconciliation({ htlcStatus: 'Returned', synced: true, pendingSendSats: 0 }))
       .toBe('funds_returned');
@@ -69,9 +76,26 @@ describe('payment diagnostics privacy and reconciliation', () => {
     expect(logs.every((entry) => entry.event === 'payment_update')).toBe(true);
     expect(JSON.stringify(logs)).not.toContain('lnbc1secretinvoice');
     const payload = JSON.parse(await buildPaymentDiagnosticsExport({ reconciliation: 'unknown', sync: { attempted: false, succeeded: false }, payment: { id: 'logs' }, wallet: { authoritative: false } }));
-    expect(payload.relevantLogs).toEqual(summarizeSanitizedSdkLogs(logs));
-    expect(payload.relevantLogs).toEqual([
-      expect.objectContaining({ event: 'payment_update', level: 'debug', count: DIAGNOSTIC_LOG_RING_MAX_ENTRIES }),
+    expect(payload.relevantLogs).toEqual([]);
+  });
+
+  it('keeps detailed warnings and errors while reducing successful sync chatter to one summary', () => {
+    const logs = [
+      { at: '2026-08-24T08:58:16.188Z', level: 'info', source: 'breez_logger' as const, event: 'wallet_sync' as const, message: 'Sync trigger changed: internal details', fingerprint: 'log-1', redacted: false },
+      { at: '2026-08-24T08:58:17.036Z', level: 'info', source: 'breez_logger' as const, event: 'wallet_sync' as const, message: 'Syncing payments to storage, offset = 254, transfers = 1', fingerprint: 'log-2', redacted: false },
+      { at: '2026-08-24T08:58:19.754Z', level: 'info', source: 'breez_logger' as const, event: 'wallet_sync' as const, message: 'sync_wallet_internal: Wallet sync completed in 2.397600676s: InternalSyncedEvent { wallet: true, wallet_state: true, deposits: true, lnurl_metadata: true, storage_incoming: None }', fingerprint: 'log-3', redacted: false },
+      { at: '2026-08-24T08:58:20.000Z', level: 'error', source: 'breez_logger' as const, event: 'wallet_sync' as const, message: 'wallet sync failed code=DeadlineExceeded', code: 'DeadlineExceeded', fingerprint: 'log-4', redacted: false },
+    ];
+
+    expect(summarizeSuccessfulSync(logs)).toEqual({
+      completed: true,
+      durationMs: 2398,
+      syncedAreas: ['wallet', 'wallet_state', 'deposits', 'lnurl_metadata'],
+      transfersProcessed: 1,
+      completedAt: '2026-08-24T08:58:19.754Z',
+    });
+    expect(getRelevantSdkLogSummaries(logs)).toEqual([
+      expect.objectContaining({ level: 'error', message: 'wallet sync failed code=DeadlineExceeded', count: 1 }),
     ]);
   });
 

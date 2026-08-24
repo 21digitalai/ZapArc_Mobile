@@ -26,6 +26,14 @@ export interface SanitizedSdkLogSummary extends Omit<SanitizedSdkLog, 'at'> {
   lastAt: string;
 }
 
+export interface SuccessfulSyncSummary {
+  completed: true;
+  durationMs?: number;
+  syncedAreas?: string[];
+  transfersProcessed?: number;
+  completedAt: string;
+}
+
 const sdkLogRing: SanitizedSdkLog[] = [];
 
 export type ReconciliationCode =
@@ -59,8 +67,10 @@ export interface PaymentDiagnosticsExport {
   payment: { id: string; status?: string; direction?: string; amountSats?: number; feeSats?: number; timestamp?: number; paymentHash?: string; htlcStatus?: string; htlcExpiryMs?: number };
   wallet: { balanceSats?: number; pendingSendSats?: number; pendingReceiveSats?: number; authoritative: boolean };
   timeline: PaymentDiagnostic['events'];
-  /** Repeated derived SDK categories are collapsed to keep exports readable. */
+  /** Detailed sanitized evidence is reserved for warnings and errors. */
   relevantLogs: SanitizedSdkLogSummary[];
+  /** Routine successful-sync chatter is reduced to one actionable summary. */
+  syncSummary?: SuccessfulSyncSummary;
 }
 
 const SENSITIVE = /(seed|mnemonic|private.?key|preimage|proof|invoice|bolt11|lnurl|lightning.?address|recipient|pubkey|description|comment|api.?key|token)/i;
@@ -119,6 +129,7 @@ export function sanitizeSdkLogMessage(value: unknown): { message?: string; finge
  */
 export function recordSanitizedSdkLog(level: unknown, line: unknown): void {
   if (typeof line !== 'string') return;
+  const safeLevel = typeof level === 'string' && /^(trace|debug|info|warn|warning|error)$/i.test(level) ? level.toLowerCase() : 'info';
   const normalized = line.toLowerCase();
   let event: SanitizedSdkLog['event'] | undefined;
   if (/\bdisconnect(?:ed|ing)?\b/.test(normalized)) event = 'sdk_disconnected';
@@ -127,11 +138,15 @@ export function recordSanitizedSdkLog(level: unknown, line: unknown): void {
   else if (/\bhtlc\b/.test(normalized)) event = 'htlc_update';
   else if (/\bpayment\b/.test(normalized)) event = 'payment_update';
   if (!event) return;
+  // Do not let high-volume Breez internals evict actionable evidence from the
+  // bounded ring. Keep only the info rows needed to build `syncSummary`.
+  if (safeLevel === 'info' && event === 'wallet_sync'
+    && !/wallet sync completed in|\btransfers\s*=\s*\d+\b/i.test(line)) return;
   const safe = sanitizeSdkLogMessage(line);
   if (!safe.fingerprint) return;
   sdkLogRing.push({
     at: new Date().toISOString(),
-    level: typeof level === 'string' && /^(trace|debug|info|warn|warning|error)$/i.test(level) ? level.toLowerCase() : 'info',
+    level: safeLevel,
     source: 'breez_logger',
     event,
     ...safe,
@@ -162,6 +177,51 @@ export function summarizeSanitizedSdkLogs(logs = getSanitizedSdkLogs()): Sanitiz
     }
   }
   return [...summaries.values()];
+}
+
+/**
+ * Convert verbose successful Breez sync internals into one compact snapshot.
+ * Warning/error rows remain untouched in `relevantLogs`; trace/debug/info rows
+ * are intentionally excluded from copied diagnostics.
+ */
+export function summarizeSuccessfulSync(logs = getSanitizedSdkLogs()): SuccessfulSyncSummary | undefined {
+  let completedAt: string | undefined;
+  let durationMs: number | undefined;
+  let transfersProcessed = 0;
+  let sawTransferCount = false;
+  const syncedAreas = new Set<string>();
+
+  for (const log of logs) {
+    if (log.level !== 'info' || log.event !== 'wallet_sync' || !log.message) continue;
+
+    const transferMatch = log.message.match(/\btransfers\s*=\s*(\d+)\b/i);
+    if (transferMatch) {
+      transfersProcessed += Number(transferMatch[1]);
+      sawTransferCount = true;
+    }
+
+    const completionMatch = log.message.match(/wallet sync completed in\s+([\d.]+)(ms|s)\b/i);
+    if (!completionMatch) continue;
+    completedAt = log.at;
+    const value = Number(completionMatch[1]);
+    durationMs = Math.round(completionMatch[2].toLowerCase() === 's' ? value * 1000 : value);
+
+    const details = log.message.match(/InternalSyncedEvent\s*\{([^}]+)\}/i)?.[1] || '';
+    for (const match of details.matchAll(/\b([a-z_]+)\s*:\s*true\b/gi)) syncedAreas.add(match[1]);
+  }
+
+  if (!completedAt) return undefined;
+  return {
+    completed: true,
+    ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(syncedAreas.size ? { syncedAreas: [...syncedAreas] } : {}),
+    ...(sawTransferCount ? { transfersProcessed } : {}),
+    completedAt,
+  };
+}
+
+export function getRelevantSdkLogSummaries(logs = getSanitizedSdkLogs()): SanitizedSdkLogSummary[] {
+  return summarizeSanitizedSdkLogs(logs.filter((log) => log.level === 'warn' || log.level === 'warning' || log.level === 'error'));
 }
 
 export function classifyReconciliation(input: {
@@ -256,12 +316,15 @@ export async function buildPaymentDiagnosticsExport(input: Omit<PaymentDiagnosti
   // The export event repeats the top-level sync/wallet/HTLC snapshot and adds
   // no historical evidence, so keep it persisted but omit it from copied JSON.
   const timeline = (journal?.events || []).filter((event) => !event.stage.startsWith('export_'));
+  const logs = getSanitizedSdkLogs();
+  const syncSummary = summarizeSuccessfulSync(logs);
   return JSON.stringify({
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     ...input,
     app: input.app || { name: 'ZapArc Mobile', version: 'unknown', sdkVersion: 'unknown', platform: 'unknown' },
     timeline,
-    relevantLogs: summarizeSanitizedSdkLogs(),
+    ...(syncSummary ? { syncSummary } : {}),
+    relevantLogs: getRelevantSdkLogSummaries(logs),
   } satisfies PaymentDiagnosticsExport, null, 2);
 }
