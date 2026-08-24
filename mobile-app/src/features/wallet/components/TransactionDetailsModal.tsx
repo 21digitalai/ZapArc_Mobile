@@ -27,6 +27,24 @@ import type { Transaction } from '../types';
 import type { TransactionRow } from '../utils/transactionRows';
 import { loadPaymentComment, shouldShowPaymentComment } from '../utils/paymentComment';
 
+const DIAGNOSTICS_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Payment status check timed out')), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
+
 interface TransactionDetailsModalProps {
   transaction: Transaction | null;
   swapRow?: TransactionRow | null;
@@ -50,7 +68,7 @@ export function TransactionDetailsModal({
   const iconColor = getIconColor(themeMode);
   const [comment, setComment] = useState<string | null>(null);
   const [recipient, setRecipient] = useState<string | null>(null);
-  const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
+  const [diagnosticsAction, setDiagnosticsAction] = useState<'copy' | 'status' | null>(null);
 
   useEffect(() => {
     if (!transaction?.id) {
@@ -79,10 +97,13 @@ export function TransactionDetailsModal({
   }, []);
 
   const reconcile = useCallback(async (copy: boolean): Promise<void> => {
-    if (!transaction?.id || diagnosticsBusy) return;
-    setDiagnosticsBusy(true);
+    if (!transaction?.id || diagnosticsAction) return;
+    setDiagnosticsAction(copy ? 'copy' : 'status');
     try {
-      const payload = await exportPaymentDiagnostics(transaction.id);
+      const payload = await withTimeout(
+        exportPaymentDiagnostics(transaction.id),
+        DIAGNOSTICS_TIMEOUT_MS,
+      );
       if (copy) {
         await Clipboard.setStringAsync(payload);
         showToast('Diagnostics copied');
@@ -99,13 +120,16 @@ export function TransactionDetailsModal({
         };
         showToast(messages[parsed.reconciliation || 'unknown'], true);
       }
-      await refreshTransactions();
+      // Refresh the surrounding list without tying the action spinner to a
+      // potentially slow screen-level refresh. The diagnostics export above
+      // already performed the authoritative Breez sync for this payment.
+      void refreshTransactions().catch(() => undefined);
     } catch {
-      showToast('Could not check the payment status');
+      showToast('Payment status check timed out. Please try again.', true);
     } finally {
-      setDiagnosticsBusy(false);
+      setDiagnosticsAction(null);
     }
-  }, [diagnosticsBusy, refreshTransactions, showToast, transaction]);
+  }, [diagnosticsAction, refreshTransactions, showToast, transaction]);
 
   if (!transaction) return null;
 
@@ -212,11 +236,11 @@ export function TransactionDetailsModal({
               <Text style={[styles.supportText, { color: secondaryTextColor }]}>
                 Copy a privacy-safe report for support. Checking status syncs the wallet with Breez and rechecks this payment, reserved funds, and the displayed balance.
               </Text>
-              <Button mode="outlined" icon="content-copy" loading={diagnosticsBusy} disabled={diagnosticsBusy} onPress={() => void reconcile(true)}>
+              <Button mode="outlined" icon="content-copy" loading={diagnosticsAction === 'copy'} disabled={diagnosticsAction !== null} onPress={() => void reconcile(true)}>
                 Copy diagnostics
               </Button>
               {canReconcile && (
-                <Button mode="contained-tonal" icon="sync" disabled={diagnosticsBusy} onPress={() => void reconcile(false)}>
+                <Button mode="contained-tonal" icon="sync" loading={diagnosticsAction === 'status'} disabled={diagnosticsAction !== null} onPress={() => void reconcile(false)}>
                   Check payment status
                 </Button>
               )}
