@@ -111,6 +111,10 @@ jest.mock('../../../src/hooks/useCurrency', () => ({
     setDisplayCurrency: jest.fn().mockResolvedValue(undefined),
     secondaryFiatCurrency: mockSecondaryFiatCurrency,
     convertToSats: (value: number) => Math.round(value),
+    format: (sats: number) => ({
+      primary: `${sats} sats`,
+      secondary: mockSecondaryFiatCurrency === 'eur' ? '≈ €450,00' : '≈ $500.00',
+    }),
     formatSatsWithFiat: (sats: number) => ({ satsDisplay: `${sats} sats`, fiatDisplay: '$1.00' }),
     rates: mockRates,
     isLoadingRates: false,
@@ -236,6 +240,21 @@ describe('SendScreen on-chain flow', () => {
 
     expect(screen.getByText('1 BTC ≈ $100,000')).toBeTruthy();
     expect(screen.getByLabelText('Estimated 1000 sats. 1 BTC ≈ $100,000')).toBeTruthy();
+  });
+
+  it('shows the configured default-fiat estimate below the sats balance', () => {
+    renderScreen();
+
+    expect(screen.getByText('500,000 sats')).toBeTruthy();
+    expect(screen.getByText('≈ $500.00')).toBeTruthy();
+  });
+
+  it('updates the balance estimate when the configured default fiat is EUR', () => {
+    mockSecondaryFiatCurrency = 'eur';
+    renderScreen();
+
+    expect(screen.getByText('≈ €450,00')).toBeTruthy();
+    expect(screen.queryByText('≈ $500.00')).toBeNull();
   });
 
   it('updates the spot price when the Send currency picker switches to EUR', () => {

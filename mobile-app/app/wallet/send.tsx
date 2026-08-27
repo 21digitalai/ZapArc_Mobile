@@ -189,6 +189,7 @@ export default function SendScreen() {
     displayCurrency,
     setDisplayCurrency,
     convertToSats,
+    format,
     formatSatsWithFiat,
     isLoadingRates,
     rates,
@@ -427,8 +428,12 @@ export default function SendScreen() {
       const fiat = rates ? formatFiat(usdbToFiat(usdbBalance, secondaryFiatCurrency, rates), secondaryFiatCurrency) : null;
       return { satsDisplay: `${usdbBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDB`, fiatDisplay: fiat };
     }
-    return formatSatsWithFiat(balance);
-  }, [isUsdbAsset, rates, usdbBalance, secondaryFiatCurrency, balance, formatSatsWithFiat]);
+    const formatted = format(balance);
+    return {
+      satsDisplay: `${balance.toLocaleString()} sats`,
+      fiatDisplay: formatted.secondary,
+    };
+  }, [isUsdbAsset, rates, usdbBalance, secondaryFiatCurrency, balance, format]);
 
   const formatPreviewFiat = useCallback((sats: number): string | null => {
     if (isUsdbAsset || !Number.isFinite(sats) || sats < 0) return null;
