@@ -38,8 +38,37 @@ const sdkLogRing: SanitizedSdkLog[] = [];
 
 export type ReconciliationCode =
   | 'funds_reserved_until_expiry' | 'overdue_stuck_reconciliation'
-  | 'settling_or_claimable' | 'funds_returned' | 'balance_sync_inconsistency'
+  | 'settling_or_claimable' | 'funds_returned' | 'return_reported_balance_unverified' | 'balance_sync_inconsistency'
   | 'failed_but_funds_still_reserved' | 'unknown';
+
+export interface BreezHtlcDiagnosticSnapshot {
+  paymentHash: string;
+  preimage: '[redacted]' | null;
+  /** Breez unix timestamp in seconds, encoded as a decimal string. */
+  expiryTime: string;
+  /** Original numeric SparkHtlcStatus value from Breez. */
+  status: number;
+}
+
+export interface BreezPaymentDiagnosticSnapshot {
+  id: string;
+  /** Original numeric PaymentType value from Breez. */
+  paymentType: number;
+  /** Original numeric PaymentStatus value from Breez. */
+  status: number;
+  /** Breez U128 values are decimal strings to avoid JSON precision loss. */
+  amount: string;
+  fees: string;
+  /** Breez unix timestamp in seconds, encoded as a decimal string. */
+  timestamp: string;
+  /** Original numeric PaymentMethod value from Breez. */
+  method: number;
+  details?: {
+    tag: string;
+    inner: Record<string, unknown>;
+  };
+  conversionDetails?: '[redacted]';
+}
 
 export interface PaymentDiagnostic {
   paymentId: string;
@@ -57,20 +86,31 @@ export interface PaymentDiagnostic {
 }
 
 export interface PaymentDiagnosticsExport {
-  schemaVersion: 1;
+  schemaVersion: 2;
   generatedAt: string;
-  reconciliation: ReconciliationCode;
-  sync: { attempted: boolean; succeeded: boolean; failure?: string };
-  /** Individual source failures keep partial exports honest and actionable. */
-  sourceFailures?: { payment?: string; paymentFallback?: string; wallet?: string };
   app: { name: string; version: string; sdkVersion: string; platform: string };
-  payment: { id: string; status?: string; direction?: string; amountSats?: number; feeSats?: number; timestamp?: number; paymentHash?: string; htlcStatus?: string; htlcExpiryMs?: number };
-  wallet: { balanceSats?: number; pendingSendSats?: number; pendingReceiveSats?: number; authoritative: boolean };
-  timeline: PaymentDiagnostic['events'];
-  /** Detailed sanitized evidence is reserved for warnings and errors. */
-  relevantLogs: SanitizedSdkLogSummary[];
-  /** Routine successful-sync chatter is reduced to one actionable summary. */
-  syncSummary?: SuccessfulSyncSummary;
+  /** Sanitized snapshots retain Breez's original response field names and enum values. */
+  breez: {
+    getPaymentResponse: { payment: BreezPaymentDiagnosticSnapshot | null };
+    getInfoResponse: {
+      /** identityPubkey and tokenBalances are omitted as wallet-identifying/unrelated data. */
+      balanceSats?: string;
+      pendingSendSats?: string;
+      pendingReceiveSats?: string;
+    } | null;
+    redactions: string[];
+  };
+  /** Everything in this block is ZapArc-authored metadata or interpretation. */
+  zaparc: {
+    reconciliation: ReconciliationCode;
+    enumLabels: { paymentStatus?: string; paymentType?: string; paymentMethod?: string; htlcStatus?: string };
+    sync: { attempted: boolean; succeeded: boolean; failure?: string };
+    sourceFailures?: { payment?: string; paymentFallback?: string; wallet?: string };
+    wallet: { balanceSats?: number; pendingSendSats?: number; pendingReceiveSats?: number; authoritative: boolean };
+    timeline: PaymentDiagnostic['events'];
+    relevantLogs: SanitizedSdkLogSummary[];
+    syncSummary?: SuccessfulSyncSummary;
+  };
 }
 
 const SENSITIVE = /(seed|mnemonic|private.?key|preimage|proof|invoice|bolt11|lnurl|lightning.?address|recipient|pubkey|description|comment|api.?key|token)/i;
@@ -245,10 +285,11 @@ export function classifyReconciliation(input: {
   }
   if (preimageShared) return 'settling_or_claimable';
   if (returned) {
+    const hasBalanceEvidence = input.balanceBeforeSats !== undefined && input.balanceAfterSats !== undefined;
     const balanceReduced = input.balanceBeforeSats !== undefined && input.balanceAfterSats !== undefined
       && input.balanceAfterSats < input.balanceBeforeSats;
-    return input.synced && !input.pendingSendSats && !balanceReduced
-      ? 'funds_returned' : 'balance_sync_inconsistency';
+    if (!hasBalanceEvidence) return 'return_reported_balance_unverified';
+    return input.synced && !input.pendingSendSats && !balanceReduced ? 'funds_returned' : 'balance_sync_inconsistency';
   }
   if ((input.paymentStatus || '').toLowerCase() === 'failed' && input.pendingSendSats) {
     return 'failed_but_funds_still_reserved';
@@ -311,20 +352,27 @@ export async function getPaymentDiagnosticBalance(paymentId: string, stage: stri
 }
 
 /** Build a deliberately small, user-reviewable support payload. */
-export async function buildPaymentDiagnosticsExport(input: Omit<PaymentDiagnosticsExport, 'schemaVersion' | 'generatedAt' | 'timeline' | 'relevantLogs' | 'app'> & { app?: PaymentDiagnosticsExport['app'] }): Promise<string> {
-  const journal = await getPaymentDiagnostic(input.payment.id);
+export async function buildPaymentDiagnosticsExport(input: Omit<PaymentDiagnosticsExport, 'schemaVersion' | 'generatedAt' | 'app' | 'zaparc'> & {
+  paymentId: string;
+  app?: PaymentDiagnosticsExport['app'];
+  zaparc: Omit<PaymentDiagnosticsExport['zaparc'], 'timeline' | 'relevantLogs' | 'syncSummary'>;
+}): Promise<string> {
+  const journal = await getPaymentDiagnostic(input.paymentId);
   // The export event repeats the top-level sync/wallet/HTLC snapshot and adds
   // no historical evidence, so keep it persisted but omit it from copied JSON.
   const timeline = (journal?.events || []).filter((event) => !event.stage.startsWith('export_'));
   const logs = getSanitizedSdkLogs();
   const syncSummary = summarizeSuccessfulSync(logs);
   return JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
-    ...input,
     app: input.app || { name: 'ZapArc Mobile', version: 'unknown', sdkVersion: 'unknown', platform: 'unknown' },
-    timeline,
-    ...(syncSummary ? { syncSummary } : {}),
-    relevantLogs: getRelevantSdkLogSummaries(logs),
+    breez: input.breez,
+    zaparc: {
+      ...input.zaparc,
+      timeline,
+      ...(syncSummary ? { syncSummary } : {}),
+      relevantLogs: getRelevantSdkLogSummaries(logs),
+    },
   } satisfies PaymentDiagnosticsExport, null, 2);
 }

@@ -104,6 +104,49 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
 }));
 
 describe('Breez payment detail adapters', () => {
+  it('preserves the Breez payment response shape while redacting sensitive Lightning fields', () => {
+    const { sanitizeBreezPaymentSnapshot } = require('../breezSparkService');
+    const snapshot = sanitizeBreezPaymentSnapshot({
+      id: 'payment-1',
+      paymentType: 0,
+      status: 2,
+      amount: 45477n,
+      fees: 146n,
+      timestamp: 1787471858n,
+      method: 0,
+      details: {
+        tag: 'Lightning',
+        inner: {
+          description: 'private memo',
+          invoice: 'lnbc-private',
+          destinationPubkey: 'private-pubkey',
+          htlcDetails: { paymentHash: 'public-hash', preimage: 'secret', expiryTime: 1788854257n, status: 2 },
+          lnurlPayInfo: { comment: 'private' },
+          lnurlWithdrawInfo: undefined,
+          lnurlReceiveMetadata: undefined,
+          conversionInfo: undefined,
+        },
+      },
+      conversionDetails: undefined,
+    });
+
+    expect(snapshot).toEqual({
+      id: 'payment-1', paymentType: 0, status: 2, amount: '45477', fees: '146',
+      timestamp: '1787471858', method: 0,
+      details: {
+        tag: 'Lightning',
+        inner: {
+          description: '[redacted]', invoice: '[redacted]', destinationPubkey: '[redacted]',
+          htlcDetails: { paymentHash: 'public-hash', preimage: '[redacted]', expiryTime: '1788854257', status: 2 },
+          lnurlPayInfo: '[redacted]', lnurlWithdrawInfo: null, lnurlReceiveMetadata: null, conversionInfo: null,
+        },
+      },
+    });
+    expect(JSON.stringify(snapshot)).not.toContain('lnbc-private');
+    expect(JSON.stringify(snapshot)).not.toContain('private-pubkey');
+    expect(JSON.stringify(snapshot)).not.toContain('secret');
+  });
+
   it('maps Spark HTLC data and the typed AMM conversion payload', () => {
     const { mapBreezPaymentDetails } = require('../breezSparkService');
     const result = mapBreezPaymentDetails({

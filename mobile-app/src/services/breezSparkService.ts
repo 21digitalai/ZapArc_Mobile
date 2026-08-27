@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
 import type * as BreezSparkSdk from '@breeztech/breez-sdk-spark-react-native';
 import { getExchangeRates, getCachedRates } from '../utils/currency';
 import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
-import { buildPaymentDiagnosticsExport, classifyReconciliation, getPaymentDiagnosticBalance, recordPaymentDiagnostic, recordSanitizedSdkLog, sanitizeDiagnosticValue } from './paymentDiagnostics';
+import { buildPaymentDiagnosticsExport, classifyReconciliation, getPaymentDiagnosticBalance, recordPaymentDiagnostic, recordSanitizedSdkLog, sanitizeDiagnosticValue, type BreezHtlcDiagnosticSnapshot, type BreezPaymentDiagnosticSnapshot } from './paymentDiagnostics';
 // Push notifications now flow via Breez's webhook registration + relay.
 // Foreground UX still comes from the local notification/event listeners.
 
@@ -2718,6 +2718,93 @@ async function getPaymentOrThrow(paymentId: string): Promise<TransactionInfo | n
   return null;
 }
 
+function sanitizeBreezHtlcSnapshot(htlc: BreezSparkSdk.SparkHtlcDetails): BreezHtlcDiagnosticSnapshot {
+  return {
+    paymentHash: htlc.paymentHash,
+    preimage: htlc.preimage ? '[redacted]' : null,
+    expiryTime: String(htlc.expiryTime),
+    status: htlc.status,
+  };
+}
+
+/**
+ * Preserve Breez's generated Payment shape for support while explicitly
+ * replacing secret- or identity-bearing values. ZapArc interpretations must
+ * never be mixed into this snapshot.
+ */
+export function sanitizeBreezPaymentSnapshot(payment: BreezSparkSdk.Payment): BreezPaymentDiagnosticSnapshot {
+  let details: BreezPaymentDiagnosticSnapshot['details'];
+  if (payment.details) {
+    switch (payment.details.tag) {
+      case BreezSDK.PaymentDetails_Tags.Spark:
+        details = {
+          tag: payment.details.tag,
+          inner: {
+            invoiceDetails: payment.details.inner.invoiceDetails ? '[redacted]' : null,
+            htlcDetails: payment.details.inner.htlcDetails
+              ? sanitizeBreezHtlcSnapshot(payment.details.inner.htlcDetails)
+              : null,
+            conversionInfo: payment.details.inner.conversionInfo ? '[redacted]' : null,
+          },
+        };
+        break;
+      case BreezSDK.PaymentDetails_Tags.Lightning:
+        details = {
+          tag: payment.details.tag,
+          inner: {
+            description: payment.details.inner.description ? '[redacted]' : null,
+            invoice: '[redacted]',
+            destinationPubkey: '[redacted]',
+            htlcDetails: sanitizeBreezHtlcSnapshot(payment.details.inner.htlcDetails),
+            lnurlPayInfo: payment.details.inner.lnurlPayInfo ? '[redacted]' : null,
+            lnurlWithdrawInfo: payment.details.inner.lnurlWithdrawInfo ? '[redacted]' : null,
+            lnurlReceiveMetadata: payment.details.inner.lnurlReceiveMetadata ? '[redacted]' : null,
+            conversionInfo: payment.details.inner.conversionInfo ? '[redacted]' : null,
+          },
+        };
+        break;
+      case BreezSDK.PaymentDetails_Tags.Token:
+        details = {
+          tag: payment.details.tag,
+          inner: {
+            metadata: {
+              identifier: payment.details.inner.metadata.identifier,
+              ticker: payment.details.inner.metadata.ticker,
+              decimals: payment.details.inner.metadata.decimals,
+            },
+            txHash: payment.details.inner.txHash,
+            txType: payment.details.inner.txType,
+            invoiceDetails: payment.details.inner.invoiceDetails ? '[redacted]' : null,
+            conversionInfo: payment.details.inner.conversionInfo ? '[redacted]' : null,
+          },
+        };
+        break;
+      case BreezSDK.PaymentDetails_Tags.Withdraw:
+        details = { tag: payment.details.tag, inner: { txId: payment.details.inner.txId } };
+        break;
+      case BreezSDK.PaymentDetails_Tags.Deposit:
+        details = { tag: payment.details.tag, inner: { txId: payment.details.inner.txId, vout: payment.details.inner.vout } };
+        break;
+      default: {
+        const unhandledDetails: never = payment.details;
+        throw new Error(`Unhandled Breez diagnostic payment details: ${String(unhandledDetails)}`);
+      }
+    }
+  }
+
+  return {
+    id: payment.id,
+    paymentType: payment.paymentType,
+    status: payment.status,
+    amount: String(payment.amount),
+    fees: String(payment.fees),
+    timestamp: String(payment.timestamp),
+    method: payment.method,
+    ...(details ? { details } : {}),
+    ...(payment.conversionDetails ? { conversionDetails: '[redacted]' as const } : {}),
+  };
+}
+
 export async function getPayment(paymentId: string): Promise<TransactionInfo | null> {
   try {
     return await getPaymentOrThrow(paymentId);
@@ -2746,8 +2833,31 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
   }
 
   let payment: TransactionInfo | null = null;
+  let breezPayment: BreezSparkSdk.Payment | null = null;
   let balance: WalletBalance | null = null;
-  try { payment = await getPaymentOrThrow(paymentId); } catch (error) {
+  try {
+    if (!sdkInstance) throw new Error('Wallet SDK unavailable');
+    const response = await sdkInstance.getPayment(makeGetPaymentRequest(paymentId));
+    breezPayment = response.payment || null;
+    if (breezPayment) {
+      const details = mapBreezPaymentDetails(breezPayment.details);
+      payment = {
+        id: breezPayment.id,
+        type: breezPayment.paymentType === BreezSDK.PaymentType.Receive ? 'receive' : 'send',
+        amountSat: Number(breezPayment.amount),
+        feeSat: Number(breezPayment.fees),
+        status: mapBreezPaymentStatus(breezPayment.status),
+        timestamp: Number(breezPayment.timestamp) * 1000,
+        description: details?.description,
+        comment: extractLnurlPaymentComment(breezPayment),
+        txid: details?.txid,
+        onchainVout: details?.vout,
+        htlcStatus: details?.htlcStatus,
+        htlcExpiryMs: details?.htlcExpiryMs,
+        paymentHash: details?.paymentHash,
+      };
+    }
+  } catch (error) {
     sourceFailures.payment = extractSafeDiagnosticFailure(error, 'Payment lookup unavailable');
   }
   if (!payment) {
@@ -2785,29 +2895,55 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
     htlcStatus: payment?.htlcStatus,
     htlcExpiryMs: payment?.htlcExpiryMs,
   });
+  const htlcStatusLabel = payment?.htlcStatus === '0' ? 'WaitingForPreimage'
+    : payment?.htlcStatus === '1' ? 'PreimageShared'
+      : payment?.htlcStatus === '2' ? 'Returned' : undefined;
   return buildPaymentDiagnosticsExport({
-    reconciliation,
-    sync: { attempted: true, succeeded: syncSucceeded, ...(syncFailure ? { failure: syncFailure } : {}) },
-    ...(Object.keys(sourceFailures).length ? { sourceFailures } : {}),
+    paymentId,
     app: DIAGNOSTICS_APP_METADATA,
-    payment: {
-      id: paymentId,
-      ...(payment ? { status: payment.status, direction: payment.type, amountSats: payment.amountSat, feeSats: payment.feeSat, timestamp: payment.timestamp } : {}),
-      ...(payment?.paymentHash ? { paymentHash: payment.paymentHash } : {}),
-      ...(payment?.htlcStatus ? { htlcStatus: payment.htlcStatus } : {}),
-      ...(payment?.htlcExpiryMs ? { htlcExpiryMs: payment.htlcExpiryMs } : {}),
+    breez: {
+      getPaymentResponse: { payment: breezPayment ? sanitizeBreezPaymentSnapshot(breezPayment) : null },
+      getInfoResponse: authoritativeInfo ? {
+        ...(authoritativeInfo.balanceSats !== undefined ? { balanceSats: String(authoritativeInfo.balanceSats) } : {}),
+        ...(authoritativeInfo.pendingSendSats !== undefined ? { pendingSendSats: String(authoritativeInfo.pendingSendSats) } : {}),
+        ...(authoritativeInfo.pendingReceiveSats !== undefined ? { pendingReceiveSats: String(authoritativeInfo.pendingReceiveSats) } : {}),
+      } : null,
+      redactions: [
+        'getInfoResponse.identityPubkey',
+        'getInfoResponse.tokenBalances',
+        'payment.details.*.invoiceDetails',
+        'payment.details.Lightning.description',
+        'payment.details.Lightning.invoice',
+        'payment.details.Lightning.destinationPubkey',
+        'payment.details.Lightning.lnurlPayInfo',
+        'payment.details.Lightning.lnurlWithdrawInfo',
+        'payment.details.Lightning.lnurlReceiveMetadata',
+        'payment.details.*.htlcDetails.preimage',
+        'payment.conversionDetails',
+      ],
     },
-    wallet: {
-      ...(balance ? {
-        balanceSats: balance.balanceSat,
-        pendingSendSats: balance.pendingSendSat,
-        // Pending receive funds are unrelated noise for outgoing diagnostics
-        // unless there is actually a pending receive to report.
-        ...(payment?.type !== 'send' || balance.pendingReceiveSat
-          ? { pendingReceiveSats: balance.pendingReceiveSat }
-          : {}),
-      } : {}),
-      authoritative: syncSucceeded,
+    zaparc: {
+      reconciliation,
+      enumLabels: {
+        ...(breezPayment ? {
+          paymentStatus: BreezSDK.PaymentStatus[breezPayment.status],
+          paymentType: BreezSDK.PaymentType[breezPayment.paymentType],
+          paymentMethod: BreezSDK.PaymentMethod[breezPayment.method],
+        } : {}),
+        ...(htlcStatusLabel ? { htlcStatus: htlcStatusLabel } : {}),
+      },
+      sync: { attempted: true, succeeded: syncSucceeded, ...(syncFailure ? { failure: syncFailure } : {}) },
+      ...(Object.keys(sourceFailures).length ? { sourceFailures } : {}),
+      wallet: {
+        ...(balance ? {
+          balanceSats: balance.balanceSat,
+          pendingSendSats: balance.pendingSendSat,
+          ...(payment?.type !== 'send' || balance.pendingReceiveSat
+            ? { pendingReceiveSats: balance.pendingReceiveSat }
+            : {}),
+        } : {}),
+        authoritative: syncSucceeded,
+      },
     },
   });
 }

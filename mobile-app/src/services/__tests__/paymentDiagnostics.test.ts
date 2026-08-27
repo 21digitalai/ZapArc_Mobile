@@ -9,6 +9,21 @@ jest.mock('@react-native-async-storage/async-storage', () => {
 });
 
 describe('payment diagnostics privacy and reconciliation', () => {
+  const exportInput = (paymentId: string, overrides: Record<string, unknown> = {}) => ({
+    paymentId,
+    breez: {
+      getPaymentResponse: { payment: null },
+      getInfoResponse: null,
+      redactions: [],
+    },
+    zaparc: {
+      reconciliation: 'unknown' as const,
+      enumLabels: {},
+      sync: { attempted: false, succeeded: false },
+      wallet: { authoritative: false },
+      ...overrides,
+    },
+  });
   it('redacts sensitive values while retaining short generic SDK details', () => {
     expect(sanitizeDiagnosticValue('network timeout')).toBe('network timeout');
     expect(sanitizeDiagnosticValue('lnbc1secretinvoice')).toBeUndefined();
@@ -56,9 +71,11 @@ describe('payment diagnostics privacy and reconciliation', () => {
 
   it('classifies returned funds only with synced, cleared pending evidence', () => {
     expect(classifyReconciliation({ htlcStatus: 'Returned', synced: true, pendingSendSats: 0 }))
-      .toBe('funds_returned');
+      .toBe('return_reported_balance_unverified');
     expect(classifyReconciliation({ htlcStatus: 'Returned', synced: false, pendingSendSats: 0 }))
-      .toBe('balance_sync_inconsistency');
+      .toBe('return_reported_balance_unverified');
+    expect(classifyReconciliation({ htlcStatus: 'Returned', synced: true, pendingSendSats: 0, balanceBeforeSats: 100, balanceAfterSats: 100 }))
+      .toBe('funds_returned');
   });
 
   it('flags a Returned HTLC with a reduced post-send balance for reconciliation', () => {
@@ -75,8 +92,8 @@ describe('payment diagnostics privacy and reconciliation', () => {
     expect(logs).toHaveLength(DIAGNOSTIC_LOG_RING_MAX_ENTRIES);
     expect(logs.every((entry) => entry.event === 'payment_update')).toBe(true);
     expect(JSON.stringify(logs)).not.toContain('lnbc1secretinvoice');
-    const payload = JSON.parse(await buildPaymentDiagnosticsExport({ reconciliation: 'unknown', sync: { attempted: false, succeeded: false }, payment: { id: 'logs' }, wallet: { authoritative: false } }));
-    expect(payload.relevantLogs).toEqual([]);
+    const payload = JSON.parse(await buildPaymentDiagnosticsExport(exportInput('logs')));
+    expect(payload.zaparc.relevantLogs).toEqual([]);
   });
 
   it('keeps detailed warnings and errors while reducing successful sync chatter to one summary', () => {
@@ -109,31 +126,26 @@ describe('payment diagnostics privacy and reconciliation', () => {
       .toBe('funds_reserved_until_expiry');
     expect(classifyReconciliation({ htlcStatus: '1' })).toBe('settling_or_claimable');
     expect(classifyReconciliation({ htlcStatus: '2', synced: true, pendingSendSats: 0 }))
-      .toBe('funds_returned');
+      .toBe('return_reported_balance_unverified');
   });
 
   it('exports only the allowlisted payment, wallet, and lifecycle fields', async () => {
     await recordPaymentDiagnostic('payment-1', 'submit_failed', 'lnbc1privateinvoice');
-    const payload = JSON.parse(await buildPaymentDiagnosticsExport({
-      reconciliation: 'unknown',
+    const payload = JSON.parse(await buildPaymentDiagnosticsExport(exportInput('payment-1', {
       sync: { attempted: true, succeeded: false, failure: 'sync unavailable' },
-      payment: { id: 'payment-1', status: 'failed', direction: 'send', amountSats: 42 },
       wallet: { balanceSats: 100, pendingSendSats: 42, authoritative: false },
-    }));
-    expect(payload).toMatchObject({ schemaVersion: 1, app: { name: 'ZapArc Mobile' }, payment: { id: 'payment-1' } });
+    })));
+    expect(payload).toMatchObject({ schemaVersion: 2, app: { name: 'ZapArc Mobile' }, breez: { getPaymentResponse: { payment: null } } });
     expect(JSON.stringify(payload)).not.toContain('lnbc1privateinvoice');
-    expect(payload.timeline[0]).not.toHaveProperty('detail');
+    expect(payload.zaparc.timeline[0]).not.toHaveProperty('detail');
   });
 
   it('retains separate partial-export source failures without sensitive values', async () => {
-    const payload = JSON.parse(await buildPaymentDiagnosticsExport({
-      reconciliation: 'unknown',
+    const payload = JSON.parse(await buildPaymentDiagnosticsExport(exportInput('payment-2', {
       sync: { attempted: true, succeeded: false, failure: 'sync unavailable' },
       sourceFailures: { payment: 'lookup unavailable', paymentFallback: 'not found' },
-      payment: { id: 'payment-2' },
-      wallet: { authoritative: false },
-    }));
-    expect(payload.sourceFailures).toEqual({ payment: 'lookup unavailable', paymentFallback: 'not found' });
+    })));
+    expect(payload.zaparc.sourceFailures).toEqual({ payment: 'lookup unavailable', paymentFallback: 'not found' });
   });
 
   it('redacts sensitive text embedded in an otherwise generic SDK error', () => {
@@ -170,10 +182,10 @@ describe('payment diagnostics privacy and reconciliation', () => {
       detail: 'raw invoice lnbc1should-not-export',
       preimage: 'never persisted',
     });
-    const payload = JSON.parse(await buildPaymentDiagnosticsExport({
-      reconciliation: 'unknown', sync: { attempted: true, succeeded: false }, payment: { id: 'payment-snapshot' }, wallet: { authoritative: false },
-    }));
-    expect(payload.timeline[0]).toMatchObject({ balanceSats: 100, pendingSendSats: 42, htlcStatus: '0', htlcExpiryMs: 123 });
+    const payload = JSON.parse(await buildPaymentDiagnosticsExport(exportInput('payment-snapshot', {
+      sync: { attempted: true, succeeded: false },
+    })));
+    expect(payload.zaparc.timeline[0]).toMatchObject({ balanceSats: 100, pendingSendSats: 42, htlcStatus: '0', htlcExpiryMs: 123 });
     expect(JSON.stringify(payload)).not.toContain('lnbc1should-not-export');
     expect(JSON.stringify(payload)).not.toContain('preimage');
   });
@@ -183,8 +195,8 @@ describe('payment diagnostics privacy and reconciliation', () => {
     await recordPaymentDiagnostic('payment-timeline', 'prepare_succeeded');
     await recordPaymentDiagnostic('payment-timeline', 'submitted_pending', { htlcStatus: '0', htlcExpiryMs: 123 });
     await recordPaymentDiagnostic('payment-timeline', 'event_failed', { htlcStatus: '2', balanceSats: 100, pendingSendSats: 0 });
-    const payload = JSON.parse(await buildPaymentDiagnosticsExport({ reconciliation: 'funds_returned', sync: { attempted: true, succeeded: true }, payment: { id: 'payment-timeline' }, wallet: { balanceSats: 100, authoritative: true } }));
-    expect(payload.timeline.map((event: { stage: string }) => event.stage)).toEqual([
+    const payload = JSON.parse(await buildPaymentDiagnosticsExport(exportInput('payment-timeline', { reconciliation: 'funds_returned', sync: { attempted: true, succeeded: true }, wallet: { balanceSats: 100, authoritative: true } })));
+    expect(payload.zaparc.timeline.map((event: { stage: string }) => event.stage)).toEqual([
       'pre_send_snapshot', 'prepare_succeeded', 'submitted_pending', 'event_failed',
     ]);
     expect(JSON.stringify(payload)).not.toContain('preimage');
@@ -195,12 +207,11 @@ describe('payment diagnostics privacy and reconciliation', () => {
     await recordPaymentDiagnostic('payment-compact', 'export_reconciled', {
       balanceSats: 100, pendingSendSats: 0, htlcStatus: '2',
     });
-    const payload = JSON.parse(await buildPaymentDiagnosticsExport({
+    const payload = JSON.parse(await buildPaymentDiagnosticsExport(exportInput('payment-compact', {
       reconciliation: 'funds_returned',
       sync: { attempted: true, succeeded: true },
-      payment: { id: 'payment-compact' },
       wallet: { balanceSats: 100, pendingSendSats: 0, authoritative: true },
-    }));
-    expect(payload.timeline.map((event: { stage: string }) => event.stage)).toEqual(['event_pending']);
+    })));
+    expect(payload.zaparc.timeline.map((event: { stage: string }) => event.stage)).toEqual(['event_pending']);
   });
 });
