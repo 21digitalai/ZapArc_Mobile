@@ -30,7 +30,7 @@ import { useWalletAuth } from '../../../hooks/useWalletAuth';
 import { useLanguage } from '../../../hooks/useLanguage';
 import { useCurrency } from '../../../hooks/useCurrency';
 import { useLightningAddress } from '../../../hooks/useLightningAddress';
-import { getPayment, onPaymentReceived } from '../../../services/breezSparkService';
+import { getPayment, getSparkNetworkStatus, onPaymentReceived, type SparkNetworkStatus } from '../../../services/breezSparkService';
 import { settingsService } from '../../../services/settingsService';
 import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../../config/features';
 import { formatFiat, usdbToFiat } from '../../../utils/currency';
@@ -69,6 +69,7 @@ type PendingOutgoing = Pick<Transaction, 'id' | 'amount'>;
 
 const INLINE_PENDING_ROW_HEIGHT = 58;
 const INLINE_PENDING_MOTION_MS = 220;
+const SPARK_STATUS_POLL_MS = 5 * 60 * 1000;
 
 function getPendingLabel(payments: PendingOutgoing[]): string {
   const amounts = payments.map((payment) => payment.amount);
@@ -256,6 +257,7 @@ export function HomeScreen(): React.JSX.Element {
 
   // State
   const [refreshing, setRefreshing] = useState(false);
+  const [sparkStatus, setSparkStatus] = useState<SparkNetworkStatus | null>(null);
   const [showBalance, setShowBalance] = useState(true);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [selectedTxComment, setSelectedTxComment] = useState<string | null>(null);
@@ -472,6 +474,18 @@ export function HomeScreen(): React.JSX.Element {
     }, [])
   );
 
+  const refreshSparkStatus = useCallback(async (): Promise<void> => {
+    setSparkStatus(await getSparkNetworkStatus());
+  }, []);
+
+  useFocusEffect(
+    useCallback((): (() => void) => {
+      void refreshSparkStatus();
+      const interval = setInterval(() => { void refreshSparkStatus(); }, SPARK_STATUS_POLL_MS);
+      return () => clearInterval(interval);
+    }, [refreshSparkStatus]),
+  );
+
   // Refresh handler (for manual pull-to-refresh)
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -480,12 +494,13 @@ export function HomeScreen(): React.JSX.Element {
         refreshBalance(),
         refreshTransactions(),
         refreshLightningAddress(),
+        refreshSparkStatus(),
       ]);
       await refreshSecurityBanner();
     } finally {
       setRefreshing(false);
     }
-  }, [refreshBalance, refreshTransactions, refreshLightningAddress, refreshSecurityBanner]);
+  }, [refreshBalance, refreshTransactions, refreshLightningAddress, refreshSecurityBanner, refreshSparkStatus]);
 
   const showOutgoingPaymentState = useCallback((payment: {
     id?: string;
@@ -1066,6 +1081,28 @@ export function HomeScreen(): React.JSX.Element {
                 ticker={activeAsset}
                 onPress={() => setAssetPickerVisible(true)}
               />
+            </View>
+          )}
+
+          {sparkStatus && sparkStatus.status !== 'operational' && (
+            <View style={[styles.securityBanner, styles.sparkStatusBanner]}>
+              <View style={styles.securityBannerTextWrap}>
+                <Text style={[styles.securityBannerTitle, { color: primaryTextColor }]}>Spark network status</Text>
+                <Text style={[styles.securityBannerSubtitle, { color: secondaryTextColor }]}>
+                  {sparkStatus.status === 'degraded'
+                    ? 'Spark is experiencing degraded performance. Payments may take longer.'
+                    : sparkStatus.status === 'partial'
+                      ? 'Some Spark services are unavailable. Payments may fail or remain pending.'
+                      : sparkStatus.status === 'major'
+                        ? 'Spark is experiencing a major outage. Avoid sending until service recovers.'
+                        : 'Spark service status could not be verified. Check your connection before sending.'}
+                </Text>
+              </View>
+              <View style={styles.securityBannerActions}>
+                <TouchableOpacity onPress={() => void refreshSparkStatus()} style={[styles.securityBannerPrimary, { backgroundColor: BRAND_COLOR }]}>
+                  <Text style={styles.securityBannerPrimaryText}>Check again</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
 
@@ -1751,6 +1788,10 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  sparkStatusBanner: {
+    borderColor: '#ffb74d',
+    borderWidth: 1,
   },
   securityBannerTextWrap: {
     marginBottom: 10,

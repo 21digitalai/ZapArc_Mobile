@@ -29,6 +29,7 @@ const mockListUnclaimedDeposits = jest.fn();
 const mockClaimDeposit = jest.fn();
 const mockListPayments = jest.fn().mockResolvedValue({ payments: [] });
 const mockInitLogging = jest.fn();
+const mockGetSparkStatus = jest.fn();
 
 jest.mock('react-native-fs', () => ({
   DocumentDirectoryPath: '/tmp',
@@ -62,6 +63,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
   PaymentStatus: { Completed: 0, Pending: 1, Failed: 2 },
   PaymentType: { Send: 0, Receive: 1 },
   PaymentMethod: { Lightning: 0, Spark: 1, Token: 2, Deposit: 3, Withdraw: 4, Unknown: 5 },
+  ServiceStatus: { Operational: 0, Degraded: 1, Partial: 2, Unknown: 3, Major: 4 },
   PaymentDetails_Tags: {
     Spark: 'Spark', Token: 'Token', Lightning: 'Lightning', Withdraw: 'Withdraw', Deposit: 'Deposit',
   },
@@ -84,6 +86,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
   ConversionOptions: { new: jest.fn((params) => params) },
   defaultConfig: jest.fn(() => ({})),
   initLogging: (...args: unknown[]) => mockInitLogging(...args),
+  getSparkStatus: (...args: unknown[]) => mockGetSparkStatus(...args),
   connect: jest.fn().mockResolvedValue({
     sendPayment: (...args: unknown[]) => mockSendPayment(...args),
     receivePayment: (...args: unknown[]) => mockReceivePayment(...args),
@@ -102,6 +105,23 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
     getInfo: jest.fn().mockResolvedValue({ identityPubkey: undefined }),
   }),
 }));
+
+describe('Breez production readiness', () => {
+  it('captures Breez logs through DEBUG level', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    expect(mockInitLogging).toHaveBeenCalledWith(undefined, expect.any(Object), 'debug');
+  });
+
+  it('maps the standalone Spark service status for the UI', async () => {
+    const svc = require('../breezSparkService');
+    mockGetSparkStatus.mockResolvedValueOnce({ status: 1, lastUpdated: 1_787_000_000n });
+    await expect(svc.getSparkNetworkStatus()).resolves.toEqual({
+      status: 'degraded',
+      lastUpdatedMs: 1_787_000_000_000,
+    });
+  });
+});
 
 describe('Breez payment detail adapters', () => {
   it('preserves the Breez payment response shape while redacting sensitive Lightning fields', () => {

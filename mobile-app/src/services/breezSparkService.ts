@@ -1556,7 +1556,7 @@ export async function initializeSDK(
       BreezSDK.initLogging(undefined, { log: (entry: { level: unknown; line: unknown }) => {
         recordSdkSupportLog(entry.level, entry.line);
         recordSanitizedSdkLog(entry.level, entry.line);
-      } }, 'info');
+      } }, 'debug');
     } catch (loggingError) {
       console.warn('⚠️ [BreezSparkService] Diagnostics logger unavailable:', loggingError);
     }
@@ -1963,6 +1963,25 @@ async function setupEventListeners(): Promise<void> {
                 listener(syncEvent);
               } catch (err) {
                 console.error('❌ [BreezSparkService] Claim pending listener error:', err);
+              }
+            });
+          }
+
+          if (eventTag === 'UnclaimedDeposits') {
+            const syncEvent: TransactionInfo = {
+              id: 'sync-unclaimed-deposits-' + Date.now(),
+              type: 'receive',
+              amountSat: 0,
+              feeSat: 0,
+              status: 'pending',
+              timestamp: Date.now(),
+              description: '__SYNC_EVENT__',
+            };
+            paymentEventListeners.forEach((listener) => {
+              try {
+                listener(syncEvent);
+              } catch (err) {
+                console.error('❌ [BreezSparkService] Unclaimed deposit listener error:', err);
               }
             });
           }
@@ -2691,6 +2710,33 @@ export async function syncWallet(): Promise<void> {
   }
 
   await sdkInstance.syncWallet({});
+}
+
+export type SparkNetworkStatus = {
+  status: 'operational' | 'degraded' | 'partial' | 'major' | 'unknown';
+  lastUpdatedMs?: number;
+};
+
+/** Standalone Breez service-health check; no connected wallet is required. */
+export async function getSparkNetworkStatus(): Promise<SparkNetworkStatus> {
+  if (!_isNativeAvailable) return { status: 'unknown' };
+  try {
+    const response = await BreezSDK.getSparkStatus();
+    const statuses: Record<number, SparkNetworkStatus['status']> = {
+      [BreezSDK.ServiceStatus.Operational]: 'operational',
+      [BreezSDK.ServiceStatus.Degraded]: 'degraded',
+      [BreezSDK.ServiceStatus.Partial]: 'partial',
+      [BreezSDK.ServiceStatus.Major]: 'major',
+      [BreezSDK.ServiceStatus.Unknown]: 'unknown',
+    };
+    return {
+      status: statuses[response.status] || 'unknown',
+      lastUpdatedMs: Number(response.lastUpdated) * 1000,
+    };
+  } catch (error) {
+    recordSdkSupportLog('warn', `Spark status check failed: ${extractSafeDiagnosticFailure(error, 'status unavailable')}`);
+    return { status: 'unknown' };
+  }
 }
 
 async function getPaymentOrThrow(paymentId: string): Promise<TransactionInfo | null> {
