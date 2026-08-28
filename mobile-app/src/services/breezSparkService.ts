@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
 import type * as BreezSparkSdk from '@breeztech/breez-sdk-spark-react-native';
 import { getExchangeRates, getCachedRates } from '../utils/currency';
 import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
-import { buildPaymentDiagnosticsExport, buildSdkSupportLogsExport, classifyReconciliation, getPaymentDiagnosticBalance, recordPaymentDiagnostic, recordSanitizedSdkLog, recordSdkSupportLog, sanitizeDiagnosticValue, type BreezHtlcDiagnosticSnapshot, type BreezPaymentDiagnosticSnapshot } from './paymentDiagnostics';
+import { buildDetailedSdkSupportLogsExport, buildPaymentDiagnosticsExport, buildSdkSupportLogsExport, classifyReconciliation, getPaymentDiagnosticBalance, recordPaymentDiagnostic, recordSanitizedSdkLog, recordSdkSupportLog, sanitizeDiagnosticValue, type BreezHtlcDiagnosticSnapshot, type BreezPaymentDiagnosticSnapshot } from './paymentDiagnostics';
 // Push notifications now flow via Breez's webhook registration + relay.
 // Foreground UX still comes from the local notification/event listeners.
 
@@ -2999,6 +2999,14 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
 
 export async function exportSdkSupportLogs(paymentId: string, paymentTimestampMs?: number): Promise<string> {
   return buildSdkSupportLogsExport({
+    paymentId,
+    paymentTimestampMs,
+    app: DIAGNOSTICS_APP_METADATA,
+  });
+}
+
+export async function exportDetailedSdkSupportLogs(paymentId: string, paymentTimestampMs?: number): Promise<string> {
+  return buildDetailedSdkSupportLogsExport({
     paymentId,
     paymentTimestampMs,
     app: DIAGNOSTICS_APP_METADATA,

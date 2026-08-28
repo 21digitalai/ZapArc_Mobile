@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  Alert,
   Linking,
   Modal,
   Platform,
@@ -16,7 +17,7 @@ import { Button, Divider, IconButton, Text } from 'react-native-paper';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import { useCurrency } from '../../../hooks/useCurrency';
 import { useLanguage } from '../../../hooks/useLanguage';
-import { exportPaymentDiagnostics, exportSdkSupportLogs } from '../../../services/breezSparkService';
+import { exportDetailedSdkSupportLogs, exportPaymentDiagnostics, exportSdkSupportLogs } from '../../../services/breezSparkService';
 import {
   BRAND_COLOR,
   getIconColor,
@@ -68,7 +69,7 @@ export function TransactionDetailsModal({
   const iconColor = getIconColor(themeMode);
   const [comment, setComment] = useState<string | null>(null);
   const [recipient, setRecipient] = useState<string | null>(null);
-  const [diagnosticsAction, setDiagnosticsAction] = useState<'copy' | 'logs' | 'status' | null>(null);
+  const [diagnosticsAction, setDiagnosticsAction] = useState<'copy' | 'logs' | 'detailedLogs' | 'status' | null>(null);
 
   useEffect(() => {
     if (!transaction?.id) {
@@ -144,6 +145,31 @@ export function TransactionDetailsModal({
     } finally {
       setDiagnosticsAction(null);
     }
+  }, [diagnosticsAction, showToast, transaction]);
+
+  const copyDetailedSdkLogs = useCallback((): void => {
+    if (!transaction?.id || diagnosticsAction) return;
+    Alert.alert(
+      'Export detailed SDK logs?',
+      'This report may contain invoices, addresses, payment identifiers, pubkeys, and device paths. Seeds, private keys, preimages, and credentials are always removed. Share it only with trusted support.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Copy detailed logs',
+          style: 'destructive',
+          onPress: () => {
+            setDiagnosticsAction('detailedLogs');
+            void exportDetailedSdkSupportLogs(transaction.id, transaction.timestamp)
+              .then(async (payload) => {
+                await Clipboard.setStringAsync(payload);
+                showToast('Detailed SDK support logs copied', true);
+              })
+              .catch(() => showToast('Detailed SDK logs could not be exported. Please try again.', true))
+              .finally(() => setDiagnosticsAction(null));
+          },
+        },
+      ],
+    );
   }, [diagnosticsAction, showToast, transaction]);
 
   if (!transaction) return null;
@@ -249,13 +275,16 @@ export function TransactionDetailsModal({
             <View style={styles.supportSection}>
               <Text style={[styles.supportTitle, { color: primaryTextColor }]}>Payment diagnostics</Text>
               <Text style={[styles.supportText, { color: secondaryTextColor }]}>
-                Copy a privacy-safe report or up to seven days of sanitized SDK logs for support. Checking status syncs the wallet with Breez and rechecks this payment, reserved funds, and the displayed balance.
+                Copy a privacy-safe report or up to seven days of sanitized SDK logs for support. Detailed logs are available with a warning and always exclude secrets. Checking status syncs the wallet with Breez and rechecks this payment, reserved funds, and the displayed balance.
               </Text>
               <Button mode="outlined" icon="content-copy" loading={diagnosticsAction === 'copy'} disabled={diagnosticsAction !== null} onPress={() => void reconcile(true)}>
                 Copy diagnostics
               </Button>
               <Button mode="outlined" icon="file-export-outline" loading={diagnosticsAction === 'logs'} disabled={diagnosticsAction !== null} onPress={() => void copySdkLogs()}>
                 Copy SDK support logs
+              </Button>
+              <Button mode="outlined" icon="alert-outline" loading={diagnosticsAction === 'detailedLogs'} disabled={diagnosticsAction !== null} onPress={copyDetailedSdkLogs}>
+                Copy detailed SDK logs
               </Button>
               {canReconcile && (
                 <Button mode="contained-tonal" icon="sync" loading={diagnosticsAction === 'status'} disabled={diagnosticsAction !== null} onPress={() => void reconcile(false)}>

@@ -45,6 +45,8 @@ export interface SdkSupportLogEntry {
   level: string;
   source: 'breez_logger';
   message: string;
+  /** More complete on-device text. True secrets are still irreversibly removed. */
+  detailedMessage?: string;
   fingerprint: string;
   redacted: boolean;
   code?: string;
@@ -148,6 +150,22 @@ const LOG_REDACTIONS: Array<[RegExp, string]> = [
   [/\b[A-Za-z0-9+/_=-]{48,}\b/g, '[redacted:encoded]'],
 ];
 
+const SECRET_LOG_REDACTIONS: Array<[RegExp, string]> = [
+  [/\b(seed|mnemonic|private_?key|preimage|proof)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted:secret]'],
+  [/\b(authorization|auth(?:entication)?|bearer|api_?key|access_?token|refresh_?token|secret)\s*[:=]\s*(?:bearer\s+)?[^\s,;]+/gi, '$1=[redacted:credential]'],
+  [/\b(?:bearer\s+)[A-Za-z0-9._~+\/-]+=*/gi, 'Bearer [redacted:credential]'],
+];
+
+/** Preserve SDK context while irreversibly removing material that can control funds or accounts. */
+export function redactSdkLogSecrets(value: unknown): { message?: string; redacted: boolean } {
+  if (typeof value !== 'string') return { redacted: false };
+  const original = value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!original) return { redacted: false };
+  let message = original;
+  for (const [pattern, replacement] of SECRET_LOG_REDACTIONS) message = message.replace(pattern, replacement);
+  return { message: message.slice(0, 4_000), redacted: message !== original };
+}
+
 /** Keep only deterministic, non-sensitive support evidence. */
 export function sanitizeDiagnosticValue(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -209,6 +227,7 @@ async function loadSdkSupportLogs(): Promise<void> {
 export function recordSdkSupportLog(level: unknown, line: unknown): void {
   if (typeof line !== 'string') return;
   const safe = sanitizeSdkLogMessage(line);
+  const detailed = redactSdkLogSecrets(line);
   if (!safe.message || !safe.fingerprint) return;
   const safeLevel = typeof level === 'string' && /^(trace|debug|info|warn|warning|error)$/i.test(level)
     ? level.toLowerCase()
@@ -218,6 +237,7 @@ export function recordSdkSupportLog(level: unknown, line: unknown): void {
     level: safeLevel,
     source: 'breez_logger',
     message: safe.message,
+    ...(detailed.message ? { detailedMessage: detailed.message } : {}),
     fingerprint: safe.fingerprint,
     redacted: safe.redacted,
     ...(safe.code ? { code: safe.code } : {}),
@@ -255,6 +275,7 @@ export async function buildSdkSupportLogsExport(input: {
     ? sdkSupportLogs.filter((entry) => Math.abs(Date.parse(entry.at) - input.paymentTimestampMs!) <= windowMs)
     : [];
   const recentLogs = sdkSupportLogs.filter((entry) => Date.parse(entry.at) >= now - windowMs);
+  const toSanitizedEntry = ({ detailedMessage: _detailedMessage, ...entry }: SdkSupportLogEntry) => entry;
   return JSON.stringify({
     schemaVersion: 1,
     generatedAt: new Date(now).toISOString(),
@@ -266,6 +287,42 @@ export async function buildSdkSupportLogsExport(input: {
     },
     retention: { maxAgeDays: 7, maxEntries: SDK_SUPPORT_LOG_MAX_ENTRIES, sanitized: true },
     redactions: ['invoices', 'LNURLs', 'addresses', 'payment hashes', 'UUIDs', 'pubkeys', 'tokens and API keys', 'filesystem paths', 'long encoded values'],
+    paymentWindowAvailable: paymentLogs.length > 0,
+    paymentWindowLogs: paymentLogs.map(toSanitizedEntry),
+    recentWindowLogs: recentLogs.map(toSanitizedEntry),
+  }, null, 2);
+}
+
+export async function buildDetailedSdkSupportLogsExport(input: {
+  paymentId: string;
+  paymentTimestampMs?: number;
+  app: { name: string; version: string; sdkVersion: string; platform: string };
+}): Promise<string> {
+  await flushSdkSupportLogs();
+  await loadSdkSupportLogs();
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000;
+  const toDetailedEntry = ({ detailedMessage, message, ...entry }: SdkSupportLogEntry) => ({
+    ...entry,
+    message: detailedMessage || message,
+  });
+  const paymentLogs = input.paymentTimestampMs
+    ? sdkSupportLogs.filter((entry) => Math.abs(Date.parse(entry.at) - input.paymentTimestampMs!) <= windowMs).map(toDetailedEntry)
+    : [];
+  const recentLogs = sdkSupportLogs.filter((entry) => Date.parse(entry.at) >= now - windowMs).map(toDetailedEntry);
+  return JSON.stringify({
+    schemaVersion: 1,
+    exportType: 'detailed-sdk-support-logs',
+    generatedAt: new Date(now).toISOString(),
+    warning: 'Contains sensitive wallet and payment metadata. Share only with a trusted support recipient.',
+    app: input.app,
+    correlation: {
+      paymentId: input.paymentId,
+      paymentTimestamp: input.paymentTimestampMs ? new Date(input.paymentTimestampMs).toISOString() : null,
+      windowMinutes: 15,
+    },
+    retention: { maxAgeDays: 7, maxEntries: SDK_SUPPORT_LOG_MAX_ENTRIES, sanitized: false, secretsAlwaysRedacted: true },
+    mandatoryRedactions: ['seed and mnemonic material', 'private keys', 'preimages and proofs', 'API keys and authentication credentials'],
     paymentWindowAvailable: paymentLogs.length > 0,
     paymentWindowLogs: paymentLogs,
     recentWindowLogs: recentLogs,

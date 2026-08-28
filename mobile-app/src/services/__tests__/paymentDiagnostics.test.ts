@@ -1,4 +1,4 @@
-import { buildPaymentDiagnosticsExport, buildSdkSupportLogsExport, classifyReconciliation, DIAGNOSTIC_LOG_RING_MAX_ENTRIES, DIAGNOSTIC_MAX_AGE_MS, DIAGNOSTIC_MAX_BYTES, DIAGNOSTIC_MAX_ENTRIES, getRelevantSdkLogSummaries, getSanitizedSdkLogs, prunePaymentDiagnostics, recordPaymentDiagnostic, recordSanitizedSdkLog, recordSdkSupportLog, sanitizeDiagnosticValue, sanitizeSdkLogMessage, summarizeSanitizedSdkLogs, summarizeSuccessfulSync } from '../paymentDiagnostics';
+import { buildDetailedSdkSupportLogsExport, buildPaymentDiagnosticsExport, buildSdkSupportLogsExport, classifyReconciliation, DIAGNOSTIC_LOG_RING_MAX_ENTRIES, DIAGNOSTIC_MAX_AGE_MS, DIAGNOSTIC_MAX_BYTES, DIAGNOSTIC_MAX_ENTRIES, getRelevantSdkLogSummaries, getSanitizedSdkLogs, prunePaymentDiagnostics, recordPaymentDiagnostic, recordSanitizedSdkLog, recordSdkSupportLog, redactSdkLogSecrets, sanitizeDiagnosticValue, sanitizeSdkLogMessage, summarizeSanitizedSdkLogs, summarizeSuccessfulSync } from '../paymentDiagnostics';
 
 jest.mock('@react-native-async-storage/async-storage', () => {
   const values = new Map<string, string>();
@@ -59,6 +59,35 @@ describe('payment diagnostics privacy and reconciliation', () => {
     expect(JSON.stringify(payload)).not.toContain('lnbc1111');
     expect(JSON.stringify(payload)).not.toContain('a'.repeat(64));
     expect(payload.paymentWindowLogs[1]).toMatchObject({ level: 'error', code: 'DeadlineExceeded', redacted: true });
+  });
+
+  it('exports detailed SDK context only after retaining irreversible secret redactions', async () => {
+    const now = Date.now();
+    const invoice = `lnbc${'1'.repeat(80)}`;
+    const hash = 'b'.repeat(64);
+    recordSdkSupportLog('error', `send failed invoice=${invoice} payment_hash=${hash} preimage=deadbeef api_key=topsecret`);
+    const payload = JSON.parse(await buildDetailedSdkSupportLogsExport({
+      paymentId: 'payment-detailed',
+      paymentTimestampMs: now,
+      app: { name: 'ZapArc Mobile', version: 'test', sdkVersion: 'test', platform: 'ios' },
+    }));
+    const serialized = JSON.stringify(payload);
+    expect(payload.exportType).toBe('detailed-sdk-support-logs');
+    expect(serialized).toContain(invoice);
+    expect(serialized).toContain(hash);
+    expect(serialized).not.toContain('deadbeef');
+    expect(serialized).not.toContain('topsecret');
+    expect(serialized).toContain('[redacted:secret]');
+    expect(serialized).toContain('[redacted:credential]');
+  });
+
+  it('always removes fund-control and authentication secrets from detailed logs', () => {
+    const result = redactSdkLogSecrets('seed=alpha preimage=beta Authorization: Bearer abc.def private_key=gamma');
+    expect(result.redacted).toBe(true);
+    expect(result.message).not.toContain('alpha');
+    expect(result.message).not.toContain('beta');
+    expect(result.message).not.toContain('abc.def');
+    expect(result.message).not.toContain('gamma');
   });
 
   it('keeps structured Breez error evidence in the exported log summary', () => {
