@@ -1,11 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const STORAGE_KEY = '@zaparc/payment_diagnostics_v1';
+const SDK_SUPPORT_LOG_STORAGE_KEY = '@zaparc/sdk_support_logs_v1';
 export const DIAGNOSTIC_MAX_ENTRIES = 30;
 export const DIAGNOSTIC_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 /** The complete persisted journal stays deliberately small even with long error text. */
 export const DIAGNOSTIC_MAX_BYTES = 12_000;
 export const DIAGNOSTIC_LOG_RING_MAX_ENTRIES = 20;
+export const SDK_SUPPORT_LOG_MAX_ENTRIES = 400;
+export const SDK_SUPPORT_LOG_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+export const SDK_SUPPORT_LOG_MAX_BYTES = 240_000;
 
 export interface SanitizedSdkLog {
   at: string;
@@ -35,6 +39,23 @@ export interface SuccessfulSyncSummary {
 }
 
 const sdkLogRing: SanitizedSdkLog[] = [];
+
+export interface SdkSupportLogEntry {
+  at: string;
+  level: string;
+  source: 'breez_logger';
+  message: string;
+  fingerprint: string;
+  redacted: boolean;
+  code?: string;
+  kind?: string;
+}
+
+let sdkSupportLogs: SdkSupportLogEntry[] = [];
+let sdkSupportLogsLoaded = false;
+let sdkSupportLogWriteQueue: Promise<void> = Promise.resolve();
+let pendingSdkSupportLogs: SdkSupportLogEntry[] = [];
+let sdkSupportLogFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
 export type ReconciliationCode =
   | 'funds_reserved_until_expiry' | 'overdue_stuck_reconciliation'
@@ -161,6 +182,94 @@ export function sanitizeSdkLogMessage(value: unknown): { message?: string; finge
     ...(code ? { code } : {}),
     ...(kind ? { kind } : {}),
   };
+}
+
+function pruneSdkSupportLogs(entries: SdkSupportLogEntry[], now = Date.now()): SdkSupportLogEntry[] {
+  const cutoff = now - SDK_SUPPORT_LOG_MAX_AGE_MS;
+  let kept = entries
+    .filter((entry) => Number.isFinite(Date.parse(entry.at)) && Date.parse(entry.at) >= cutoff)
+    .slice(-SDK_SUPPORT_LOG_MAX_ENTRIES);
+  while (kept.length > 1 && JSON.stringify(kept).length > SDK_SUPPORT_LOG_MAX_BYTES) kept = kept.slice(1);
+  return kept;
+}
+
+async function loadSdkSupportLogs(): Promise<void> {
+  if (sdkSupportLogsLoaded) return;
+  sdkSupportLogsLoaded = true;
+  try {
+    const stored = await AsyncStorage.getItem(SDK_SUPPORT_LOG_STORAGE_KEY);
+    const parsed = stored ? JSON.parse(stored) : [];
+    if (Array.isArray(parsed)) sdkSupportLogs = pruneSdkSupportLogs(parsed as SdkSupportLogEntry[]);
+  } catch {
+    sdkSupportLogs = [];
+  }
+}
+
+/** Persist a bounded, sanitized Breez log history for explicit support export. */
+export function recordSdkSupportLog(level: unknown, line: unknown): void {
+  if (typeof line !== 'string') return;
+  const safe = sanitizeSdkLogMessage(line);
+  if (!safe.message || !safe.fingerprint) return;
+  const safeLevel = typeof level === 'string' && /^(trace|debug|info|warn|warning|error)$/i.test(level)
+    ? level.toLowerCase()
+    : 'info';
+  const entry: SdkSupportLogEntry = {
+    at: new Date().toISOString(),
+    level: safeLevel,
+    source: 'breez_logger',
+    message: safe.message,
+    fingerprint: safe.fingerprint,
+    redacted: safe.redacted,
+    ...(safe.code ? { code: safe.code } : {}),
+    ...(safe.kind ? { kind: safe.kind } : {}),
+  };
+  pendingSdkSupportLogs.push(entry);
+  if (sdkSupportLogFlushTimer) return;
+  sdkSupportLogFlushTimer = setTimeout(() => { void flushSdkSupportLogs(); }, 500);
+}
+
+async function flushSdkSupportLogs(): Promise<void> {
+  if (sdkSupportLogFlushTimer) clearTimeout(sdkSupportLogFlushTimer);
+  sdkSupportLogFlushTimer = null;
+  if (pendingSdkSupportLogs.length === 0) return sdkSupportLogWriteQueue;
+  const pending = pendingSdkSupportLogs;
+  pendingSdkSupportLogs = [];
+  sdkSupportLogWriteQueue = sdkSupportLogWriteQueue.then(async () => {
+    await loadSdkSupportLogs();
+    sdkSupportLogs = pruneSdkSupportLogs([...sdkSupportLogs, ...pending]);
+    await AsyncStorage.setItem(SDK_SUPPORT_LOG_STORAGE_KEY, JSON.stringify(sdkSupportLogs));
+  }).catch(() => undefined);
+  await sdkSupportLogWriteQueue;
+}
+
+export async function buildSdkSupportLogsExport(input: {
+  paymentId: string;
+  paymentTimestampMs?: number;
+  app: { name: string; version: string; sdkVersion: string; platform: string };
+}): Promise<string> {
+  await flushSdkSupportLogs();
+  await loadSdkSupportLogs();
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000;
+  const paymentLogs = input.paymentTimestampMs
+    ? sdkSupportLogs.filter((entry) => Math.abs(Date.parse(entry.at) - input.paymentTimestampMs!) <= windowMs)
+    : [];
+  const recentLogs = sdkSupportLogs.filter((entry) => Date.parse(entry.at) >= now - windowMs);
+  return JSON.stringify({
+    schemaVersion: 1,
+    generatedAt: new Date(now).toISOString(),
+    app: input.app,
+    correlation: {
+      paymentId: input.paymentId,
+      paymentTimestamp: input.paymentTimestampMs ? new Date(input.paymentTimestampMs).toISOString() : null,
+      windowMinutes: 15,
+    },
+    retention: { maxAgeDays: 7, maxEntries: SDK_SUPPORT_LOG_MAX_ENTRIES, sanitized: true },
+    redactions: ['invoices', 'LNURLs', 'addresses', 'payment hashes', 'UUIDs', 'pubkeys', 'tokens and API keys', 'filesystem paths', 'long encoded values'],
+    paymentWindowAvailable: paymentLogs.length > 0,
+    paymentWindowLogs: paymentLogs,
+    recentWindowLogs: recentLogs,
+  }, null, 2);
 }
 
 /**

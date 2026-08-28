@@ -1,10 +1,10 @@
-import { buildPaymentDiagnosticsExport, classifyReconciliation, DIAGNOSTIC_LOG_RING_MAX_ENTRIES, DIAGNOSTIC_MAX_AGE_MS, DIAGNOSTIC_MAX_BYTES, DIAGNOSTIC_MAX_ENTRIES, getRelevantSdkLogSummaries, getSanitizedSdkLogs, prunePaymentDiagnostics, recordPaymentDiagnostic, recordSanitizedSdkLog, sanitizeDiagnosticValue, sanitizeSdkLogMessage, summarizeSanitizedSdkLogs, summarizeSuccessfulSync } from '../paymentDiagnostics';
+import { buildPaymentDiagnosticsExport, buildSdkSupportLogsExport, classifyReconciliation, DIAGNOSTIC_LOG_RING_MAX_ENTRIES, DIAGNOSTIC_MAX_AGE_MS, DIAGNOSTIC_MAX_BYTES, DIAGNOSTIC_MAX_ENTRIES, getRelevantSdkLogSummaries, getSanitizedSdkLogs, prunePaymentDiagnostics, recordPaymentDiagnostic, recordSanitizedSdkLog, recordSdkSupportLog, sanitizeDiagnosticValue, sanitizeSdkLogMessage, summarizeSanitizedSdkLogs, summarizeSuccessfulSync } from '../paymentDiagnostics';
 
 jest.mock('@react-native-async-storage/async-storage', () => {
-  let value: string | null = null;
+  const values = new Map<string, string>();
   return {
-    getItem: jest.fn(async () => value),
-    setItem: jest.fn(async (_key: string, next: string) => { value = next; }),
+    getItem: jest.fn(async (key: string) => values.get(key) ?? null),
+    setItem: jest.fn(async (key: string, next: string) => { values.set(key, next); }),
   };
 });
 
@@ -42,6 +42,23 @@ describe('payment diagnostics privacy and reconciliation', () => {
     expect(safe.fingerprint).toMatch(/^log-[0-9a-f]{8}$/);
     expect(safe.message).not.toContain(invoice);
     expect(safe.message).not.toContain(hash);
+  });
+
+  it('exports bounded sanitized SDK support logs for the payment and recent windows', async () => {
+    const now = Date.now();
+    recordSdkSupportLog('info', `send payment invoice=lnbc${'1'.repeat(80)} started`);
+    recordSdkSupportLog('error', `wallet sync failed code=DeadlineExceeded payment_hash=${'a'.repeat(64)}`);
+    const payload = JSON.parse(await buildSdkSupportLogsExport({
+      paymentId: 'payment-support',
+      paymentTimestampMs: now,
+      app: { name: 'ZapArc Mobile', version: 'test', sdkVersion: 'test', platform: 'ios' },
+    }));
+    expect(payload.paymentWindowAvailable).toBe(true);
+    expect(payload.paymentWindowLogs).toHaveLength(2);
+    expect(payload.recentWindowLogs).toHaveLength(2);
+    expect(JSON.stringify(payload)).not.toContain('lnbc1111');
+    expect(JSON.stringify(payload)).not.toContain('a'.repeat(64));
+    expect(payload.paymentWindowLogs[1]).toMatchObject({ level: 'error', code: 'DeadlineExceeded', redacted: true });
   });
 
   it('keeps structured Breez error evidence in the exported log summary', () => {

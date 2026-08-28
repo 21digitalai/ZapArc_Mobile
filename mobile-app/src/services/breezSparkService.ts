@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
 import type * as BreezSparkSdk from '@breeztech/breez-sdk-spark-react-native';
 import { getExchangeRates, getCachedRates } from '../utils/currency';
 import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
-import { buildPaymentDiagnosticsExport, classifyReconciliation, getPaymentDiagnosticBalance, recordPaymentDiagnostic, recordSanitizedSdkLog, sanitizeDiagnosticValue, type BreezHtlcDiagnosticSnapshot, type BreezPaymentDiagnosticSnapshot } from './paymentDiagnostics';
+import { buildPaymentDiagnosticsExport, buildSdkSupportLogsExport, classifyReconciliation, getPaymentDiagnosticBalance, recordPaymentDiagnostic, recordSanitizedSdkLog, recordSdkSupportLog, sanitizeDiagnosticValue, type BreezHtlcDiagnosticSnapshot, type BreezPaymentDiagnosticSnapshot } from './paymentDiagnostics';
 // Push notifications now flow via Breez's webhook registration + relay.
 // Foreground UX still comes from the local notification/event listeners.
 
@@ -1550,10 +1550,13 @@ export async function initializeSDK(
       await RNFS.mkdir(storageDir);
     }
 
-    // Breez Spark supports an app Logger callback. Never retain its raw line:
-    // the diagnostics ring stores only a small, allowlisted derived category.
+    // Breez Spark supports an app Logger callback. Raw lines are never retained:
+    // compact diagnostics and the bounded support history both sanitize first.
     try {
-      BreezSDK.initLogging(undefined, { log: (entry: { level: unknown; line: unknown }) => recordSanitizedSdkLog(entry.level, entry.line) }, 'info');
+      BreezSDK.initLogging(undefined, { log: (entry: { level: unknown; line: unknown }) => {
+        recordSdkSupportLog(entry.level, entry.line);
+        recordSanitizedSdkLog(entry.level, entry.line);
+      } }, 'info');
     } catch (loggingError) {
       console.warn('⚠️ [BreezSparkService] Diagnostics logger unavailable:', loggingError);
     }
@@ -2945,6 +2948,14 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
         authoritative: syncSucceeded,
       },
     },
+  });
+}
+
+export async function exportSdkSupportLogs(paymentId: string, paymentTimestampMs?: number): Promise<string> {
+  return buildSdkSupportLogsExport({
+    paymentId,
+    paymentTimestampMs,
+    app: DIAGNOSTICS_APP_METADATA,
   });
 }
 

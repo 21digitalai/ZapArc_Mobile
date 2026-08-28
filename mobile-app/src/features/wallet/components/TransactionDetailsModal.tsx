@@ -16,7 +16,7 @@ import { Button, Divider, IconButton, Text } from 'react-native-paper';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import { useCurrency } from '../../../hooks/useCurrency';
 import { useLanguage } from '../../../hooks/useLanguage';
-import { exportPaymentDiagnostics } from '../../../services/breezSparkService';
+import { exportPaymentDiagnostics, exportSdkSupportLogs } from '../../../services/breezSparkService';
 import {
   BRAND_COLOR,
   getIconColor,
@@ -68,7 +68,7 @@ export function TransactionDetailsModal({
   const iconColor = getIconColor(themeMode);
   const [comment, setComment] = useState<string | null>(null);
   const [recipient, setRecipient] = useState<string | null>(null);
-  const [diagnosticsAction, setDiagnosticsAction] = useState<'copy' | 'status' | null>(null);
+  const [diagnosticsAction, setDiagnosticsAction] = useState<'copy' | 'logs' | 'status' | null>(null);
 
   useEffect(() => {
     if (!transaction?.id) {
@@ -108,7 +108,7 @@ export function TransactionDetailsModal({
         await Clipboard.setStringAsync(payload);
         showToast('Diagnostics copied');
       } else {
-        const parsed = JSON.parse(payload) as { reconciliation?: string };
+        const parsed = JSON.parse(payload) as { reconciliation?: string; zaparc?: { reconciliation?: string } };
         const messages: Record<string, string> = {
           funds_reserved_until_expiry: 'Funds remain reserved until the listed expiry.',
           overdue_stuck_reconciliation: 'Payment is overdue. Copy diagnostics for support.',
@@ -118,7 +118,7 @@ export function TransactionDetailsModal({
           failed_but_funds_still_reserved: 'Payment failed, but funds are still reserved.',
           unknown: 'The current wallet state could not be confirmed.',
         };
-        showToast(messages[parsed.reconciliation || 'unknown'], true);
+        showToast(messages[parsed.zaparc?.reconciliation || parsed.reconciliation || 'unknown'], true);
       }
       // Refresh the surrounding list without tying the action spinner to a
       // potentially slow screen-level refresh. The diagnostics export above
@@ -130,6 +130,21 @@ export function TransactionDetailsModal({
       setDiagnosticsAction(null);
     }
   }, [diagnosticsAction, refreshTransactions, showToast, transaction]);
+
+  const copySdkLogs = useCallback(async (): Promise<void> => {
+    if (!transaction?.id || diagnosticsAction) return;
+    setDiagnosticsAction('logs');
+    try {
+      const payload = await exportSdkSupportLogs(transaction.id, transaction.timestamp);
+      await Clipboard.setStringAsync(payload);
+      const parsed = JSON.parse(payload) as { paymentWindowAvailable?: boolean };
+      showToast(parsed.paymentWindowAvailable ? 'SDK support logs copied' : 'Recent SDK logs copied; this payment’s older log window is unavailable', true);
+    } catch {
+      showToast('SDK support logs could not be exported. Please try again.', true);
+    } finally {
+      setDiagnosticsAction(null);
+    }
+  }, [diagnosticsAction, showToast, transaction]);
 
   if (!transaction) return null;
 
@@ -234,10 +249,13 @@ export function TransactionDetailsModal({
             <View style={styles.supportSection}>
               <Text style={[styles.supportTitle, { color: primaryTextColor }]}>Payment diagnostics</Text>
               <Text style={[styles.supportText, { color: secondaryTextColor }]}>
-                Copy a privacy-safe report for support. Checking status syncs the wallet with Breez and rechecks this payment, reserved funds, and the displayed balance.
+                Copy a privacy-safe report or up to seven days of sanitized SDK logs for support. Checking status syncs the wallet with Breez and rechecks this payment, reserved funds, and the displayed balance.
               </Text>
               <Button mode="outlined" icon="content-copy" loading={diagnosticsAction === 'copy'} disabled={diagnosticsAction !== null} onPress={() => void reconcile(true)}>
                 Copy diagnostics
+              </Button>
+              <Button mode="outlined" icon="file-export-outline" loading={diagnosticsAction === 'logs'} disabled={diagnosticsAction !== null} onPress={() => void copySdkLogs()}>
+                Copy SDK support logs
               </Button>
               {canReconcile && (
                 <Button mode="contained-tonal" icon="sync" loading={diagnosticsAction === 'status'} disabled={diagnosticsAction !== null} onPress={() => void reconcile(false)}>
