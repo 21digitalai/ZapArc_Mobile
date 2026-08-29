@@ -60,6 +60,7 @@ let pendingSdkSupportLogs: SdkSupportLogEntry[] = [];
 let sdkSupportLogFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
 export type ReconciliationCode =
+  | 'completed_settled'
   | 'funds_reserved_until_expiry' | 'overdue_stuck_reconciliation'
   | 'settling_or_claimable' | 'funds_returned' | 'return_reported_balance_unverified' | 'balance_sync_inconsistency'
   | 'failed_but_funds_still_reserved' | 'unknown';
@@ -439,6 +440,9 @@ export function classifyReconciliation(input: {
   balanceBeforeSats?: number;
   balanceAfterSats?: number;
 }): ReconciliationCode {
+  if ((input.paymentStatus || '').toLowerCase() === 'completed') {
+    return 'completed_settled';
+  }
   const rawStatus = input.htlcStatus || '';
   const status = rawStatus.toLowerCase();
   // SparkHtlcStatus is a numeric enum in the installed RN SDK.

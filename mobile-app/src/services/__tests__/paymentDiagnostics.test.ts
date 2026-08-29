@@ -175,6 +175,15 @@ describe('payment diagnostics privacy and reconciliation', () => {
       .toBe('return_reported_balance_unverified');
   });
 
+  it('treats a completed payment with a shared preimage as settled', () => {
+    expect(classifyReconciliation({
+      paymentStatus: 'completed',
+      htlcStatus: '1',
+      synced: true,
+      pendingSendSats: 0,
+    })).toBe('completed_settled');
+  });
+
   it('exports only the allowlisted payment, wallet, and lifecycle fields', async () => {
     await recordPaymentDiagnostic('payment-1', 'submit_failed', 'lnbc1privateinvoice');
     const payload = JSON.parse(await buildPaymentDiagnosticsExport(exportInput('payment-1', {

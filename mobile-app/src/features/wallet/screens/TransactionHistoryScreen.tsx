@@ -157,12 +157,14 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     setDiagnosticsBusy(true);
     try {
       const payload = await exportPaymentDiagnostics(selectedTransaction.id);
-      const reconciliation = JSON.parse(payload).reconciliation as string | undefined;
+      const parsed = JSON.parse(payload) as { reconciliation?: string; zaparc?: { reconciliation?: string } };
+      const reconciliation = parsed.zaparc?.reconciliation || parsed.reconciliation;
       if (copy) {
         await Clipboard.setStringAsync(payload);
         ToastAndroid && ToastAndroid.show?.('Diagnostics copied', ToastAndroid.SHORT);
       } else {
         const messages: Record<string, string> = {
+          completed_settled: 'Payment is completed and settled.',
           funds_reserved_until_expiry: 'Funds remain reserved until the listed expiry.',
           overdue_stuck_reconciliation: 'Payment is overdue. Keep diagnostics for support.',
           settling_or_claimable: 'Payment is still settling. Refresh again shortly.',

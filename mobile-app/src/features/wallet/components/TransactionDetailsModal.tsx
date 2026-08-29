@@ -111,6 +111,7 @@ export function TransactionDetailsModal({
       } else {
         const parsed = JSON.parse(payload) as { reconciliation?: string; zaparc?: { reconciliation?: string } };
         const messages: Record<string, string> = {
+          completed_settled: 'Payment is completed and settled.',
           funds_reserved_until_expiry: 'Funds remain reserved until the listed expiry.',
           overdue_stuck_reconciliation: 'Payment is overdue. Copy diagnostics for support.',
           settling_or_claimable: 'Payment is still settling. Check again shortly.',
