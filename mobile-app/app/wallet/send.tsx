@@ -1274,17 +1274,20 @@ export default function SendScreen() {
         // home. For an unsaved Lightning Address we pass it along so Home can
         // open the in-place save-contact sheet over the balance page.
         setPrepareResponse(null);
-        if (result.status === 'pending') {
-          // A Pending payment can settle before Home has mounted. Navigate
-          // first so Home can subscribe and reconcile the exact payment;
-          // post-send refreshes run in the background instead of widening
-          // that race window.
+        if (result.paymentId) {
+          // Always hand an accepted SDK payment to Home through the tracked
+          // Pending lifecycle first. Breez can return Completed immediately,
+          // but the wallet still needs a visible, payment-scoped transition
+          // before Home reconciles the authoritative terminal state. This
+          // also prevents fast Pending→Failed payments from skipping the
+          // reserved-funds row and transaction Pending tag entirely.
           router.navigate({
             pathname: '/wallet/home',
             params: {
               paymentPending: 'true',
               paymentId: result.paymentId,
               paymentAmount: String(preview.amount),
+              ...(isContactSavableRecipient && !alreadyAContact ? { saveContact: recipientRaw } : {}),
             },
           });
           void Promise.all([refreshBalance(), refreshTransactions()]);

@@ -51,6 +51,8 @@ const mockParsePaymentRequest = jest.fn();
 const mockPrepareSendPayment = jest.fn();
 const mockSendOnchainPayment = jest.fn();
 const mockSendPayment = jest.fn();
+const mockRefreshBalance = jest.fn().mockResolvedValue(undefined);
+const mockRefreshTransactions = jest.fn().mockResolvedValue(undefined);
 const mockLaunchImageLibraryAsync = jest.fn();
 const mockScanFromURLAsync = jest.fn();
 const mockRequestCameraPermission = jest.fn();
@@ -103,7 +105,8 @@ jest.mock('../../../src/contexts/ThemeContext', () => ({
 jest.mock('../../../src/hooks/useWallet', () => ({
   useWallet: () => ({
     balance: 500000,
-    refreshBalance: jest.fn().mockResolvedValue(undefined),
+    refreshBalance: mockRefreshBalance,
+    refreshTransactions: mockRefreshTransactions,
     getBalanceForAsset: (asset: 'BTC' | 'USDB') => (asset === 'USDB' ? 250 : 500000),
   }),
 }));
@@ -550,6 +553,35 @@ describe('SendScreen on-chain flow', () => {
 
     fireEvent.press(screen.getByLabelText('Dismiss payment error'));
     expect(screen.queryByTestId('send-inline-error')).toBeNull();
+  });
+
+  it('hands an immediately completed payment to Home through Pending first', async () => {
+    const { router } = require('expo-router');
+    mockParsePaymentRequest.mockResolvedValue({ type: 'bolt11', isValid: true, amountSat: 1000 });
+    mockPrepareSendPayment.mockResolvedValue({ paymentMethod: { tag: 'Bolt11' } });
+    mockSendPayment.mockResolvedValue({
+      success: true,
+      paymentId: 'fast-completed-payment',
+      status: 'completed',
+    });
+
+    renderScreen();
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'lnbc1fastcompleted');
+    fireEvent.press(screen.getByText('Preview Payment'));
+    await waitFor(() => expect(screen.getByText('Payment Preview')).toBeTruthy());
+    fireEvent.press(screen.getByText('Send Payment'));
+
+    await waitFor(() => expect(router.navigate).toHaveBeenCalledWith({
+      pathname: '/wallet/home',
+      params: {
+        paymentPending: 'true',
+        paymentId: 'fast-completed-payment',
+        paymentAmount: '1000',
+      },
+    }));
+    expect(router.navigate).not.toHaveBeenCalledWith(expect.objectContaining({
+      params: expect.objectContaining({ paymentSuccess: 'true' }),
+    }));
   });
 });
 

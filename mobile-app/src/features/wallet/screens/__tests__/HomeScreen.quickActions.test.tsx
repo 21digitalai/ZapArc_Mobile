@@ -9,6 +9,7 @@ let mockPaymentListener: ((payment: any) => void) | undefined;
 let mockFocusCallback: (() => void) | undefined;
 let mockWalletTransactions: any[] = [];
 let mockTransactionRows: any[] = [];
+const mockBuildTransactionRows = jest.fn((..._args: unknown[]) => mockTransactionRows);
 let mockStoredPaymentComment: string | null = null;
 const mockRefreshBalance = jest.fn().mockResolvedValue(undefined);
 const mockRefreshTransactions = jest.fn().mockResolvedValue(undefined);
@@ -102,7 +103,7 @@ jest.mock('../../utils/walletSecurityOnboarding', () => ({
 }));
 
 jest.mock('../../utils/transactionRows', () => ({
-  buildTransactionRows: () => mockTransactionRows,
+  buildTransactionRows: (...args: unknown[]) => mockBuildTransactionRows(...args),
 }));
 
 jest.mock('../../utils/paymentComment', () => ({
@@ -506,6 +507,13 @@ describe('HomeScreen quick actions', () => {
     render(<HomeScreen />);
 
     await waitFor(() => expect(screen.getByText('Payment pending')).toBeTruthy());
+    expect(mockBuildTransactionRows).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'fast-success', type: 'send', status: 'pending', amount: 42 }),
+      ]),
+      'BTC',
+    );
+    expect(screen.getByText('⏳ Pending • 42 sats')).toBeTruthy();
     await act(async () => { jest.advanceTimersByTime(2000); });
     await waitFor(() => expect(screen.getByText('Payment sent')).toBeTruthy());
     expect(mockGetPayment).toHaveBeenCalledWith('fast-success');

@@ -280,6 +280,7 @@ export function HomeScreen(): React.JSX.Element {
   const toastRevisionRef = useRef(0);
   const pendingToastRef = useRef<{ paymentId: string; revision: number; shownAt: number } | null>(null);
   const pendingTerminalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trackedPendingClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Keep this in sync with ToastBanner's short exit timing. Terminal toast
   // lifetime begins only after the outgoing Pending shell has left the screen.
   const PENDING_EXIT_DURATION_MS = 220;
@@ -311,7 +312,10 @@ export function HomeScreen(): React.JSX.Element {
   } | null>(null);
   const [pendingRowExitingPaymentId, setPendingRowExitingPaymentId] = useState<string | null>(null);
 
-  useEffect(() => () => clearPendingTerminalTimer(), [clearPendingTerminalTimer]);
+  useEffect(() => () => {
+    clearPendingTerminalTimer();
+    if (trackedPendingClearTimerRef.current) clearTimeout(trackedPendingClearTimerRef.current);
+  }, [clearPendingTerminalTimer]);
 
   useEffect(() => {
     if (!selectedTransaction?.id) {
@@ -328,11 +332,37 @@ export function HomeScreen(): React.JSX.Element {
   }, [selectedTransaction, activeWalletInfo]);
 
   const displayBalance = getBalanceForAsset(activeAsset);
-  const displayTransactions = getTransactionsForAsset(activeAsset);
+  const canonicalDisplayTransactions = getTransactionsForAsset(activeAsset);
+  const trackedCanonicalTransaction = trackedPendingPayment
+    ? transactions.find((transaction) => transaction.id === trackedPendingPayment.id)
+    : undefined;
+  const trackedPendingTransaction: Transaction | null = trackedPendingPayment
+    ? {
+        ...(trackedCanonicalTransaction || {
+          id: trackedPendingPayment.id,
+          type: 'send' as const,
+          amount: trackedPendingPayment.amountSat,
+          timestamp: Date.now(),
+          method: 'lightning' as const,
+          asset: 'BTC' as const,
+        }),
+        status: 'pending' as const,
+      }
+    : null;
+  const displayTransactions = trackedPendingTransaction && activeAsset === 'BTC'
+    ? canonicalDisplayTransactions.some((transaction) => transaction.id === trackedPendingTransaction.id)
+      ? canonicalDisplayTransactions.map((transaction) => (
+          transaction.id === trackedPendingTransaction.id ? trackedPendingTransaction : transaction
+        ))
+      : [trackedPendingTransaction, ...canonicalDisplayTransactions]
+    : canonicalDisplayTransactions;
   const transactionRows = buildTransactionRows(displayTransactions, activeAsset);
-  const pendingOutgoing = transactions.filter(
+  const canonicalPendingOutgoing = transactions.filter(
     (transaction) => transaction.type === 'send' && transaction.status === 'pending'
   );
+  const pendingOutgoing = trackedPendingTransaction
+    ? [trackedPendingTransaction, ...canonicalPendingOutgoing.filter((payment) => payment.id !== trackedPendingTransaction.id)]
+    : canonicalPendingOutgoing;
 
   // A terminal handoff can arrive after a newer pending payment has already
   // replaced the aggregate row's contents. Never retain that older handoff:
@@ -587,6 +617,18 @@ export function HomeScreen(): React.JSX.Element {
     }, remainingDwell);
   }, [clearPendingTerminalTimer, showToast]);
 
+  const clearTrackedPendingAfterMinimumDwell = useCallback((paymentId: string): void => {
+    if (trackedPendingClearTimerRef.current) clearTimeout(trackedPendingClearTimerRef.current);
+    const shownAt = pendingToastRef.current?.paymentId === paymentId
+      ? pendingToastRef.current.shownAt
+      : Date.now();
+    const remainingDwell = Math.max(0, 2000 - (Date.now() - shownAt));
+    trackedPendingClearTimerRef.current = setTimeout(() => {
+      trackedPendingClearTimerRef.current = null;
+      setTrackedPendingPayment((current) => current?.id === paymentId ? null : current);
+    }, remainingDwell);
+  }, []);
+
   const reconcileTrackedPayment = useCallback(async (): Promise<void> => {
     if (!trackedPendingPayment) return;
 
@@ -602,9 +644,9 @@ export function HomeScreen(): React.JSX.Element {
       amountSat: payment.amountSat || trackedPendingPayment.amountSat,
       description: payment.description,
     });
-    setTrackedPendingPayment(null);
+    clearTrackedPendingAfterMinimumDwell(payment.id);
     await Promise.all([refreshBalance(), refreshTransactions()]);
-  }, [refreshBalance, refreshTransactions, showOutgoingPaymentState, trackedPendingPayment]);
+  }, [clearTrackedPendingAfterMinimumDwell, refreshBalance, refreshTransactions, showOutgoingPaymentState, trackedPendingPayment]);
 
   // Initial load and wallet switch - refresh when connected or when wallet changes
   // Don't show pull-to-refresh spinner here since cached data loads instantly
@@ -640,7 +682,7 @@ export function HomeScreen(): React.JSX.Element {
             payment.id === trackedPendingPayment.id &&
             (payment.status === 'completed' || payment.status === 'failed')
           ) {
-            setTrackedPendingPayment(null);
+            clearTrackedPendingAfterMinimumDwell(payment.id);
           }
         } else if (payment.type === 'receive' && amount > 0) {
           // Foreground receive — success tone (mint green, celebratory).
@@ -675,7 +717,7 @@ export function HomeScreen(): React.JSX.Element {
     return () => {
       unsubscribe();
     };
-  }, [refreshBalance, refreshTransactions, showOutgoingPaymentState, trackedPendingPayment]);
+  }, [clearTrackedPendingAfterMinimumDwell, refreshBalance, refreshTransactions, showOutgoingPaymentState, trackedPendingPayment]);
 
   // Refresh balance, transactions and settings when screen comes into focus
   // This ensures data updates when returning from other screens, wallet switches, or opening from notification
