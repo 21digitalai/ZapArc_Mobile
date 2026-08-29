@@ -109,6 +109,7 @@ export function nextReceiveExpiryTime(current: number | null, update: ReceiveExp
 // logo stays reliably scannable. Baked into the saved/shared image too.
 const QR_BRAND_LOGO = require('../../assets/qr-brand-logo.png');
 const QR_SIZE = 200;
+const COMPACT_ADDRESS_QR_SIZE = 144;
 const QR_BRAND_PROPS = {
   size: QR_SIZE,
   backgroundColor: '#FFFFFF',
@@ -348,6 +349,7 @@ export default function ReceiveScreen() {
   // logo + ZapArc pill). We capture the whole card with react-native-view-shot
   // so the saved/shared PNG includes the branding — not just the bare QR.
   const lightningCardRef = useRef<View>(null);
+  const lightningAddressCardRef = useRef<View>(null);
   const onchainCardRef = useRef<View>(null);
   const scrolledInvoiceRef = useRef<string>('');
   const [invoicePreviewY, setInvoicePreviewY] = useState<number | null>(null);
@@ -1200,13 +1202,47 @@ export default function ReceiveScreen() {
                   <Text style={[styles.addressLoadingText, { color: secondaryTextColor }]}>{t('common.loading')}</Text>
                 </View>
               ) : isRegistered && addressInfo?.lightningAddress ? (
-                <View style={styles.inlineValueRow}>
-                  <Text style={styles.inlineValueText} numberOfLines={1} ellipsizeMode="middle">
+                <View style={styles.lightningAddressBlock}>
+                  <Text style={[styles.inlineValueText, styles.lightningAddressText]} numberOfLines={1} ellipsizeMode="middle">
                     {addressInfo.lightningAddress}
                   </Text>
-                  <Button mode="outlined" onPress={handleCopyAddress} compact textColor={BRAND_COLOR} style={styles.inlineCopyButton}>
-                    {t('deposit.copyAddress')}
-                  </Button>
+                  <View
+                    ref={lightningAddressCardRef}
+                    collapsable={false}
+                    style={[styles.qrContainer, styles.compactAddressQrContainer]}
+                    testID="lightning-address-qr-card"
+                  >
+                    <QRCode
+                      value={addressInfo.lightningAddress}
+                      {...QR_BRAND_PROPS}
+                      size={COMPACT_ADDRESS_QR_SIZE}
+                      logoSize={Math.round(COMPACT_ADDRESS_QR_SIZE * 0.30)}
+                    />
+                  </View>
+                  <View style={styles.lightningAddressActions}>
+                    <Button
+                      mode="outlined"
+                      onPress={handleCopyAddress}
+                      compact
+                      icon="content-copy"
+                      textColor={BRAND_COLOR}
+                      style={styles.lightningAddressActionButton}
+                      testID="copy-lightning-address"
+                    >
+                      {t('common.copy') ?? 'Copy'}
+                    </Button>
+                    <Button
+                      mode="outlined"
+                      onPress={() => handleSaveQR(lightningAddressCardRef, 'zaparc-lightning-address-qr')}
+                      compact
+                      icon="download"
+                      textColor={BRAND_COLOR}
+                      style={styles.lightningAddressActionButton}
+                      testID="save-qr-zaparc-lightning-address-qr"
+                    >
+                      {t('common.save') ?? 'Save'}
+                    </Button>
+                  </View>
                 </View>
               ) : (
                 <View style={styles.manageAddressRow}>
@@ -1711,6 +1747,11 @@ const styles = StyleSheet.create({
   claimStatusText: { fontSize: 14, marginTop: 12, fontWeight: '600' },
   addressLoadingContainer: { paddingVertical: 10, alignItems: 'center' },
   addressLoadingText: { fontSize: 14 },
+  lightningAddressBlock: { alignItems: 'center', gap: 10, marginBottom: 4 },
+  lightningAddressText: { flex: 0, width: '100%', textAlign: 'center' },
+  compactAddressQrContainer: { padding: 10, marginVertical: 0 },
+  lightningAddressActions: { flexDirection: 'row', gap: 10, alignSelf: 'stretch' },
+  lightningAddressActionButton: { flex: 1, borderColor: 'rgba(255, 255, 255, 0.24)' },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',

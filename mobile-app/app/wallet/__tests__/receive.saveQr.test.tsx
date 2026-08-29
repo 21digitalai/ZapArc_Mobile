@@ -42,6 +42,7 @@ describe('Receive QR Save buttons', () => {
 
   it.each([
     ['Lightning', 'zaparc-lightning-qr'],
+    ['Lightning Address', 'zaparc-lightning-address-qr'],
     ['on-chain', 'zaparc-onchain-qr'],
   ])('routes the %s QR Save button through the shared Android-safe handler', (_label, filenamePrefix) => {
     const cardRef = { current: null };
@@ -52,7 +53,7 @@ describe('Receive QR Save buttons', () => {
     expect(mockOnSave).toHaveBeenCalledWith(cardRef, filenamePrefix);
   });
 
-  it.each(['zaparc-lightning-qr', 'zaparc-onchain-qr'])(
+  it.each(['zaparc-lightning-qr', 'zaparc-lightning-address-qr', 'zaparc-onchain-qr'])(
     'saves %s through the Android gallery adapter without calling expo-sharing',
     async (filenamePrefix) => {
       const capture = jest.fn().mockResolvedValue('file:///cache/qr.png');
