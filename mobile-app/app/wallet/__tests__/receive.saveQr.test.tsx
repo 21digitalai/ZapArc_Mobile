@@ -46,10 +46,13 @@ describe('Receive payment handoff', () => {
     feeSat: 0,
     status: 'completed' as const,
     timestamp: 1,
+    paymentRequest: 'lnbc-generated-invoice',
   };
 
-  it('returns to Home for a completed receive while Receive is focused', () => {
-    expect(shouldHandoffCompletedReceive(true, completedReceive)).toBe(true);
+  it('returns to Home only when the completed receive paid the generated invoice', () => {
+    expect(shouldHandoffCompletedReceive(true, completedReceive, 'lnbc-generated-invoice')).toBe(true);
+    expect(shouldHandoffCompletedReceive(true, completedReceive, 'lnbc-another-invoice')).toBe(false);
+    expect(shouldHandoffCompletedReceive(true, completedReceive)).toBe(false);
   });
 
   it.each([
@@ -58,7 +61,7 @@ describe('Receive payment handoff', () => {
     ['the payment is outgoing', true, { ...completedReceive, type: 'send' as const }],
     ['the event is a sync marker', true, { ...completedReceive, description: '__SYNC_EVENT__' }],
   ])('does not redirect when %s', (_case, focused, payment) => {
-    expect(shouldHandoffCompletedReceive(focused, payment)).toBe(false);
+    expect(shouldHandoffCompletedReceive(focused, payment, 'lnbc-generated-invoice')).toBe(false);
   });
 });
 

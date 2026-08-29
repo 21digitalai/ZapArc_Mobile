@@ -368,6 +368,8 @@ export function extractLnurlPaymentComment(payment: unknown): string | undefined
 export interface BreezPaymentDetailsSnapshot {
   tag: BreezSparkSdk.PaymentDetails_Tags;
   description?: string;
+  /** Raw request used internally to correlate a receive with the generated invoice UI. */
+  paymentRequest?: string;
   txid?: string;
   vout?: number;
   tokenIdentifier?: string;
@@ -417,6 +419,7 @@ export function mapBreezPaymentDetails(
       const htlc = details.inner.htlcDetails;
       return {
         tag: details.tag,
+        paymentRequest: details.inner.invoiceDetails?.invoice,
         htlcStatus: htlc ? String(htlc.status) : undefined,
         htlcExpiryMs: htlc ? Number(htlc.expiryTime) * 1000 : undefined,
         paymentHash: htlc ? htlc.paymentHash : undefined,
@@ -426,6 +429,7 @@ export function mapBreezPaymentDetails(
     case BreezSDK.PaymentDetails_Tags.Token: {
       return {
         tag: details.tag,
+        paymentRequest: details.inner.invoiceDetails?.invoice,
         tokenIdentifier: details.inner.metadata.identifier,
         tokenTicker: details.inner.metadata.ticker,
         ...mapBreezConversionInfo(details.inner.conversionInfo),
@@ -436,6 +440,7 @@ export function mapBreezPaymentDetails(
       return {
         tag: details.tag,
         description: details.inner.description,
+        paymentRequest: details.inner.invoice,
         htlcStatus: htlc ? String(htlc.status) : undefined,
         htlcExpiryMs: htlc ? Number(htlc.expiryTime) * 1000 : undefined,
         paymentHash: htlc ? htlc.paymentHash : undefined,
@@ -2680,6 +2685,7 @@ export async function listPayments(): Promise<TransactionInfo[]> {
         timestamp: timestamp || Date.now(),
         description,
         comment,
+        paymentRequest: details?.paymentRequest,
         method,
         txid: details?.txid,
         onchainVout: details?.vout,
@@ -2760,6 +2766,7 @@ async function getPaymentOrThrow(paymentId: string): Promise<TransactionInfo | n
       timestamp: Number(payment.timestamp) * 1000,
       description: details?.description,
       comment: extractLnurlPaymentComment(payment),
+      paymentRequest: details?.paymentRequest,
       txid: details?.txid,
       onchainVout: details?.vout,
       htlcStatus: details?.htlcStatus,

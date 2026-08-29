@@ -106,12 +106,15 @@ export function nextReceiveExpiryTime(current: number | null, update: ReceiveExp
 export function shouldHandoffCompletedReceive(
   isScreenFocused: boolean,
   payment: TransactionInfo,
+  generatedPaymentRequest?: string,
 ): boolean {
   return isScreenFocused
     && payment.description !== '__SYNC_EVENT__'
     && payment.type === 'receive'
     && payment.status === 'completed'
-    && payment.amountSat > 0;
+    && payment.amountSat > 0
+    && Boolean(generatedPaymentRequest?.trim())
+    && payment.paymentRequest?.trim().toLowerCase() === generatedPaymentRequest?.trim().toLowerCase();
 }
 
 // Centered brand logo for QR codes (Wallet-of-Satoshi style). A single
@@ -989,13 +992,27 @@ export default function ReceiveScreen() {
     // they navigated to another screen while this one is still in the stack),
     // we skip — the global home-screen listener handles those receives instead,
     // so we don't yank the user back to home from wherever they are.
-    // This intentionally covers both generated invoices and the reusable
-    // Lightning Address QR. Pending events remain on Receive until Breez emits
-    // the authoritative completed event.
+    // Only a payment of the invoice currently generated on this screen may
+    // return the user to Home. Reusable Lightning Address/LNURL receives still
+    // show a success notification, but must leave the user on Receive.
     if (!isScreenFocused) return;
 
-    const unsubscribe = onPaymentReceived((payment) => {
-      if (shouldHandoffCompletedReceive(isScreenFocused, payment)) {
+    const unsubscribe = onPaymentReceived(async (payment) => {
+      if (
+        payment.description === '__SYNC_EVENT__'
+        || payment.type !== 'receive'
+        || payment.status !== 'completed'
+        || payment.amountSat <= 0
+      ) return;
+
+      let authoritativePayment = payment;
+      try {
+        authoritativePayment = await BreezSparkService.getPayment(payment.id) || payment;
+      } catch (error) {
+        console.warn('[Receive] Could not correlate completed receive with generated invoice:', error);
+      }
+
+      if (shouldHandoffCompletedReceive(isScreenFocused, authoritativePayment, invoice)) {
         // Hand off to Home and let it show the standard top "Payment received"
         // toast (same one used for receives while already on Home) — instead of
         // a separately-styled, poorly-positioned snackbar on this screen.
@@ -1003,15 +1020,21 @@ export default function ReceiveScreen() {
           pathname: '/wallet/home',
           params: {
             paymentReceived: 'true',
-            paymentReceivedSat: String(payment.amountSat),
-            paymentReceivedAsset: payment.asset === 'USDB' ? 'USDB' : 'BTC',
+            paymentReceivedSat: String(authoritativePayment.amountSat),
+            paymentReceivedAsset: authoritativePayment.asset === 'USDB' ? 'USDB' : 'BTC',
           },
         });
+        return;
       }
+
+      const formatted = authoritativePayment.asset === 'USDB'
+        ? `${(authoritativePayment.amountSat / 1e6).toFixed(2)} USDB`
+        : `${authoritativePayment.amountSat.toLocaleString()} sat`;
+      showSuccess(`Payment received · +${formatted}`);
     });
 
     return () => unsubscribe();
-  }, [isScreenFocused]);
+  }, [invoice, isScreenFocused, showSuccess]);
 
   const isLightningTab = activeTab === 'lightning';
 
