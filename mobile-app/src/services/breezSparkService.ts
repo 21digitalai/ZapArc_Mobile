@@ -196,6 +196,9 @@ export function getPaymentErrorMessage(error: unknown, fallback = 'Payment faile
   if (/network request failed|failed to resolve|timeout|timed out/.test(normalized)) {
     return 'Could not reach the payment provider. Check your connection and try again.';
   }
+  if (/^(?:sdkerror[.: _-]?)?sparkerror$/i.test(message.trim())) {
+    return 'This payment could not be completed. If this invoice was already paid, ask the recipient for a new invoice and try again.';
+  }
 
   return message === '[object Object]' ? fallback : message;
 }

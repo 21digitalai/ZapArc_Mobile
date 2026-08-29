@@ -40,7 +40,10 @@ jest.mock('react-native-paper', () => {
     Button,
     TextInput,
     Menu,
-    IconButton: ({ onPress }: any) => React.createElement(TouchableOpacity, { onPress }),
+    IconButton: ({ onPress, accessibilityLabel, testID }: any) => React.createElement(
+      TouchableOpacity,
+      { onPress, accessibilityLabel, testID },
+    ),
   };
 });
 
@@ -179,8 +182,16 @@ jest.mock('../../../src/services/breezSparkService', () => ({
     if (/raw enum value|match any cases|unexpected|unknown|invalid enum discriminator|variant index|uniffi/.test(message)) return 'unreadable';
     return null;
   },
-  getPaymentErrorMessage: (error: unknown) =>
-    error instanceof Error ? error.message : String(error),
+  getPaymentErrorMessage: (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/already[ _-]?(paid|used)|payment.*exist/i.test(message)) {
+      return 'This invoice may already be paid. Check with the recipient before trying again.';
+    }
+    if (/^(?:sdkerror[.: _-]?)?sparkerror$/i.test(message.trim())) {
+      return 'This payment could not be completed. If this invoice was already paid, ask the recipient for a new invoice and try again.';
+    }
+    return message;
+  },
   BreezSparkService: {
     parsePaymentRequest: (...args: unknown[]) => mockParsePaymentRequest(...args),
     prepareSendPayment: (...args: unknown[]) => mockPrepareSendPayment(...args),
@@ -440,21 +451,18 @@ describe('SendScreen on-chain flow', () => {
     fireEvent.changeText(screen.getByPlaceholderText('bc1... or 1... or 3...'), 'not-a-payment-request');
     fireEvent.press(screen.getByText('Preview On-chain Transaction'));
 
-    await waitFor(() => {
-      expect(Alert.alert).toHaveBeenCalledWith(
-        'Payment Error',
-        expect.stringContaining('valid Lightning invoice')
-      );
-    });
+    await waitFor(() => expect(screen.getByText('Payment Error')).toBeTruthy());
+    expect(screen.getByText(/valid Lightning invoice/)).toBeTruthy();
+    expect(Alert.alert).not.toHaveBeenCalled();
 
     mockParsePaymentRequest.mockResolvedValue({ type: 'bitcoinAddress', isValid: true });
     fireEvent.changeText(screen.getByPlaceholderText('bc1... or 1... or 3...'), 'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh');
     fireEvent.changeText(screen.getByTestId('amount-input'), '');
     fireEvent.press(screen.getByText('Preview On-chain Transaction'));
 
-    await waitFor(() => {
-      expect(Alert.alert).toHaveBeenCalledWith('Error', 'Please enter a valid amount in sats');
-    });
+    await waitFor(() => expect(screen.getByText('Error')).toBeTruthy());
+    expect(screen.getByText('Please enter a valid amount in sats')).toBeTruthy();
+    expect(Alert.alert).not.toHaveBeenCalled();
   });
 
 
@@ -489,9 +497,9 @@ describe('SendScreen on-chain flow', () => {
     fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
     fireEvent.press(screen.getByText('Preview On-chain Transaction'));
 
-    await waitFor(() => {
-      expect(Alert.alert).toHaveBeenCalledWith('Payment Error', 'fee quote unavailable');
-    });
+    await waitFor(() => expect(screen.getByText('Payment Error')).toBeTruthy());
+    expect(screen.getByText('fee quote unavailable')).toBeTruthy();
+    expect(Alert.alert).not.toHaveBeenCalled();
   });
 
   it('replaces native enum preparation errors with localized safe invoice copy', async () => {
@@ -508,16 +516,40 @@ describe('SendScreen on-chain flow', () => {
     fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'lnbc1nativeenum');
     fireEvent.press(screen.getByText('Preview Payment'));
 
-    await waitFor(() => {
-      expect(Alert.alert).toHaveBeenCalledWith(
-        'Invoice cannot be read',
-        'This Lightning invoice may be expired or created in a format this version cannot read. Ask the sender for a new invoice and try again.',
-      );
+    await waitFor(() => expect(screen.getByText('Invoice cannot be read')).toBeTruthy());
+    expect(screen.getByText('This Lightning invoice may be expired or created in a format this version cannot read. Ask the sender for a new invoice and try again.')).toBeTruthy();
+    expect(Alert.alert).not.toHaveBeenCalled();
+  });
+
+  it('shows an already-paid send failure inline without leaking the SDK wrapper', async () => {
+    mockParsePaymentRequest.mockResolvedValue({
+      type: 'bolt11',
+      isValid: true,
+      amountSat: 1000,
     });
-    expect(Alert.alert).not.toHaveBeenCalledWith(
-      expect.anything(),
-      expect.stringMatching(/enum|uniffi|variant/i),
-    );
+    mockPrepareSendPayment.mockResolvedValue({ paymentMethod: { tag: 'Bolt11' } });
+    mockSendPayment.mockResolvedValue({
+      success: false,
+      error: 'SdkError.SparkError',
+      errorDetails: 'payment request already exists',
+    });
+
+    renderScreen();
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'lnbc1alreadypaid');
+    fireEvent.press(screen.getByText('Preview Payment'));
+    await waitFor(() => expect(screen.getByText('Payment Preview')).toBeTruthy());
+
+    fireEvent.press(screen.getByText('Send Payment'));
+
+    await waitFor(() => expect(screen.getByTestId('send-inline-error')).toBeTruthy());
+    expect(screen.getByText('Payment Failed')).toBeTruthy();
+    expect(screen.getByText('This invoice may already be paid. Check with the recipient before trying again.')).toBeTruthy();
+    expect(screen.queryByText('SdkError.SparkError')).toBeNull();
+    expect(screen.getAllByTestId('destination-input')[0].props.value).toBe('lnbc1alreadypaid');
+    expect(Alert.alert).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByLabelText('Dismiss payment error'));
+    expect(screen.queryByTestId('send-inline-error')).toBeNull();
   });
 });
 
@@ -575,7 +607,7 @@ describe('SendScreen gallery scan', () => {
     expect(mockRequestCameraPermission).not.toHaveBeenCalled();
   });
 
-  it('replaces raw enum failures with a friendly gallery-scan alert and preserves the invoice', async () => {
+  it('replaces raw enum failures with a friendly inline gallery error and preserves the invoice', async () => {
     mockLaunchImageLibraryAsync.mockResolvedValue({
       canceled: false,
       assets: [{ uri: 'file:///unreadable-invoice.png' }],
@@ -589,14 +621,12 @@ describe('SendScreen gallery scan', () => {
     fireEvent.press(screen.getByText('Gallery Image'));
 
     await waitFor(() => {
-      expect(Alert.alert).toHaveBeenCalledWith(
-        'Invoice cannot be read',
-        expect.stringContaining('may be expired or created in a format'),
-      );
+      expect(screen.getByText('Invoice cannot be read')).toBeTruthy();
+      expect(screen.getByText(/may be expired or created in a format/)).toBeTruthy();
       expect(screen.getAllByTestId('destination-input')[0].props.value)
         .toBe('lnbc1unreadableinvoice');
     });
-    expect(JSON.stringify((Alert.alert as jest.Mock).mock.calls)).not.toMatch(/enum|uniffi|variant/i);
+    expect(Alert.alert).not.toHaveBeenCalled();
   });
 
   it('rejects a confirmed expired gallery invoice and preserves it for replacement', async () => {
@@ -615,13 +645,12 @@ describe('SendScreen gallery scan', () => {
     fireEvent.press(screen.getByText('Gallery Image'));
 
     await waitFor(() => {
-      expect(Alert.alert).toHaveBeenCalledWith(
-        'Invoice expired',
-        expect.stringContaining('Ask the sender for a new invoice'),
-      );
+      expect(screen.getByText('Invoice expired')).toBeTruthy();
+      expect(screen.getByText(/Ask the sender for a new invoice/)).toBeTruthy();
       expect(screen.getAllByTestId('destination-input')[0].props.value)
         .toBe('lnbc1expiredinvoice');
     });
+    expect(Alert.alert).not.toHaveBeenCalled();
   });
 
   it('reprocesses the same gallery image and replaces edited input', async () => {

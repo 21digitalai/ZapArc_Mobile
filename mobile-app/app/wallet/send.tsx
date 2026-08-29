@@ -247,6 +247,7 @@ export default function SendScreen() {
   const [isFetchingFees, setIsFetchingFees] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
   const [usdbLightningError, setUsdbLightningError] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<{ title: string; message: string } | null>(null);
   const [usdbTokenIdentifier, setUsdbTokenIdentifier] = useState<string | null>(null);
   const [usdbInternalDecimals, setUsdbInternalDecimals] = useState<number>(2);
 
@@ -473,6 +474,7 @@ export default function SendScreen() {
     setAmountLocked(false);
     setAddressError(null);
     setUsdbLightningError(null);
+    setPaymentError(null);
   }, []);
 
   const handleTabChange = useCallback(
@@ -493,6 +495,7 @@ export default function SendScreen() {
     setOnchainFeeQuotes(null);
     setAddressError(null);
     setUsdbLightningError(null);
+    setPaymentError(null);
 
     // A fixed invoice owns its amount. Once the user deliberately changes the
     // destination, that amount no longer applies and must not keep the form
@@ -599,17 +602,22 @@ export default function SendScreen() {
     [activeAsset, tickerForTokenIdentifier],
   );
 
+  const showPaymentError = useCallback((title: string, message: string) => {
+    setPaymentError({ title, message });
+  }, []);
+
   const showInvoiceError = useCallback((error: unknown): boolean => {
     const kind = classifyInvoiceError(error);
     if (!kind) return false;
 
     // A camera/gallery scan and the debounced input parser can observe the
-    // same failure almost simultaneously. Show one alert, not two.
+    // same failure almost simultaneously. Keep one inline error, not two
+    // blocking native alerts.
     const now = Date.now();
     const previous = lastInvoiceErrorAlertRef.current;
     if (!previous || previous.kind !== kind || now - previous.at > 1000) {
       lastInvoiceErrorAlertRef.current = { kind, at: now };
-      Alert.alert(
+      showPaymentError(
         kind === 'expired' ? t('send.invoiceExpiredTitle') : t('send.invoiceUnreadableTitle'),
         kind === 'expired' ? t('send.invoiceExpiredMessage') : t('send.invoiceUnreadableMessage'),
       );
@@ -618,7 +626,7 @@ export default function SendScreen() {
     setPreview(null);
     setPrepareResponse(null);
     return true;
-  }, [t]);
+  }, [showPaymentError, t]);
 
   const showParsedInvoiceExpiry = useCallback(
     (parsed: { expiresAt?: number }): boolean => (
@@ -947,11 +955,12 @@ export default function SendScreen() {
 
   const handlePreviewPayment = useCallback(async () => {
     if (!paymentInput.trim()) {
-      Alert.alert(t('common.error'), t('send.enterDestination'));
+      showPaymentError(t('common.error'), t('send.enterDestination'));
       return;
     }
 
     try {
+      setPaymentError(null);
       setIsPreparing(true);
 
       // Strip BIP21/lightning: URI scheme before passing to SDK
@@ -987,7 +996,7 @@ export default function SendScreen() {
       }
 
       if (!parsedRequest.isValid) {
-        Alert.alert(t('send.paymentError'), t('send.invalidPaymentRequest'));
+        showPaymentError(t('send.paymentError'), t('send.invalidPaymentRequest'));
         return;
       }
 
@@ -995,7 +1004,7 @@ export default function SendScreen() {
       // stale invoice before preparing it, but retain paymentInput so the
       // scanned/pasted value remains visible for retry or replacement.
       if (parsedRequest.expiresAt !== undefined && parsedRequest.expiresAt <= Date.now()) {
-        Alert.alert(
+        showPaymentError(
           t('send.invoiceExpiredTitle'),
           t('send.invoiceExpiredMessage'),
         );
@@ -1005,12 +1014,12 @@ export default function SendScreen() {
       }
 
       if (isOnchainFlow && parsedRequest.type !== 'bitcoinAddress') {
-        Alert.alert(t('send.invalidBitcoinAddress'), t('send.invalidOnchainAddress'));
+        showPaymentError(t('send.invalidBitcoinAddress'), t('send.invalidOnchainAddress'));
         return;
       }
 
       if (!isOnchainFlow && parsedRequest.type === 'bitcoinAddress') {
-        Alert.alert(t('send.lightningOnly'), t('send.invalidLightningDestination'));
+        showPaymentError(t('send.lightningOnly'), t('send.invalidLightningDestination'));
         return;
       }
 
@@ -1018,7 +1027,7 @@ export default function SendScreen() {
       if (isOnchainFlow) {
         const parsedAmount = parseFloat(amount);
         if (!parsedAmount || parsedAmount <= 0) {
-          Alert.alert(t('common.error'), t('send.amountRequiredOnchain'));
+          showPaymentError(t('common.error'), t('send.amountRequiredOnchain'));
           return;
         }
         // On-chain is BTC-only — `inputCurrency === 'usdb'` is unreachable
@@ -1028,7 +1037,7 @@ export default function SendScreen() {
           ? Math.floor(parsedAmount)
           : convertToSats(parsedAmount, btcInput);
         if (!satsAmount || satsAmount <= 0) {
-          Alert.alert(t('send.conversionError'), t('send.conversionErrorMessage'));
+          showPaymentError(t('send.conversionError'), t('send.conversionErrorMessage'));
           return;
         }
         paymentAmount = satsAmount;
@@ -1037,7 +1046,7 @@ export default function SendScreen() {
       } else {
         const parsedAmount = parseFloat(amount);
         if (!parsedAmount || parsedAmount <= 0) {
-          Alert.alert(t('common.error'), t('send.invalidAmount'));
+          showPaymentError(t('common.error'), t('send.invalidAmount'));
           return;
         }
         if (isUsdbAsset) {
@@ -1060,7 +1069,7 @@ export default function SendScreen() {
         }
 
         if (!paymentAmount || paymentAmount <= 0) {
-          Alert.alert(t('send.conversionError'), t('send.conversionErrorMessage'));
+          showPaymentError(t('send.conversionError'), t('send.conversionErrorMessage'));
           return;
         }
       }
@@ -1068,7 +1077,7 @@ export default function SendScreen() {
       // Minimum on-chain send to avoid dust issues on the receiving end
       const MIN_ONCHAIN_SATS = 1000;
       if (isOnchainFlow && paymentAmount < MIN_ONCHAIN_SATS) {
-        Alert.alert(
+        showPaymentError(
           t('common.error'),
           `Minimum on-chain send is ${MIN_ONCHAIN_SATS.toLocaleString()} sats. Smaller amounts may be unspendable due to network fees.`
         );
@@ -1087,7 +1096,7 @@ export default function SendScreen() {
         const fmtBalance = isUsdbAsset
           ? `${usdbBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDB`
           : `${balance.toLocaleString()} sats`;
-        Alert.alert(
+        showPaymentError(
           t('send.insufficientBalance'),
           `${fmtAmount} exceeds your balance of ${fmtBalance}.`,
         );
@@ -1164,7 +1173,7 @@ export default function SendScreen() {
       const totalAmount = paymentAmount + feeAmount;
 
       if (totalAmount > balance) {
-        Alert.alert(
+        showPaymentError(
           t('send.insufficientBalance'),
           t('send.insufficientBalanceWithFee')
             .replace('{{total}}', totalAmount.toLocaleString())
@@ -1192,14 +1201,14 @@ export default function SendScreen() {
       if (showInvoiceError(error)) return;
       const errorMessage = getPaymentErrorMessage(error);
 
-      Alert.alert(t('send.paymentError'), errorMessage);
+      showPaymentError(t('send.paymentError'), errorMessage);
       // Clear any stale prepare state from previous attempts
       setPreview(null);
       setPrepareResponse(null);
     } finally {
       setIsPreparing(false);
     }
-  }, [paymentInput, amount, comment, balance, inputCurrency, convertToSats, getOnchainFeeQuote, selectedSpeed, activeTab, isUsdbAsset, usdbTokenIdentifier, isValidUsdbSparkPayment, showInvoiceError, t]);
+  }, [paymentInput, amount, comment, balance, inputCurrency, convertToSats, getOnchainFeeQuote, selectedSpeed, activeTab, isUsdbAsset, usdbTokenIdentifier, isValidUsdbSparkPayment, showInvoiceError, showPaymentError, t]);
 
   const handleSendPayment = useCallback(async () => {
     if (!preview || !prepareResponse) {
@@ -1289,8 +1298,10 @@ export default function SendScreen() {
         }
       } else {
         const errorMsg = result.error || 'Unknown error occurred';
-        const details = result.errorDetails ? `\n\nDetails:\n${result.errorDetails}` : '';
-        Alert.alert(t('send.paymentFailed'), `${errorMsg}${details}`);
+        const diagnosticError = result.errorDetails
+          ? `${errorMsg}\n${result.errorDetails}`
+          : errorMsg;
+        showPaymentError(t('send.paymentFailed'), getPaymentErrorMessage(diagnosticError));
         // Clear stale prepare state so next send attempt doesn't reuse it
         setStep('input');
         setPreview(null);
@@ -1298,8 +1309,7 @@ export default function SendScreen() {
       }
     } catch (error) {
       console.error('Failed to send payment:', error);
-      const msg = error instanceof Error ? error.message : String(error);
-      Alert.alert(t('common.error'), msg);
+      showPaymentError(t('send.paymentFailed'), getPaymentErrorMessage(error));
       // Clear stale prepare state on error too
       setStep('input');
       setPreview(null);
@@ -1308,7 +1318,7 @@ export default function SendScreen() {
       setIsSending(false);
       sendInFlightRef.current = false;
     }
-  }, [preview, prepareResponse, refreshBalance, refreshTransactions, step, selectedSpeed, paymentInput, comment, contacts, t]);
+  }, [preview, prepareResponse, refreshBalance, refreshTransactions, step, selectedSpeed, paymentInput, comment, contacts, showPaymentError, t]);
 
   const handleBackToInput = useCallback(() => {
     setStep('input');
@@ -1364,7 +1374,7 @@ export default function SendScreen() {
       const feeAmount = getOnchainFeeQuote(speed, onchainFeeQuotes);
       const totalAmount = preview.amount + feeAmount;
       if (totalAmount > balance) {
-        Alert.alert(
+        showPaymentError(
           t('send.insufficientBalance'),
           t('send.insufficientBalanceWithFee')
             .replace('{{total}}', totalAmount.toLocaleString())
@@ -1375,13 +1385,14 @@ export default function SendScreen() {
       }
 
       setSelectedSpeed(speed);
+      setPaymentError(null);
       setPreview({
         ...preview,
         fee: feeAmount,
         total: totalAmount,
       });
     },
-    [preview, onchainFeeQuotes, balance, getOnchainFeeQuote]
+    [preview, onchainFeeQuotes, balance, getOnchainFeeQuote, showPaymentError]
   );
 
   const speedOptions = useMemo(
@@ -1408,6 +1419,27 @@ export default function SendScreen() {
     if (!onchainFeeQuotes) return undefined;
     return onchainFeeQuotes[selectedSpeed];
   }, [onchainFeeQuotes, selectedSpeed]);
+
+  const paymentErrorBanner = paymentError ? (
+    <View
+      testID="send-inline-error"
+      accessibilityRole="alert"
+      style={styles.paymentErrorContainer}
+    >
+      <View style={styles.paymentErrorContent}>
+        <Text style={styles.paymentErrorTitle}>{paymentError.title}</Text>
+        <Text style={styles.paymentErrorMessage}>{paymentError.message}</Text>
+      </View>
+      <IconButton
+        icon="close"
+        iconColor="#ffb4ab"
+        size={20}
+        onPress={() => setPaymentError(null)}
+        accessibilityLabel="Dismiss payment error"
+        style={styles.paymentErrorDismiss}
+      />
+    </View>
+  ) : null;
 
   if (step === 'scanning') {
     return (
@@ -1593,6 +1625,8 @@ export default function SendScreen() {
                 </View>
               )}
             </View>
+
+            {paymentErrorBanner}
 
             <View style={styles.buttonRow}>
               <Button
@@ -1971,6 +2005,8 @@ export default function SendScreen() {
               </View>
             </>
           )}
+
+          {paymentErrorBanner}
 
           <Button
             mode="contained"
@@ -2565,6 +2601,37 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderLeftWidth: 3,
     borderLeftColor: '#ff9800',
+  },
+  paymentErrorContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 8,
+    marginBottom: 12,
+    paddingLeft: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 180, 171, 0.45)',
+    backgroundColor: 'rgba(186, 26, 26, 0.16)',
+  },
+  paymentErrorContent: {
+    flex: 1,
+    paddingTop: 1,
+  },
+  paymentErrorTitle: {
+    color: '#ffb4ab',
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  paymentErrorMessage: {
+    color: 'rgba(255, 255, 255, 0.86)',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  paymentErrorDismiss: {
+    margin: -4,
+    marginLeft: 4,
   },
   selectedContactContainer: {
     backgroundColor: 'rgba(255, 193, 7, 0.12)',
