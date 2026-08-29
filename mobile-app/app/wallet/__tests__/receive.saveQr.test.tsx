@@ -35,7 +35,32 @@ import {
   nextReceiveExpiryTime,
   saveReceiveQr,
   shareReceiveQr,
+  shouldHandoffCompletedReceive,
 } from '../receive';
+
+describe('Receive payment handoff', () => {
+  const completedReceive = {
+    id: 'payment-1',
+    type: 'receive' as const,
+    amountSat: 16,
+    feeSat: 0,
+    status: 'completed' as const,
+    timestamp: 1,
+  };
+
+  it('returns to Home for a completed receive while Receive is focused', () => {
+    expect(shouldHandoffCompletedReceive(true, completedReceive)).toBe(true);
+  });
+
+  it.each([
+    ['another screen is focused', false, completedReceive],
+    ['the receive is still pending', true, { ...completedReceive, status: 'pending' as const }],
+    ['the payment is outgoing', true, { ...completedReceive, type: 'send' as const }],
+    ['the event is a sync marker', true, { ...completedReceive, description: '__SYNC_EVENT__' }],
+  ])('does not redirect when %s', (_case, focused, payment) => {
+    expect(shouldHandoffCompletedReceive(focused, payment)).toBe(false);
+  });
+});
 
 describe('Receive QR Save buttons', () => {
   beforeEach(() => mockOnSave.mockClear());

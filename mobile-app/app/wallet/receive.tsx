@@ -24,6 +24,7 @@ import {
   onPaymentReceived,
   getDepositClaimErrorInfo,
   type ReceivePaymentResult,
+  type TransactionInfo,
 } from '../../src/services/breezSparkService';
 import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
 import { useWallet } from '../../src/hooks/useWallet';
@@ -100,6 +101,17 @@ export function nextReceiveExpiryTime(current: number | null, update: ReceiveExp
   return Number.isFinite(update.requestedExpirySecs) && update.requestedExpirySecs > 0
     ? update.now + (update.requestedExpirySecs * 1000)
     : current;
+}
+
+export function shouldHandoffCompletedReceive(
+  isScreenFocused: boolean,
+  payment: TransactionInfo,
+): boolean {
+  return isScreenFocused
+    && payment.description !== '__SYNC_EVENT__'
+    && payment.type === 'receive'
+    && payment.status === 'completed'
+    && payment.amountSat > 0;
 }
 
 // Centered brand logo for QR codes (Wallet-of-Satoshi style). A single
@@ -973,15 +985,17 @@ export default function ReceiveScreen() {
   }, [invoice, expiryTime, handleNewInvoice]);
 
   useEffect(() => {
-    // Only listen while the user is on the invoice page. When unfocused (e.g.
+    // Only listen while the user is on Receive. When unfocused (e.g.
     // they navigated to another screen while this one is still in the stack),
     // we skip — the global home-screen listener handles those receives instead,
     // so we don't yank the user back to home from wherever they are.
-    if (!invoice || !isScreenFocused) return;
+    // This intentionally covers both generated invoices and the reusable
+    // Lightning Address QR. Pending events remain on Receive until Breez emits
+    // the authoritative completed event.
+    if (!isScreenFocused) return;
 
     const unsubscribe = onPaymentReceived((payment) => {
-      if (payment.description === '__SYNC_EVENT__') return;
-      if (payment.type === 'receive' && payment.amountSat > 0) {
+      if (shouldHandoffCompletedReceive(isScreenFocused, payment)) {
         // Hand off to Home and let it show the standard top "Payment received"
         // toast (same one used for receives while already on Home) — instead of
         // a separately-styled, poorly-positioned snackbar on this screen.
@@ -997,7 +1011,7 @@ export default function ReceiveScreen() {
     });
 
     return () => unsubscribe();
-  }, [invoice, isScreenFocused]);
+  }, [isScreenFocused]);
 
   const isLightningTab = activeTab === 'lightning';
 
