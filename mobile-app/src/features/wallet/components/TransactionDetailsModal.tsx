@@ -152,7 +152,7 @@ export function TransactionDetailsModal({
     if (!transaction?.id || diagnosticsAction) return;
     Alert.alert(
       'Export detailed SDK logs?',
-      'This report may contain invoices, addresses, payment identifiers, pubkeys, and device paths. Seeds, private keys, preimages, and credentials are always removed. Share it only with trusted support.',
+      'This report contains detailed Breez SDK context for troubleshooting, including payment and device information. Share it only with trusted support.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -276,7 +276,7 @@ export function TransactionDetailsModal({
             <View style={styles.supportSection}>
               <Text style={[styles.supportTitle, { color: primaryTextColor }]}>Payment diagnostics</Text>
               <Text style={[styles.supportText, { color: secondaryTextColor }]}>
-                Copy a privacy-safe report or up to seven days of sanitized SDK logs for support. Detailed logs are available with a warning and always exclude secrets. Checking status syncs the wallet with Breez and rechecks this payment, reserved funds, and the displayed balance.
+                Copy a privacy-safe report or up to seven days of sanitized SDK logs for support. Detailed logs provide additional Breez context for troubleshooting. Checking status syncs the wallet with Breez and rechecks this payment, reserved funds, and the displayed balance.
               </Text>
               <Button mode="outlined" icon="content-copy" loading={diagnosticsAction === 'copy'} disabled={diagnosticsAction !== null} onPress={() => void reconcile(true)}>
                 Copy diagnostics
