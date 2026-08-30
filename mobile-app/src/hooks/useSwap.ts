@@ -206,13 +206,16 @@ export function useSwap(initialDirection: SwapDirection = 'BTC_TO_USDB', options
     } catch (error) {
       if (seq !== requestSeqRef.current) return;
       setLimitsUnavailable(true);
+      const errorRecord = error && typeof error === 'object'
+        ? error as Record<string, unknown>
+        : {};
       // Surface the raw SDK error so we can see what the actual failure is
       // (e.g., minimum pool amount, missing identifier, AMM illiquidity).
       console.error('❌ [useSwap] runQuote failed', {
-        name: (error as any)?.name,
-        message: (error as any)?.message,
-        code: (error as any)?.code,
-        variant: (error as any)?.variant,
+        name: error instanceof Error ? error.name : undefined,
+        message: error instanceof Error ? error.message : String(error),
+        code: errorRecord.code,
+        variant: errorRecord.variant,
         raw: error,
       });
       if (isRefresh && lastQuoteRef.current) {

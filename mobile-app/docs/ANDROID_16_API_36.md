@@ -25,7 +25,7 @@ build input); both must remain on the same SDK level.
 
 ## Release QA on an API 36 device
 
-- Confirm launch and Breez Spark initialization with the released 0.19.0 SDK.
+- Confirm launch and Breez Spark initialization with the pinned 0.22.3 SDK.
 - Exercise BTC send, receive, payment-state banners, transaction history, QR
   scanning, and `mobile-app://` deep links.
 - Check notification permission, FCM/Breez webhook behavior, background/resume,

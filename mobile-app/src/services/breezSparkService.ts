@@ -513,7 +513,7 @@ export interface SwapQuote {
   feeSat: bigint;
   rate: number;
   usdbDecimals: number;           // for UI formatting of USDB amounts
-  preparedPayment: unknown;
+  preparedPayment: BreezSparkSdk.PrepareSendPaymentResponse;
 }
 
 export interface SwapResult {
@@ -708,7 +708,10 @@ let sdkInstance: BreezSparkSdk.BreezSdkInterface | null = null;
 let _isInitialized = false;
 let cachedResolvedSwapTokens: ResolvedSwapToken[] | null = null;
 const DIAGNOSTICS_APP_METADATA = {
-  name: 'ZapArc Mobile', version: '1.1.9', sdkVersion: 'breez-sdk-spark-react-native@0.22.3', platform: Platform.OS,
+  name: 'ZapArc Mobile',
+  version: String(require('../../package.json').version),
+  sdkVersion: 'breez-sdk-spark-react-native@0.22.3',
+  platform: Platform.OS,
 };
 
 // Event listeners
@@ -1040,7 +1043,16 @@ export async function resolveSwapTokens(): Promise<ResolvedSwapToken[]> {
 
 
 
-export async function getTokenBalances(): Promise<Array<Record<string, unknown>>> {
+export interface NormalizedTokenBalance {
+  [key: string]: unknown;
+  balance: bigint;
+  tokenIdentifier: string;
+  ticker: string;
+  decimals: number;
+  tokenMetadata: BreezSparkSdk.TokenMetadata;
+}
+
+export async function getTokenBalances(): Promise<NormalizedTokenBalance[]> {
   if (!_isNativeAvailable || !sdkInstance) {
     throw new Error('SDK not available');
   }
@@ -1050,17 +1062,13 @@ export async function getTokenBalances(): Promise<Array<Record<string, unknown>>
   // SDK returns `Map<string, TokenBalance>` where TokenBalance =
   // { balance: u128, tokenMetadata: { identifier, ticker, decimals, ... } }
   // Normalize to a flat array of records with the fields useWallet expects.
-  const entries: Array<Record<string, unknown>> = [];
-  const pushEntry = (identifierKey: string | undefined, tb: any): void => {
-    if (!tb || typeof tb !== 'object') return;
-    const meta = (tb.tokenMetadata || tb.metadata || {}) as Record<string, unknown>;
+  const entries: NormalizedTokenBalance[] = [];
+  const pushEntry = (identifierKey: string | undefined, tb: BreezSparkSdk.TokenBalance): void => {
+    const meta = tb.tokenMetadata;
     entries.push({
-      ...tb,
-      ...meta,
-      // Preserve originals + promote key fields to the top level
       balance: tb.balance,
-      tokenIdentifier: meta.identifier || meta.tokenIdentifier || identifierKey,
-      ticker: meta.ticker || (meta as any).symbol,
+      tokenIdentifier: meta.identifier || identifierKey || '',
+      ticker: meta.ticker,
       decimals: meta.decimals,
       tokenMetadata: meta,
     });
@@ -1069,7 +1077,7 @@ export async function getTokenBalances(): Promise<Array<Record<string, unknown>>
   if (raw instanceof Map) {
     for (const [k, v] of raw.entries()) pushEntry(k, v);
   } else if (raw && typeof raw === 'object') {
-    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) pushEntry(k, v);
+    for (const [k, v] of Object.entries(raw as Record<string, BreezSparkSdk.TokenBalance>)) pushEntry(k, v);
   }
 
   return entries;
@@ -1104,10 +1112,11 @@ export async function fetchSwapLimits(direction: SwapDirection): Promise<SwapLim
     }
     console.log('🔬 [fetchSwapLimits] ok', { direction, response });
   } catch (error) {
+    const sdkError = error instanceof Error ? error : null;
     console.error('❌ [fetchSwapLimits] threw', {
       direction,
-      name: (error as any)?.name,
-      message: (error as any)?.message,
+      name: sdkError?.name,
+      message: extractSdkErrorMessage(error, 'Failed to fetch conversion limits'),
       raw: error,
     });
     throw error;
@@ -1149,11 +1158,12 @@ export async function prepareSwap(params: PrepareSwapParams): Promise<SwapQuote>
       paymentRequest: String(receivePayment?.paymentRequest || '').slice(0, 60) + '...',
     });
   } catch (error) {
+    const sdkError = error instanceof Error ? error : null;
     console.error('❌ [prepareSwap] receivePayment threw', {
       step: 'self-receive',
       direction: params.direction,
-      name: (error as any)?.name,
-      message: (error as any)?.message,
+      name: sdkError?.name,
+      message: extractSdkErrorMessage(error, 'Failed to create swap receive request'),
       raw: error,
     });
     throw error;
@@ -1236,13 +1246,14 @@ export async function prepareSwap(params: PrepareSwapParams): Promise<SwapQuote>
       hasResponse: !!preparedPayment,
     });
   } catch (error) {
+    const sdkError = error instanceof Error ? error : null;
     console.error('❌ [prepareSwap] prepareSendPayment threw', {
       step: 'prepare-send',
       direction: params.direction,
       amount: params.amount.toString(),
       slippageBps: params.slippageBps,
-      name: (error as any)?.name,
-      message: (error as any)?.message,
+      name: sdkError?.name,
+      message: extractSdkErrorMessage(error, 'Failed to prepare swap'),
       raw: error,
     });
     throw error;
@@ -1329,10 +1340,7 @@ export async function executeSwap(quote: SwapQuote): Promise<SwapOutcome> {
     //   • FromBitcoin (BTC→USDB): amount is in TOKEN BASE UNITS (USDB)
     //   • ToBitcoin (USDB→BTC):   amount is in SATS (destination BTC)
     // prepareSwap stored the correctly-denominated amount on quote.preparedPayment.amount.
-    const storedAmount =
-      quote.preparedPayment && typeof quote.preparedPayment === 'object'
-        ? BigInt(String((quote.preparedPayment as any).amount ?? 0))
-        : 0n;
+    const storedAmount = quote.preparedPayment.amount;
 
     const conversionType =
       quote.direction === 'BTC_TO_USDB'
@@ -1395,29 +1403,32 @@ export async function executeSwap(quote: SwapQuote): Promise<SwapOutcome> {
   } catch (error) {
     // Dump every angle on the error so truncation in the Metro monitor
     // doesn't hide the underlying message.
-    const e = error as any;
+    const e = error instanceof Error ? error : null;
+    const errorRecord = error && typeof error === 'object'
+      ? error as Record<string, unknown>
+      : {};
     try {
       console.error('❌ [executeSwap] sendPayment threw (full)', JSON.stringify({
         name: e?.name,
         message: e?.message,
         toString: String(e),
-        code: e?.code,
-        variant: e?.variant,
+        code: errorRecord.code,
+        variant: errorRecord.variant,
         cause: e?.cause && String(e.cause),
-        keys: e && typeof e === 'object' ? Object.keys(e) : [],
+        keys: Object.keys(errorRecord),
       }));
     } catch {
       console.error('❌ [executeSwap] sendPayment threw (string):', String(e));
     }
-    console.error('❌ [executeSwap] sendPayment threw (raw):', e);
+    console.error('❌ [executeSwap] sendPayment threw (raw):', error);
     // Also dump every property on the error so nothing is hidden behind
     // non-enumerable fields.
     try {
-      const own = Object.getOwnPropertyNames(e || {});
+      const own = Object.getOwnPropertyNames(errorRecord);
       const dump: Record<string, unknown> = {};
       for (const k of own) {
         try {
-          const v = (e as any)[k];
+          const v = errorRecord[k];
           dump[k] = typeof v === 'object' ? JSON.stringify(v) : String(v);
         } catch {
           dump[k] = '<unserializable>';
@@ -2059,17 +2070,17 @@ export async function getBalance(): Promise<WalletBalance> {
   }
 
   try {
-    // First try to get balance from getInfo()
+    // getInfo() is authoritative for settled balance in Breez 0.22.3, but it
+    // no longer exposes pending send/receive totals. Always combine it with
+    // the freshly synced typed payment list instead of treating missing
+    // pending fields as zero.
     try {
       const info = await sdkInstance.getInfo(makeGetInfoRequest(true));
       if (info) {
+        const pending = await derivePendingPaymentTotals(sdkInstance);
         return {
-          // GetInfoResponse in Breez 0.22.3 contains only the settled balance.
-          // Pending totals are unavailable on this fast path; the payment-list
-          // fallback below derives them from typed Payment records.
           balanceSat: Number(info.balanceSats),
-          pendingSendSat: 0,
-          pendingReceiveSat: 0,
+          ...pending,
         };
       }
     } catch (infoError) {
@@ -2122,6 +2133,31 @@ export async function getBalance(): Promise<WalletBalance> {
     console.error('❌ [BreezSparkService] Failed to get balance:', error);
     return { balanceSat: 0, pendingSendSat: 0, pendingReceiveSat: 0 };
   }
+}
+
+async function derivePendingPaymentTotals(
+  sdk: BreezSparkSdk.BreezSdkInterface,
+): Promise<Pick<WalletBalance, 'pendingSendSat' | 'pendingReceiveSat'>> {
+  const response = await sdk.listPayments(makeListPaymentsRequest(false));
+  let pendingSendSat = 0;
+  let pendingReceiveSat = 0;
+
+  for (const payment of response.payments) {
+    if (payment.status !== BreezSDK.PaymentStatus.Pending) continue;
+    // Token payment amounts are base units, not sats, and must never be mixed
+    // into the Bitcoin pending totals shown by diagnostics.
+    if (payment.details?.tag === BreezSDK.PaymentDetails_Tags.Token) continue;
+
+    const amount = Number(payment.amount);
+    if (!Number.isFinite(amount) || amount < 0) continue;
+    if (payment.paymentType === BreezSDK.PaymentType.Receive) {
+      pendingReceiveSat += amount;
+    } else {
+      pendingSendSat += amount;
+    }
+  }
+
+  return { pendingSendSat, pendingReceiveSat };
 }
 
 /**
@@ -2881,11 +2917,13 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
   let syncSucceeded = false;
   let syncFailure: string | undefined;
   const sourceFailures: { payment?: string; paymentFallback?: string; wallet?: string } = {};
-  let authoritativeInfo: { balanceSats?: unknown; pendingSendSats?: unknown; pendingReceiveSats?: unknown } | null = null;
+  let authoritativeInfo: BreezSparkSdk.GetInfoResponse | null = null;
+  let authoritativePending: Pick<WalletBalance, 'pendingSendSat' | 'pendingReceiveSat'> | null = null;
   try {
     if (!sdkInstance) throw new Error('Wallet SDK unavailable');
     // getInfo with ensureSynced is the SDK's authoritative export-time read.
     authoritativeInfo = await sdkInstance.getInfo(makeGetInfoRequest(true));
+    authoritativePending = await derivePendingPaymentTotals(sdkInstance);
     syncSucceeded = true;
   } catch (error) {
     syncFailure = extractSafeDiagnosticFailure(error, 'Wallet sync unavailable');
@@ -2929,9 +2967,9 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
   }
   try {
     balance = authoritativeInfo ? {
-      balanceSat: Number(authoritativeInfo.balanceSats || 0),
-      pendingSendSat: Number(authoritativeInfo.pendingSendSats || 0),
-      pendingReceiveSat: Number(authoritativeInfo.pendingReceiveSats || 0),
+      balanceSat: Number(authoritativeInfo.balanceSats),
+      pendingSendSat: authoritativePending?.pendingSendSat ?? 0,
+      pendingReceiveSat: authoritativePending?.pendingReceiveSat ?? 0,
     } : await getBalance();
   } catch (error) {
     sourceFailures.wallet = extractSafeDiagnosticFailure(error, 'Balance lookup unavailable');
@@ -2963,9 +3001,11 @@ export async function exportPaymentDiagnostics(paymentId: string): Promise<strin
     breez: {
       getPaymentResponse: { payment: breezPayment ? sanitizeBreezPaymentSnapshot(breezPayment) : null },
       getInfoResponse: authoritativeInfo ? {
-        ...(authoritativeInfo.balanceSats !== undefined ? { balanceSats: String(authoritativeInfo.balanceSats) } : {}),
-        ...(authoritativeInfo.pendingSendSats !== undefined ? { pendingSendSats: String(authoritativeInfo.pendingSendSats) } : {}),
-        ...(authoritativeInfo.pendingReceiveSats !== undefined ? { pendingReceiveSats: String(authoritativeInfo.pendingReceiveSats) } : {}),
+        balanceSats: String(authoritativeInfo.balanceSats),
+        ...(authoritativePending ? {
+          pendingSendSats: String(authoritativePending.pendingSendSat),
+          pendingReceiveSats: String(authoritativePending.pendingReceiveSat),
+        } : {}),
       } : null,
       redactions: [
         'getInfoResponse.identityPubkey',

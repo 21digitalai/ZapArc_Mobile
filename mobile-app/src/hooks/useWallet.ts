@@ -53,6 +53,28 @@ async function enrollNewMasterKeyBiometricPin(masterKeyId: string, pin: string):
 
 export type TokenBalanceEntry = Record<string, unknown>;
 
+function tokenIdentifierOf(entry: TokenBalanceEntry): string {
+  if (typeof entry.tokenIdentifier === 'string') return entry.tokenIdentifier.trim();
+  const metadata = entry.tokenMetadata;
+  if (!metadata || typeof metadata !== 'object') return '';
+  const identifier = (metadata as Record<string, unknown>).identifier;
+  return typeof identifier === 'string' ? identifier.trim() : '';
+}
+
+function makeOptimisticTokenBalance(
+  balance: bigint,
+  tokenIdentifier: string,
+  decimals: number,
+): TokenBalanceEntry {
+  return {
+    balance,
+    tokenIdentifier,
+    ticker: 'USDB',
+    decimals,
+    tokenMetadata: { identifier: tokenIdentifier, ticker: 'USDB', decimals },
+  };
+}
+
 export interface WalletState {
   // Status
   isLoading: boolean; // Initial load or no cached data
@@ -852,7 +874,7 @@ export function useWalletStateInternal(): WalletState & WalletActions {
           // which would otherwise flash the USDB balance to 0. Only accept
           // an empty array if the BTC balance is also 0 (genuinely empty
           // wallet) or we previously had no tokens to begin with.
-          let effectiveTokens: TokenBalanceEntry[] = tokenBalancesRaw as TokenBalanceEntry[];
+          let effectiveTokens: TokenBalanceEntry[] = tokenBalancesRaw;
           setTokenBalances((prev) => {
             // During any optimistic window keep token state as-is — Breez sync
             // is likely still behind and its data would set us back to a
@@ -925,9 +947,7 @@ export function useWalletStateInternal(): WalletState & WalletActions {
       setBalance((prev) => Math.max(0, prev - Number(spent)));
       setTokenBalances((prev) => {
         const existingIdx = prev.findIndex((e) => {
-          const r = e as Record<string, unknown>;
-          const id = String(r.tokenIdentifier || (r.tokenMetadata as any)?.identifier || '').trim();
-          return id === tokenIdentifier;
+          return tokenIdentifierOf(e) === tokenIdentifier;
         });
         if (existingIdx >= 0) {
           const existing = prev[existingIdx] as Record<string, unknown>;
@@ -943,13 +963,7 @@ export function useWalletStateInternal(): WalletState & WalletActions {
         // replaced with the full SDK shape on the next refresh.
         return [
           ...prev,
-          {
-            balance: received,
-            tokenIdentifier,
-            ticker: 'USDB',
-            decimals: tokenDecimals,
-            tokenMetadata: { identifier: tokenIdentifier, ticker: 'USDB', decimals: tokenDecimals },
-          } as unknown as TokenBalanceEntry,
+          makeOptimisticTokenBalance(received, tokenIdentifier, tokenDecimals),
         ];
       });
     } else {
@@ -957,9 +971,7 @@ export function useWalletStateInternal(): WalletState & WalletActions {
       setBalance((prev) => prev + Number(received));
       setTokenBalances((prev) => {
         const existingIdx = prev.findIndex((e) => {
-          const r = e as Record<string, unknown>;
-          const id = String(r.tokenIdentifier || (r.tokenMetadata as any)?.identifier || '').trim();
-          return id === tokenIdentifier;
+          return tokenIdentifierOf(e) === tokenIdentifier;
         });
         if (existingIdx < 0) return prev;
         const existing = prev[existingIdx] as Record<string, unknown>;
@@ -1024,9 +1036,7 @@ export function useWalletStateInternal(): WalletState & WalletActions {
       const prevTokens = tokenBalancesRef.current;
       let updatedTokens: TokenBalanceEntry[];
       const idx = prevTokens.findIndex((e) => {
-        const r = e as Record<string, unknown>;
-        const id = String(r.tokenIdentifier || (r.tokenMetadata as any)?.identifier || '').trim();
-        return id === tokenIdentifier;
+        return tokenIdentifierOf(e) === tokenIdentifier;
       });
       if (direction === 'BTC_TO_USDB') {
         if (idx >= 0) {
@@ -1040,13 +1050,7 @@ export function useWalletStateInternal(): WalletState & WalletActions {
         } else {
           updatedTokens = [
             ...prevTokens,
-            {
-              balance: received,
-              tokenIdentifier,
-              ticker: 'USDB',
-              decimals: tokenDecimals,
-              tokenMetadata: { identifier: tokenIdentifier, ticker: 'USDB', decimals: tokenDecimals },
-            } as unknown as TokenBalanceEntry,
+            makeOptimisticTokenBalance(received, tokenIdentifier, tokenDecimals),
           ];
         }
       } else if (idx >= 0) {
@@ -1355,9 +1359,7 @@ export function useWalletStateInternal(): WalletState & WalletActions {
         const delta = BigInt(payment.amountSat);
         setTokenBalances((prev) => {
           const idx = prev.findIndex((e) => {
-            const r = e as Record<string, unknown>;
-            const id = String(r.tokenIdentifier || (r.tokenMetadata as any)?.identifier || '').trim();
-            return id === tokenId;
+            return tokenIdentifierOf(e) === tokenId;
           });
           if (idx >= 0) {
             const existing = prev[idx] as Record<string, unknown>;
@@ -1370,13 +1372,7 @@ export function useWalletStateInternal(): WalletState & WalletActions {
           }
           return [
             ...prev,
-            {
-              balance: delta,
-              tokenIdentifier: tokenId,
-              ticker: 'USDB',
-              decimals: 6,
-              tokenMetadata: { identifier: tokenId, ticker: 'USDB', decimals: 6 },
-            } as unknown as TokenBalanceEntry,
+            makeOptimisticTokenBalance(delta, tokenId, 6),
           ];
         });
       } else {

@@ -79,6 +79,9 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => {
     Network: { Mainnet: 'mainnet' },
     MaxFee: { NetworkRecommended: function (inner: unknown) { return { ...((inner as object) || {}) }; } },
     ConversionType: { FromBitcoin, ToBitcoin },
+    PaymentStatus: { Completed: 0, Pending: 1, Failed: 2 },
+    PaymentType: { Send: 0, Receive: 1 },
+    PaymentDetails_Tags: { Spark: 0, Token: 1, Lightning: 2, Withdraw: 3, Deposit: 4 },
     ReceivePaymentMethod: {
       SparkInvoice: { new: jest.fn((inner) => ({ tag: 'SparkInvoice', inner })) },
     },
@@ -136,6 +139,26 @@ describe('breezSparkService swap helpers', () => {
     expect(first[0]).toMatchObject({ id: 'USDB', tokenIdentifier: 'usdb-token-id', internalDecimals: 6 });
     expect(second[0].tokenIdentifier).toBe('usdb-token-id');
     expect(mockSdk.getTokensMetadata).toHaveBeenCalledTimes(1);
+  });
+
+  it('derives pending sat totals from typed payments while keeping getInfo balance authoritative', async () => {
+    const svc = await initAndResolve();
+    mockSdk.getInfo.mockResolvedValue({ balanceSats: 1_000n, tokenBalances: new Map() });
+    mockSdk.listPayments.mockResolvedValue({
+      payments: [
+        { status: 1, paymentType: 0, amount: 75n, details: { tag: 2 } },
+        { status: 1, paymentType: 1, amount: 25n, details: { tag: 0 } },
+        // Token base units must not leak into Bitcoin pending totals.
+        { status: 1, paymentType: 0, amount: 999_999n, details: { tag: 1 } },
+        { status: 0, paymentType: 0, amount: 50n, details: { tag: 2 } },
+      ],
+    });
+
+    await expect(svc.getBalance()).resolves.toEqual({
+      balanceSat: 1_000,
+      pendingSendSat: 75,
+      pendingReceiveSat: 25,
+    });
   });
 
   it('fetches BTC->USDB limits with FromBitcoin conversionType', async () => {
