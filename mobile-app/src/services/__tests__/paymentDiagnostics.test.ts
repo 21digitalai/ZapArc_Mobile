@@ -70,6 +70,7 @@ describe('payment diagnostics privacy and reconciliation', () => {
       paymentId: 'payment-detailed',
       paymentTimestampMs: now,
       app: { name: 'ZapArc Mobile', version: 'test', sdkVersion: 'test', platform: 'ios' },
+      paymentDiagnostics: { breez: { getPaymentResponse: { payment: { id: 'payment-detailed' } } } },
     }));
     const serialized = JSON.stringify(payload);
     expect(payload.exportType).toBe('detailed-sdk-support-logs');
@@ -79,6 +80,8 @@ describe('payment diagnostics privacy and reconciliation', () => {
     expect(serialized).not.toContain('topsecret');
     expect(serialized).toContain('[redacted:secret]');
     expect(serialized).toContain('[redacted:credential]');
+    expect(payload.authoritativePaymentDiagnostics.breez.getPaymentResponse.payment.id).toBe('payment-detailed');
+    expect(payload.fullRetainedSdkLogs.length).toBeGreaterThan(0);
   });
 
   it('always removes fund-control and authentication secrets from detailed logs', () => {

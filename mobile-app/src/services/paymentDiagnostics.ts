@@ -7,9 +7,9 @@ export const DIAGNOSTIC_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 /** The complete persisted journal stays deliberately small even with long error text. */
 export const DIAGNOSTIC_MAX_BYTES = 12_000;
 export const DIAGNOSTIC_LOG_RING_MAX_ENTRIES = 20;
-export const SDK_SUPPORT_LOG_MAX_ENTRIES = 400;
+export const SDK_SUPPORT_LOG_MAX_ENTRIES = 2_000;
 export const SDK_SUPPORT_LOG_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-export const SDK_SUPPORT_LOG_MAX_BYTES = 240_000;
+export const SDK_SUPPORT_LOG_MAX_BYTES = 3_000_000;
 
 export interface SanitizedSdkLog {
   at: string;
@@ -298,6 +298,8 @@ export async function buildDetailedSdkSupportLogsExport(input: {
   paymentId: string;
   paymentTimestampMs?: number;
   app: { name: string; version: string; sdkVersion: string; platform: string };
+  /** Fresh, payment-specific Breez/ZapArc snapshot captured immediately before export. */
+  paymentDiagnostics?: unknown;
 }): Promise<string> {
   await flushSdkSupportLogs();
   await loadSdkSupportLogs();
@@ -310,6 +312,9 @@ export async function buildDetailedSdkSupportLogsExport(input: {
   const paymentLogs = input.paymentTimestampMs
     ? sdkSupportLogs.filter((entry) => Math.abs(Date.parse(entry.at) - input.paymentTimestampMs!) <= windowMs).map(toDetailedEntry)
     : [];
+  const exactPaymentLogs = sdkSupportLogs
+    .filter((entry) => (entry.detailedMessage || entry.message).includes(input.paymentId))
+    .map(toDetailedEntry);
   const recentLogs = sdkSupportLogs.filter((entry) => Date.parse(entry.at) >= now - windowMs).map(toDetailedEntry);
   return JSON.stringify({
     schemaVersion: 1,
@@ -321,12 +326,16 @@ export async function buildDetailedSdkSupportLogsExport(input: {
       paymentId: input.paymentId,
       paymentTimestamp: input.paymentTimestampMs ? new Date(input.paymentTimestampMs).toISOString() : null,
       windowMinutes: 15,
+      exactPaymentLogMatchAvailable: exactPaymentLogs.length > 0,
     },
     retention: { maxAgeDays: 7, maxEntries: SDK_SUPPORT_LOG_MAX_ENTRIES, sanitized: false, secretsAlwaysRedacted: true },
     mandatoryRedactions: ['seed and mnemonic material', 'private keys', 'preimages and proofs', 'API keys and authentication credentials'],
+    authoritativePaymentDiagnostics: input.paymentDiagnostics || null,
+    exactPaymentLogs,
     paymentWindowAvailable: paymentLogs.length > 0,
     paymentWindowLogs: paymentLogs,
     recentWindowLogs: recentLogs,
+    fullRetainedSdkLogs: sdkSupportLogs.map(toDetailedEntry),
   }, null, 2);
 }
 

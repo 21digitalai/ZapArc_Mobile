@@ -3056,10 +3056,24 @@ export async function exportSdkSupportLogs(paymentId: string, paymentTimestampMs
 }
 
 export async function exportDetailedSdkSupportLogs(paymentId: string, paymentTimestampMs?: number): Promise<string> {
+  // Capture a fresh authoritative Breez snapshot first. This performs an
+  // ensure-synced getInfo, derives pending totals from listPayments, and calls
+  // getPayment for the selected ID. The detailed export then combines that
+  // current state with the retained SDK log history.
+  let paymentDiagnostics: unknown = null;
+  try {
+    paymentDiagnostics = JSON.parse(await exportPaymentDiagnostics(paymentId));
+  } catch (error) {
+    paymentDiagnostics = {
+      unavailable: true,
+      reason: extractSafeDiagnosticFailure(error, 'Authoritative payment diagnostics unavailable'),
+    };
+  }
   return buildDetailedSdkSupportLogsExport({
     paymentId,
     paymentTimestampMs,
     app: DIAGNOSTICS_APP_METADATA,
+    paymentDiagnostics,
   });
 }
 
