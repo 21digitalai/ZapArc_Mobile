@@ -932,6 +932,7 @@ export function HomeScreen(): React.JSX.Element {
   const renderTransaction = (row: TransactionRow, index: number): React.JSX.Element => {
     const tx = row.transaction;
     const isReceived = row.displayType === 'receive';
+    const isFailed = tx.status === 'failed';
     const method = row.isSwap ? 'swap' : (tx.method || (tx.txid ? 'onchain' : 'lightning'));
     const isDirectUsdbTransfer = !row.isSwap && tx.asset === 'USDB';
     // For swap rows, the display asset equals the current tab - the row's
@@ -967,19 +968,19 @@ export function HomeScreen(): React.JSX.Element {
     return (
       <TouchableOpacity
         key={row.id || tx.id || index}
-        style={styles.transactionItem}
+        style={[styles.transactionItem, isFailed && styles.transactionItemFailed]}
         onPress={() => {
           setSelectedTransaction(tx);
           setSelectedSwapRow(row.isSwap ? row : null);
         }}
       >
-        <View style={styles.transactionIcon}>
-          <Text style={[styles.transactionIconText, { color: primaryTextColor }]}>
-            {method === 'swap' ? '⇄' : method === 'onchain' ? '⛓️' : '⚡'}
+        <View style={[styles.transactionIcon, isFailed && styles.transactionIconFailed]}>
+          <Text style={[styles.transactionIconText, { color: isFailed ? '#FF6B6B' : primaryTextColor }]}>
+            {isFailed ? '✕' : method === 'swap' ? '⇄' : method === 'onchain' ? '⛓️' : '⚡'}
           </Text>
         </View>
         <View style={styles.transactionInfo}>
-          <Text style={[styles.transactionDescription, { color: primaryTextColor }]} numberOfLines={1}>
+          <Text style={[styles.transactionDescription, { color: isFailed ? '#FF8A8A' : primaryTextColor }]} numberOfLines={1}>
             {row.displayDescription
               || (tx.isProvisionalClaim ? t('deposit.onchainDeposit') : tx.description)
               || (isReceived ? t('wallet.received') : t('wallet.sent'))}
@@ -2010,6 +2011,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
+  transactionItemFailed: {
+    backgroundColor: 'rgba(255, 107, 107, 0.10)',
+    borderBottomColor: 'rgba(255, 107, 107, 0.45)',
+    borderLeftWidth: 3,
+    borderLeftColor: '#FF6B6B',
+  },
   transactionIcon: {
     width: 40,
     height: 40,
@@ -2018,6 +2025,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+  },
+  transactionIconFailed: {
+    backgroundColor: 'rgba(255, 107, 107, 0.20)',
   },
   transactionIconText: {
     fontSize: 18,

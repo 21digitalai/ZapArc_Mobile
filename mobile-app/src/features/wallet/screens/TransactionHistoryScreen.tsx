@@ -209,6 +209,7 @@ export function TransactionHistoryScreen(): React.JSX.Element {
   const renderTransaction = (row: TransactionRow): React.JSX.Element => {
     const tx = row.transaction;
     const isReceived = row.displayType === 'receive';
+    const isFailed = tx.status === 'failed';
     const method = row.isSwap ? 'swap' : (tx.method || (tx.txid ? 'onchain' : 'lightning'));
     const isDirectUsdbTransfer = !row.isSwap && tx.asset === 'USDB';
     const txIcon = isDirectUsdbTransfer ? (isReceived ? '$↓' : '$↑') : (method === 'swap' ? '⇄' : method === 'onchain' ? '⛓️' : '⚡');
@@ -234,7 +235,7 @@ export function TransactionHistoryScreen(): React.JSX.Element {
 
     return (
       <TouchableOpacity
-        style={styles.transactionItem}
+        style={[styles.transactionItem, isFailed && styles.transactionItemFailed]}
         onPress={() => {
           setSelectedTransaction(tx);
           setSelectedSwapRow(row.isSwap ? row : null);
@@ -243,16 +244,16 @@ export function TransactionHistoryScreen(): React.JSX.Element {
         <View
           style={[
             styles.transactionIcon,
-            isReceived ? styles.iconReceived : styles.iconSent,
+            isFailed ? styles.iconFailed : (isReceived ? styles.iconReceived : styles.iconSent),
           ]}
         >
-          <Text style={[styles.transactionIconText, { color: primaryTextColor }]}>
-            {method === 'swap' ? '⇄' : method === 'onchain' ? '⛓️' : '⚡'}
+          <Text style={[styles.transactionIconText, { color: isFailed ? '#FF6B6B' : primaryTextColor }]}>
+            {isFailed ? '✕' : method === 'swap' ? '⇄' : method === 'onchain' ? '⛓️' : '⚡'}
           </Text>
         </View>
 
         <View style={styles.transactionInfo}>
-          <Text style={[styles.transactionDescription, { color: primaryTextColor }]} numberOfLines={1}>
+          <Text style={[styles.transactionDescription, { color: isFailed ? '#FF8A8A' : primaryTextColor }]} numberOfLines={1}>
             {row.displayDescription
               || (tx.isProvisionalClaim ? t('deposit.onchainDeposit') : tx.description)
               || (isReceived ? t('wallet.receivedPayment') : t('wallet.sentPayment'))}
@@ -859,6 +860,13 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 8,
   },
+  transactionItemFailed: {
+    backgroundColor: 'rgba(255, 107, 107, 0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.45)',
+    borderLeftWidth: 3,
+    borderLeftColor: '#FF6B6B',
+  },
   transactionIcon: {
     width: 40,
     height: 40,
@@ -872,6 +880,9 @@ const styles = StyleSheet.create({
   },
   iconSent: {
     backgroundColor: 'rgba(255, 107, 107, 0.2)',
+  },
+  iconFailed: {
+    backgroundColor: 'rgba(255, 107, 107, 0.20)',
   },
   transactionIconText: {
     fontSize: 18,
