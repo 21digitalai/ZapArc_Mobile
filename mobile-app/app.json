@@ -2,7 +2,7 @@
   "expo": {
     "name": "ZapArc",
     "slug": "mobile-app",
-    "version": "1.1.12",
+    "version": "1.1.13",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.zaparc.app",
-      "buildNumber": "33",
+      "buildNumber": "34",
       "appleTeamId": "JY93CF5N7U",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
@@ -31,7 +31,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.zaparc.app",
-      "versionCode": 86,
+      "versionCode": 87,
       "googleServicesFile": "./android/app/google-services.json",
       "permissions": [
         "android.permission.CAMERA",
