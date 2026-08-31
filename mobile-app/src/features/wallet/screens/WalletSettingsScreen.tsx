@@ -356,6 +356,23 @@ export function WalletSettingsScreen(): React.JSX.Element {
               descriptionStyle={[styles.listDescription, { color: secondaryTextColor }]}
               style={styles.listItem}
             />
+
+            <Divider style={styles.divider} />
+
+            <List.Item
+              title={t('settings.termsOfService')}
+              description={t('settings.asIsDescription')}
+              left={(props) => (
+                <List.Icon {...props} icon="file-document-outline" color={BRAND_COLOR} />
+              )}
+              right={(props) => (
+                <List.Icon {...props} icon="chevron-right" color={secondaryTextColor} />
+              )}
+              onPress={() => router.push('/wallet/settings/terms')}
+              titleStyle={[styles.listTitle, { color: primaryTextColor }]}
+              descriptionStyle={[styles.listDescription, { color: secondaryTextColor }]}
+              style={styles.listItem}
+            />
           </View>
 
           <View style={styles.bottomSpacer} />

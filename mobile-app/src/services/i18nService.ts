@@ -415,6 +415,7 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
       version: 'Version',
       privacyPolicy: 'Privacy Policy',
       termsOfService: 'Terms of Service',
+      asIsDescription: 'Self-custody, risk, warranties, and liability',
       logout: 'Log out',
       // Settings sections
       walletConfiguration: 'Wallet Configuration',
@@ -560,6 +561,7 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
       subWalletCreated: 'Sub-wallet created successfully',
       subWalletFailed: 'Failed to add sub-wallet',
       termsAgreement: 'By continuing, you agree to our Terms of Service',
+      termsAgreementPrefix: 'By continuing, you agree to our',
       locationPermission: 'Location access helps us provide a better experience',
       allowLocation: 'Allow Location',
       skipLocation: 'Skip for now',
@@ -1104,6 +1106,7 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
       version: 'Версия',
       privacyPolicy: 'Политика за поверителност',
       termsOfService: 'Условия за ползване',
+      asIsDescription: 'Self-custody, риск, гаранции и отговорност',
       logout: 'Изход',
       // Settings sections
       walletConfiguration: 'Конфигурация на портфейла',
@@ -1249,6 +1252,7 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
       subWalletCreated: 'Под-портфейлът е създаден успешно',
       subWalletFailed: 'Неуспешно добавяне на под-портфейл',
       termsAgreement: 'Продължавайки, вие се съгласявате с нашите Условия за ползване',
+      termsAgreementPrefix: 'Продължавайки, вие се съгласявате с нашите',
       locationPermission: 'Достъпът до местоположение ни помага да предоставим по-добро изживяване',
       allowLocation: 'Разреши местоположение',
       skipLocation: 'Пропусни засега',

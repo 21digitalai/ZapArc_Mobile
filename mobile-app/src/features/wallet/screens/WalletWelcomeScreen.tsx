@@ -195,7 +195,14 @@ export function WalletWelcomeScreen(): React.JSX.Element {
           {!activeMasterKey && (
             <View style={styles.footer}>
               <Text style={[styles.footerText, { color: secondaryText }]}>
-                {t('onboarding.termsAgreement')}
+                {t('onboarding.termsAgreementPrefix')}{' '}
+                <Text
+                  accessibilityRole="link"
+                  onPress={() => router.push('/wallet/settings/terms')}
+                  style={[styles.footerText, { color: BRAND_COLOR, textDecorationLine: 'underline' }]}
+                >
+                  {t('settings.termsOfService')}
+                </Text>
               </Text>
             </View>
           )}
