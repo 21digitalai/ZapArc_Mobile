@@ -31,7 +31,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.zaparc.app",
-      "versionCode": 87,
+      "versionCode": 88,
       "googleServicesFile": "./android/app/google-services.json",
       "permissions": [
         "android.permission.CAMERA",
