@@ -12,6 +12,8 @@ import {
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { Button, Divider, IconButton, Text } from 'react-native-paper';
 
 import { useAppTheme } from '../../../contexts/ThemeContext';
@@ -94,7 +96,9 @@ export function TransactionDetailsModal({
   const showToast = useCallback((message: string, long = false): void => {
     if (Platform.OS === 'android' && ToastAndroid?.show) {
       ToastAndroid.show(message, long ? ToastAndroid.LONG : ToastAndroid.SHORT);
+      return;
     }
+    Alert.alert('ZapArc', message);
   }, []);
 
   const reconcile = useCallback(async (copy: boolean): Promise<void> => {
@@ -137,20 +141,36 @@ export function TransactionDetailsModal({
     if (!transaction?.id || diagnosticsAction) return;
     Alert.alert(
       'Export detailed SDK logs?',
-      'This report contains detailed Breez SDK context for troubleshooting, including payment and device information. Share it only with trusted support.',
+      'This report contains detailed Breez SDK context for troubleshooting, including payment and device information. It will open as a JSON file that you can save or share with trusted support.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Copy detailed logs',
+          text: 'Export detailed logs',
           style: 'destructive',
           onPress: () => {
             setDiagnosticsAction('detailedLogs');
             void exportDetailedSdkSupportLogs(transaction.id, transaction.timestamp)
               .then(async (payload) => {
-                await Clipboard.setStringAsync(payload);
-                showToast('Detailed SDK support logs copied', true);
+                if (!FileSystem.cacheDirectory) {
+                  throw new Error('Temporary file storage is unavailable');
+                }
+                if (!await Sharing.isAvailableAsync()) {
+                  throw new Error('File sharing is unavailable on this device');
+                }
+                const fileUri = `${FileSystem.cacheDirectory}zaparc-sdk-logs-${transaction.id}-${Date.now()}.json`;
+                await FileSystem.writeAsStringAsync(fileUri, payload, {
+                  encoding: FileSystem.EncodingType.UTF8,
+                });
+                await Sharing.shareAsync(fileUri, {
+                  mimeType: 'application/json',
+                  dialogTitle: 'Export ZapArc detailed SDK logs',
+                  UTI: 'public.json',
+                });
               })
-              .catch(() => showToast('Detailed SDK logs could not be exported. Please try again.', true))
+              .catch((error: unknown) => {
+                const reason = error instanceof Error ? error.message : 'Unknown export error';
+                showToast(`Detailed SDK logs could not be exported: ${reason}`, true);
+              })
               .finally(() => setDiagnosticsAction(null));
           },
         },
@@ -266,8 +286,8 @@ export function TransactionDetailsModal({
               <Button mode="outlined" icon="content-copy" loading={diagnosticsAction === 'copy'} disabled={diagnosticsAction !== null} onPress={() => void reconcile(true)}>
                 Copy diagnostics
               </Button>
-              <Button mode="outlined" icon="alert-outline" loading={diagnosticsAction === 'detailedLogs'} disabled={diagnosticsAction !== null} onPress={copyDetailedSdkLogs}>
-                Copy detailed SDK logs
+              <Button mode="outlined" icon="file-export-outline" loading={diagnosticsAction === 'detailedLogs'} disabled={diagnosticsAction !== null} onPress={copyDetailedSdkLogs}>
+                Export detailed SDK logs
               </Button>
               {canReconcile && (
                 <Button mode="contained-tonal" icon="sync" loading={diagnosticsAction === 'status'} disabled={diagnosticsAction !== null} onPress={() => void reconcile(false)}>
