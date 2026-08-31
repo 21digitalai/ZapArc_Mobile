@@ -71,7 +71,7 @@ export function TransactionDetailsModal({
   const iconColor = getIconColor(themeMode);
   const [comment, setComment] = useState<string | null>(null);
   const [recipient, setRecipient] = useState<string | null>(null);
-  const [diagnosticsAction, setDiagnosticsAction] = useState<'copy' | 'detailedLogs' | 'status' | null>(null);
+  const [diagnosticsAction, setDiagnosticsAction] = useState<'copy' | 'detailedCopy' | 'detailedExport' | 'status' | null>(null);
 
   useEffect(() => {
     if (!transaction?.id) {
@@ -137,20 +137,28 @@ export function TransactionDetailsModal({
     }
   }, [diagnosticsAction, refreshTransactions, showToast, transaction]);
 
-  const copyDetailedSdkLogs = useCallback((): void => {
+  const handleDetailedSdkLogs = useCallback((action: 'copy' | 'export'): void => {
     if (!transaction?.id || diagnosticsAction) return;
+    const exporting = action === 'export';
     Alert.alert(
-      'Export detailed SDK logs?',
-      'This report contains detailed Breez SDK context for troubleshooting, including payment and device information. It will open as a JSON file that you can save or share with trusted support.',
+      exporting ? 'Export detailed SDK logs?' : 'Copy detailed SDK logs?',
+      exporting
+        ? 'This report contains detailed Breez SDK context for troubleshooting, including payment and device information. It will open as a JSON file that you can save or share with trusted support.'
+        : 'This report may be large and contains detailed Breez SDK context, including payment and device information. Copy it only to share privately with trusted support. If copying fails, use Export file instead.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Export detailed logs',
+          text: exporting ? 'Export file' : 'Copy logs',
           style: 'destructive',
           onPress: () => {
-            setDiagnosticsAction('detailedLogs');
+            setDiagnosticsAction(exporting ? 'detailedExport' : 'detailedCopy');
             void exportDetailedSdkSupportLogs(transaction.id, transaction.timestamp)
               .then(async (payload) => {
+                if (!exporting) {
+                  await Clipboard.setStringAsync(payload);
+                  showToast('Detailed SDK logs copied');
+                  return;
+                }
                 if (!FileSystem.cacheDirectory) {
                   throw new Error('Temporary file storage is unavailable');
                 }
@@ -169,7 +177,12 @@ export function TransactionDetailsModal({
               })
               .catch((error: unknown) => {
                 const reason = error instanceof Error ? error.message : 'Unknown export error';
-                showToast(`Detailed SDK logs could not be exported: ${reason}`, true);
+                showToast(
+                  exporting
+                    ? `Detailed SDK logs could not be exported: ${reason}`
+                    : `Detailed SDK logs could not be copied: ${reason}. Try Export file instead.`,
+                  true,
+                );
               })
               .finally(() => setDiagnosticsAction(null));
           },
@@ -286,9 +299,30 @@ export function TransactionDetailsModal({
               <Button mode="outlined" icon="content-copy" loading={diagnosticsAction === 'copy'} disabled={diagnosticsAction !== null} onPress={() => void reconcile(true)}>
                 Copy diagnostics
               </Button>
-              <Button mode="outlined" icon="file-export-outline" loading={diagnosticsAction === 'detailedLogs'} disabled={diagnosticsAction !== null} onPress={copyDetailedSdkLogs}>
-                Export detailed SDK logs
-              </Button>
+              <View style={styles.detailedActionsRow}>
+                <Button
+                  mode="outlined"
+                  compact
+                  icon="file-export-outline"
+                  style={styles.detailedAction}
+                  loading={diagnosticsAction === 'detailedExport'}
+                  disabled={diagnosticsAction !== null}
+                  onPress={() => handleDetailedSdkLogs('export')}
+                >
+                  Export file
+                </Button>
+                <Button
+                  mode="outlined"
+                  compact
+                  icon="content-copy"
+                  style={styles.detailedAction}
+                  loading={diagnosticsAction === 'detailedCopy'}
+                  disabled={diagnosticsAction !== null}
+                  onPress={() => handleDetailedSdkLogs('copy')}
+                >
+                  Copy logs
+                </Button>
+              </View>
               {canReconcile && (
                 <Button mode="contained-tonal" icon="sync" loading={diagnosticsAction === 'status'} disabled={diagnosticsAction !== null} onPress={() => void reconcile(false)}>
                   Check payment status
@@ -354,6 +388,8 @@ const styles = StyleSheet.create({
   supportSection: { margin: 20, marginBottom: 4, padding: 16, gap: 10, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.045)' },
   supportTitle: { fontSize: 16, fontWeight: '700' },
   supportText: { fontSize: 13, lineHeight: 19, marginBottom: 2 },
+  detailedActionsRow: { flexDirection: 'row', gap: 10 },
+  detailedAction: { flex: 1 },
   footer: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(255,255,255,0.10)', backgroundColor: '#17182b' },
   closeContent: { minHeight: 46 },
 });
