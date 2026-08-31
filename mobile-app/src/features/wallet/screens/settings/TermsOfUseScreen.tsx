@@ -4,7 +4,6 @@ import { IconButton, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
-import { useLanguage } from '../../../../hooks/useLanguage';
 import { useAppTheme } from '../../../../contexts/ThemeContext';
 import { getTermsCopy } from '../../../../legal/termsOfUse';
 import { BRAND_COLOR, getGradientColors, getPrimaryTextColor, getSecondaryTextColor } from '../../../../utils/theme-helpers';
@@ -19,9 +18,8 @@ export function TermsOfUseScreen(): React.JSX.Element {
     return () => subscription.remove();
   }, [safeBack]));
 
-  const { currentLanguage } = useLanguage();
   const { themeMode } = useAppTheme();
-  const copy = getTermsCopy(currentLanguage);
+  const copy = getTermsCopy();
   const primaryTextColor = getPrimaryTextColor(themeMode);
   const secondaryTextColor = getSecondaryTextColor(themeMode);
 
