@@ -81,7 +81,11 @@ describe('payment diagnostics privacy and reconciliation', () => {
     expect(serialized).toContain('[redacted:secret]');
     expect(serialized).toContain('[redacted:credential]');
     expect(payload.authoritativePaymentDiagnostics.breez.getPaymentResponse.payment.id).toBe('payment-detailed');
-    expect(payload.fullRetainedSdkLogs.length).toBeGreaterThan(0);
+    expect(payload.retainedSdkLogs.length).toBeGreaterThan(0);
+    expect(payload.paymentWindowSummary.count).toBeGreaterThan(0);
+    expect(payload.recentWindowSummary.count).toBeGreaterThan(0);
+    expect(payload).not.toHaveProperty('paymentWindowLogs');
+    expect(payload).not.toHaveProperty('recentWindowLogs');
   });
 
   it('always removes fund-control and authentication secrets from detailed logs', () => {

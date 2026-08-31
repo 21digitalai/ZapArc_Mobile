@@ -305,6 +305,8 @@ export async function buildDetailedSdkSupportLogsExport(input: {
   await loadSdkSupportLogs();
   const now = Date.now();
   const windowMs = 15 * 60 * 1000;
+  const maxExportedHistoryEntries = 750;
+  const maxExactPaymentEntries = 100;
   const toDetailedEntry = ({ detailedMessage, message, ...entry }: SdkSupportLogEntry) => ({
     ...entry,
     message: detailedMessage || message,
@@ -314,8 +316,17 @@ export async function buildDetailedSdkSupportLogsExport(input: {
     : [];
   const exactPaymentLogs = sdkSupportLogs
     .filter((entry) => (entry.detailedMessage || entry.message).includes(input.paymentId))
+    .slice(-maxExactPaymentEntries)
     .map(toDetailedEntry);
   const recentLogs = sdkSupportLogs.filter((entry) => Date.parse(entry.at) >= now - windowMs).map(toDetailedEntry);
+  const exportedHistory = sdkSupportLogs.slice(-maxExportedHistoryEntries).map(toDetailedEntry);
+  const summarizeWindow = (entries: ReturnType<typeof toDetailedEntry>[]) => ({
+    count: entries.length,
+    ...(entries.length > 0 ? {
+      firstAt: entries[0].at,
+      lastAt: entries[entries.length - 1].at,
+    } : {}),
+  });
   return JSON.stringify({
     schemaVersion: 1,
     exportType: 'detailed-sdk-support-logs',
@@ -328,14 +339,22 @@ export async function buildDetailedSdkSupportLogsExport(input: {
       windowMinutes: 15,
       exactPaymentLogMatchAvailable: exactPaymentLogs.length > 0,
     },
-    retention: { maxAgeDays: 7, maxEntries: SDK_SUPPORT_LOG_MAX_ENTRIES, sanitized: false, secretsAlwaysRedacted: true },
+    retention: {
+      maxAgeDays: 7,
+      maxEntries: SDK_SUPPORT_LOG_MAX_ENTRIES,
+      retainedEntries: sdkSupportLogs.length,
+      exportedHistoryEntries: exportedHistory.length,
+      historyTruncated: sdkSupportLogs.length > exportedHistory.length,
+      sanitized: false,
+      secretsAlwaysRedacted: true,
+    },
     mandatoryRedactions: ['seed and mnemonic material', 'private keys', 'preimages and proofs', 'API keys and authentication credentials'],
     authoritativePaymentDiagnostics: input.paymentDiagnostics || null,
     exactPaymentLogs,
     paymentWindowAvailable: paymentLogs.length > 0,
-    paymentWindowLogs: paymentLogs,
-    recentWindowLogs: recentLogs,
-    fullRetainedSdkLogs: sdkSupportLogs.map(toDetailedEntry),
+    paymentWindowSummary: summarizeWindow(paymentLogs),
+    recentWindowSummary: summarizeWindow(recentLogs),
+    retainedSdkLogs: exportedHistory,
   }, null, 2);
 }
 
