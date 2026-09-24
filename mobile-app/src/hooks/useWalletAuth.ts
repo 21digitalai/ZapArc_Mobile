@@ -643,7 +643,10 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         // A SecureStore write is not transactional with encrypted storage, so
         // a failed rebind must clear the old entry instead of leaving a PIN
         // that can no longer unlock this master wallet.
-        if (biometricEnabled && biometricAvailable) {
+        // `biometricAvailable` is an asynchronous UI capability probe. It is
+        // not authoritative for an existing per-wallet SecureStore binding:
+        // rotating while that probe is pending must never retain an old PIN.
+        if (biometricEnabled) {
           try {
             await storageService.storeBiometricPin(masterKeyId, newPin);
           } catch {

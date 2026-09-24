@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react-native';
+import * as LocalAuthentication from 'expo-local-authentication';
 
 jest.mock('react-native', () => ({
   AppState: { currentState: 'active', addEventListener: jest.fn(() => ({ remove: jest.fn() })) },
@@ -42,6 +43,21 @@ import { primeSessionPin, useWalletAuth } from '../hooks/useWalletAuth';
 
 describe('useWalletAuth changePin biometric recovery', () => {
   beforeEach(() => jest.clearAllMocks());
+
+  it('rebinds an enabled wallet credential when biometric availability is unavailable', async () => {
+    (LocalAuthentication.hasHardwareAsync as jest.Mock).mockResolvedValueOnce(false);
+    const { result } = renderHook(() => useWalletAuth());
+    await waitFor(() => expect(result.current.biometricEnabled).toBe(true));
+    expect(result.current.currentMasterKeyId).toBe('wallet-a');
+    expect(result.current.biometricAvailable).toBe(false);
+    primeSessionPin('111111');
+
+    await act(async () => {
+      await expect(result.current.changePin('222222')).resolves.toBe(true);
+    });
+
+    expect(storageService.storeBiometricPin).toHaveBeenCalledWith('wallet-a', '222222');
+  });
 
   it('disables biometric unlock when a post-rotation rebind and verified clear both fail', async () => {
     (storageService.storeBiometricPin as jest.Mock).mockRejectedValue(new Error('keystore write failed'));
