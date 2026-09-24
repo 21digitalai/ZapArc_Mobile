@@ -62,4 +62,17 @@ describe('useWalletAuth changePin biometric recovery', () => {
     expect(result.current.biometricEnabled).toBe(false);
     expect(result.current.error).toMatch(/biometric unlock was disabled/i);
   });
+
+  it('rejects PIN rotation after the unlocked session credential is cleared', async () => {
+    primeSessionPin(null);
+    const { result } = renderHook(() => useWalletAuth());
+    await waitFor(() => expect(result.current.currentMasterKeyId).toBe('wallet-a'));
+
+    await act(async () => {
+      await expect(result.current.changePin('222222')).resolves.toBe(false);
+    });
+
+    expect(storageService.rotateActiveMasterKeyPin).not.toHaveBeenCalled();
+    expect(result.current.error).toMatch(/unlock this wallet/i);
+  });
 });

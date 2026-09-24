@@ -45,7 +45,7 @@ function setModuleSessionPin(pin: string | null): void {
  * "Unlock your wallet with your PIN first" even though the user just set
  * one. Keep this the single writer alongside setModuleSessionPin.
  */
-export function primeSessionPin(pin: string): void {
+export function primeSessionPin(pin: string | null): void {
   setModuleSessionPin(pin);
 }
 
