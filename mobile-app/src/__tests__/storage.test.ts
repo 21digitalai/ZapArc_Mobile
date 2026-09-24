@@ -588,6 +588,16 @@ describe('StorageService', () => {
       );
     });
 
+    it('propagates a failed biometric deletion so callers can recover safely', async () => {
+      (SecureStore.deleteItemAsync as jest.Mock).mockRejectedValue(
+        new Error('keystore unavailable')
+      );
+
+      await expect(storageService.deleteBiometricPin('mk-1')).rejects.toThrow(
+        'keystore unavailable'
+      );
+    });
+
     it('reads biometric PIN with requireAuthentication enabled', async () => {
       (SecureStore.getItemAsync as jest.Mock).mockResolvedValue('1234');
 
