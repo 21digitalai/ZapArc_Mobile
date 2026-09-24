@@ -5,6 +5,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 const mockRestoreContacts = jest.fn();
 const mockMergeImportedContacts = jest.fn();
 const mockRefreshContactsStore = jest.fn();
+const mockGetMnemonic = jest.fn();
+const mockSessionPin = jest.fn();
 
 jest.mock('expo-router', () => ({
   router: { canGoBack: jest.fn(() => false), back: jest.fn(), replace: jest.fn() },
@@ -29,8 +31,8 @@ jest.mock('expo-sharing', () => ({
   isAvailableAsync: jest.fn(),
   shareAsync: jest.fn(),
 }));
-jest.mock('../../../../../hooks/useWallet', () => ({ useWallet: () => ({ getMnemonic: jest.fn(), activeMasterKey: { id: 'wallet-1' }, importMasterKey: jest.fn(), masterKeys: [{ id: 'wallet-1', nickname: 'Primary' }] }) }));
-jest.mock('../../../../../hooks/useWalletAuth', () => ({ useWalletAuth: () => ({ selectWallet: jest.fn(), getSessionPin: jest.fn() }) }));
+jest.mock('../../../../../hooks/useWallet', () => ({ useWallet: () => ({ getMnemonic: mockGetMnemonic, activeMasterKey: { id: 'wallet-1', nickname: 'Primary' }, importMasterKey: jest.fn(), masterKeys: [{ id: 'wallet-1', nickname: 'Primary' }] }) }));
+jest.mock('../../../../../hooks/useWalletAuth', () => ({ useWalletAuth: () => ({ selectWallet: jest.fn(), getSessionPin: mockSessionPin }) }));
 jest.mock('../../../../../contexts/ThemeContext', () => ({ useAppTheme: () => ({ themeMode: 'dark' }) }));
 jest.mock('../../../../../hooks/useLanguage', () => ({ useLanguage: () => ({ t: (key: string) => key }) }));
 jest.mock('../../../../../services', () => ({ storageService: { loadMultiWalletStorage: jest.fn().mockResolvedValue({ masterKeys: [{ id: 'wallet-1' }] }) }, settingsService: { getUserSettings: jest.fn().mockResolvedValue({ biometricEnabled: false }) } }));
@@ -196,6 +198,11 @@ describe('GoogleDriveBackupScreen backup management layout', () => {
 });
 
 describe('GoogleDriveBackupScreen local backup entry', () => {
+  beforeEach(() => {
+    mockGetMnemonic.mockReset();
+    mockSessionPin.mockReset();
+  });
+
   it('offers a local encrypted backup without requiring Google connection', async () => {
     const backupService = require('../../../../../services/googleDriveBackupService').googleDriveBackupService;
     backupService.restoreSession.mockResolvedValueOnce(false);
@@ -205,5 +212,35 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     fireEvent.press(screen.getByText('Save Encrypted Backup'));
 
     await waitFor(() => expect(screen.getByText('cloudBackup.enterBackupPassword')).toBeTruthy());
+  });
+
+  it('exports the active wallet as an encrypted temporary file without Google auth', async () => {
+    const fileSystem = require('expo-file-system');
+    const sharing = require('expo-sharing');
+    fileSystem.writeAsStringAsync.mockResolvedValue(undefined);
+    fileSystem.deleteAsync.mockResolvedValue(undefined);
+    sharing.isAvailableAsync.mockResolvedValue(true);
+    sharing.shareAsync.mockResolvedValue(undefined);
+    mockSessionPin.mockReturnValue('123456');
+    mockGetMnemonic.mockResolvedValue(
+      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+    );
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Save Encrypted Backup')).toBeTruthy());
+    fireEvent.press(screen.getByText('Save Encrypted Backup'));
+    await waitFor(() => expect(screen.getByText('cloudBackup.enterBackupPassword')).toBeTruthy());
+    const inputs = screen.UNSAFE_getAllByType(TextInput);
+    fireEvent.changeText(inputs[0], 'Backup passphrase 123!');
+    fireEvent.changeText(inputs[1], 'Backup passphrase 123!');
+    fireEvent.press(screen.getByText('cloudBackup.createBackup'));
+
+    await waitFor(() => expect(fileSystem.writeAsStringAsync).toHaveBeenCalled());
+    expect(mockGetMnemonic).toHaveBeenCalledWith('wallet-1', '123456');
+    expect(sharing.shareAsync).toHaveBeenCalledWith(
+      expect.stringContaining('zaparc-backup-'),
+      expect.objectContaining({ mimeType: 'application/json' })
+    );
+    expect(fileSystem.deleteAsync).toHaveBeenCalled();
   });
 });
