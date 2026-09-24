@@ -243,4 +243,18 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     );
     expect(fileSystem.deleteAsync).toHaveBeenCalled();
   });
+
+  it('leaves wallet state untouched when local-file selection is cancelled', async () => {
+    const documentPicker = require('expo-document-picker');
+    const fileSystem = require('expo-file-system');
+    documentPicker.getDocumentAsync.mockResolvedValue({ canceled: true, assets: [] });
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Choose Backup File')).toBeTruthy());
+    fireEvent.press(screen.getByText('Choose Backup File'));
+
+    await waitFor(() => expect(documentPicker.getDocumentAsync).toHaveBeenCalled());
+    expect(fileSystem.readAsStringAsync).not.toHaveBeenCalled();
+    expect(mockGetMnemonic).not.toHaveBeenCalled();
+  });
 });
