@@ -349,6 +349,9 @@ describe('SendScreen on-chain flow', () => {
     expect(screen.getByText('Short by')).toBeTruthy();
     expect(screen.getAllByText('20 sats').length).toBeGreaterThan(0);
     expect(screen.getByTestId('send-payment-button').props.accessibilityState.disabled).toBe(true);
+    fireEvent.press(screen.getByTestId('send-payment-button'));
+    expect(mockSendPayment).not.toHaveBeenCalled();
+    expect(mockSendOnchainPayment).not.toHaveBeenCalled();
   });
 
   it('updates the balance estimate when the configured default fiat is EUR', () => {

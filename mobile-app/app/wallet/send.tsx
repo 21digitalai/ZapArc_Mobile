@@ -1215,6 +1215,13 @@ export default function SendScreen() {
     if (!preview || !prepareResponse) {
       return;
     }
+    if (preview.total > spendableBalance) {
+      showPaymentError(
+        t('send.paymentFailed'),
+        'Insufficient balance to cover this payment and its fee.'
+      );
+      return;
+    }
     // Guard against a second submit reusing the same prepared payment. The
     // SDK rejects a re-send of an already-used payment hash ("payment request
     // already exists"), so we drop any tap that lands while one is in flight —
@@ -1322,7 +1329,7 @@ export default function SendScreen() {
       setIsSending(false);
       sendInFlightRef.current = false;
     }
-  }, [preview, prepareResponse, refreshBalance, refreshTransactions, step, selectedSpeed, paymentInput, comment, contacts, showPaymentError, t]);
+  }, [preview, prepareResponse, spendableBalance, refreshBalance, refreshTransactions, step, selectedSpeed, paymentInput, comment, contacts, showPaymentError, t]);
 
   const handleBackToInput = useCallback(() => {
     setStep('input');
