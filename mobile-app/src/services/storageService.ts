@@ -1104,12 +1104,24 @@ class StorageService {
         return false;
       }
 
-      // Auto-lock/background can occur while deriving the replacement. Never
-      // commit a credential rotation for a session that has since ended.
+      // Auto-lock/background or a wallet switch can occur while deriving the
+      // replacement. Reload under this lock immediately before the write so a
+      // stale snapshot cannot overwrite the newly selected/deleted master.
       if (!(await this.isWalletUnlocked())) return false;
+      const latestStorage = await this.loadMultiWalletStorage();
+      const latestMasterKey = latestStorage?.masterKeys.find(
+        (entry) => entry.id === masterKeyId
+      );
+      if (
+        !latestStorage ||
+        !latestMasterKey ||
+        latestStorage.activeMasterKeyId !== masterKeyId
+      ) {
+        return false;
+      }
 
-      masterKey.encryptedMnemonic = replacement;
-      await this.saveMultiWalletStorageUnlocked(storage);
+      latestMasterKey.encryptedMnemonic = replacement;
+      await this.saveMultiWalletStorageUnlocked(latestStorage);
       this._mnemonicCache.set(masterKeyId, normalizedMnemonic);
       await this.clearPinAuthState(masterKeyId);
       return true;

@@ -611,9 +611,21 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       setIsLoading(true);
       setError(null);
       try {
-        // Rebind first: a failed SecureStore write leaves the existing PIN
-        // record untouched, so rotation never creates an old-PIN biometric
-        // binding after the durable wallet credential changes.
+        // Authenticate before touching the biometric record. A failed current
+        // PIN must not replace a still-valid biometric credential.
+        if (!(await storageService.verifyMasterKeyPin(masterKeyId, oldPin))) {
+          const authStatus = await storageService.getPinAuthStatus(masterKeyId);
+          setError(
+            authStatus.isLocked
+              ? `PIN temporarily locked. Try again in ${Math.ceil(authStatus.remainingMs / 1000)}s.`
+              : 'Could not change PIN. Check your current PIN and try again.'
+          );
+          return false;
+        }
+
+        // Rebind before durable rotation: a failed SecureStore write leaves
+        // the wallet PIN untouched, so rotation cannot retain an old-PIN
+        // biometric binding.
         if (biometricEnabled && biometricAvailable) {
           try {
             await storageService.storeBiometricPin(masterKeyId, newPin);

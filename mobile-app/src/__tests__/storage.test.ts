@@ -357,6 +357,48 @@ describe('StorageService', () => {
         storageService.getPinAuthStatus('active')
       ).resolves.toMatchObject({ failedAttempts: 1, isLocked: false });
     });
+
+    it('does not overwrite storage when the active wallet changes during rotation', async () => {
+      const values = new Map<string, string>();
+      const activeCiphertext = await encryptData(mnemonic, '111111');
+      const otherCiphertext = await encryptData(mnemonic, '222222');
+      const initialStorage = JSON.stringify({
+        masterKeys: [
+          { id: 'active', encryptedMnemonic: activeCiphertext, subWallets: [], archivedSubWallets: [] },
+          { id: 'other', encryptedMnemonic: otherCiphertext, subWallets: [], archivedSubWallets: [] },
+        ],
+        activeMasterKeyId: 'active',
+        activeSubWalletIndex: 0,
+        version: 1,
+      });
+      const switchedStorage = JSON.stringify({
+        masterKeys: [
+          { id: 'active', encryptedMnemonic: activeCiphertext, subWallets: [], archivedSubWallets: [] },
+          { id: 'other', encryptedMnemonic: otherCiphertext, subWallets: [], archivedSubWallets: [] },
+        ],
+        activeMasterKeyId: 'other',
+        activeSubWalletIndex: 0,
+        version: 1,
+      });
+      values.set('zap_arc_multi_wallet_data', initialStorage);
+      values.set('zap_arc_is_unlocked', 'true');
+      let storageReads = 0;
+      (SecureStore.getItemAsync as jest.Mock).mockImplementation(async (key: string) => {
+        if (key === 'zap_arc_multi_wallet_data') {
+          storageReads += 1;
+          return storageReads === 1 ? initialStorage : switchedStorage;
+        }
+        return values.get(key) ?? null;
+      });
+      (SecureStore.setItemAsync as jest.Mock).mockImplementation(async (key: string, value: string) => {
+        values.set(key, value);
+      });
+
+      await expect(
+        storageService.rotateActiveMasterKeyPin('active', '111111', '333333')
+      ).resolves.toBe(false);
+      expect(values.get('zap_arc_multi_wallet_data')).toBe(initialStorage);
+    });
   });
 
   describe('deleteAllWallets', () => {
