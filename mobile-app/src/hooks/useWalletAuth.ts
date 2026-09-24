@@ -82,7 +82,7 @@ export interface WalletAuthActions {
   unlock: (pin: string) => Promise<boolean>;
   lock: () => Promise<void>;
   verifyPin: (pin: string) => Promise<boolean>;
-  changePin: (newPin: string) => Promise<boolean>;
+  changePin: (newPin: string, expectedMasterKeyId: string) => Promise<boolean>;
   getPinAuthStatus: (masterKeyId?: string) => Promise<PinAuthStatus | null>;
 
   // Biometric
@@ -608,14 +608,19 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
   );
 
   const changePin = useCallback(
-    async (newPin: string): Promise<boolean> => {
+    async (newPin: string, expectedMasterKeyId: string): Promise<boolean> => {
       if (pinRotationInFlight) {
         return false;
       }
 
       const masterKeyId = currentMasterKeyId;
       const currentPin = getModuleSessionPin();
-      if (!masterKeyId || !isUnlocked || !currentPin) {
+      if (
+        !masterKeyId ||
+        masterKeyId !== expectedMasterKeyId ||
+        !isUnlocked ||
+        !currentPin
+      ) {
         setError('Unlock this wallet with your PIN before changing it.');
         return false;
       }

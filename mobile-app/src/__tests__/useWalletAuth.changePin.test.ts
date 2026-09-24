@@ -53,7 +53,7 @@ describe('useWalletAuth changePin biometric recovery', () => {
     primeSessionPin('111111');
 
     await act(async () => {
-      await expect(result.current.changePin('222222')).resolves.toBe(true);
+    await expect(result.current.changePin('222222', 'wallet-a')).resolves.toBe(true);
     });
 
     expect(storageService.storeBiometricPin).toHaveBeenCalledWith('wallet-a', '222222');
@@ -69,7 +69,7 @@ describe('useWalletAuth changePin biometric recovery', () => {
     primeSessionPin('111111');
 
     await act(async () => {
-      await expect(result.current.changePin('222222')).resolves.toBe(true);
+      await expect(result.current.changePin('222222', 'wallet-a')).resolves.toBe(true);
     });
 
     expect(storageService.rotateActiveMasterKeyPin).toHaveBeenCalledWith('wallet-a', '111111', '222222');
@@ -85,7 +85,7 @@ describe('useWalletAuth changePin biometric recovery', () => {
     await waitFor(() => expect(result.current.currentMasterKeyId).toBe('wallet-a'));
 
     await act(async () => {
-      await expect(result.current.changePin('222222')).resolves.toBe(false);
+      await expect(result.current.changePin('222222', 'wallet-a')).resolves.toBe(false);
     });
 
     expect(storageService.rotateActiveMasterKeyPin).not.toHaveBeenCalled();
@@ -112,8 +112,8 @@ describe('useWalletAuth changePin biometric recovery', () => {
     let firstChange: Promise<boolean> | undefined;
     let secondChange: Promise<boolean> | undefined;
     await act(async () => {
-      firstChange = result.current.changePin('222222');
-      secondChange = result.current.changePin('222222');
+      firstChange = result.current.changePin('222222', 'wallet-a');
+      secondChange = result.current.changePin('222222', 'wallet-a');
     });
 
     expect(storageService.rotateActiveMasterKeyPin).toHaveBeenCalledTimes(1);
@@ -125,6 +125,19 @@ describe('useWalletAuth changePin biometric recovery', () => {
       await expect(firstChange).resolves.toBe(true);
     });
 
+    expect(storageService.getPinAuthStatus).not.toHaveBeenCalled();
+  });
+
+  it('rejects a stale captured wallet before rotation or lockout lookup', async () => {
+    const { result } = renderHook(() => useWalletAuth());
+    await waitFor(() => expect(result.current.currentMasterKeyId).toBe('wallet-a'));
+    primeSessionPin('111111');
+
+    await act(async () => {
+      await expect(result.current.changePin('222222', 'wallet-b')).resolves.toBe(false);
+    });
+
+    expect(storageService.rotateActiveMasterKeyPin).not.toHaveBeenCalled();
     expect(storageService.getPinAuthStatus).not.toHaveBeenCalled();
   });
 });

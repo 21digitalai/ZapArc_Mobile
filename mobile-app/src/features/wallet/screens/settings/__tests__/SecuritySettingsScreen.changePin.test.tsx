@@ -3,7 +3,7 @@ import { Alert, Modal } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { SecuritySettingsScreen } from '../SecuritySettingsScreen';
 
-const changePin = jest.fn<Promise<boolean>, [string]>();
+const changePin = jest.fn<Promise<boolean>, [string, string]>();
 const mockUseWalletAuth = jest.fn();
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -117,6 +117,33 @@ describe('SecuritySettingsScreen Change PIN', () => {
     expect(changePin).not.toHaveBeenCalled();
   });
 
+  it('dismisses a stale form without mutating the newly active wallet', () => {
+    const screen = renderScreen();
+    fireEvent.press(screen.getByTestId('change-pin-open'));
+    fireEvent.changeText(screen.getByTestId('change-pin-new'), '123456');
+    fireEvent.changeText(screen.getByTestId('change-pin-confirm'), '123456');
+    mockUseWalletAuth.mockReturnValue({
+      ...mockUseWalletAuth(),
+      currentMasterKeyId: 'master-2',
+      activeWalletInfo: {
+        masterKeyId: 'master-2',
+        masterKeyNickname: 'Savings wallet',
+        subWalletIndex: 0,
+        subWalletNickname: 'Main',
+      },
+    });
+    screen.rerender(<SecuritySettingsScreen />);
+
+    fireEvent.press(screen.getByTestId('change-pin-save'));
+
+    expect(changePin).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('change-pin-new')).toBeNull();
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Wallet changed',
+      'Your active wallet changed. Reopen Change PIN for the wallet you want to update.'
+    );
+  });
+
   it('clears fields on cancel and Android modal back before reopening', () => {
     const screen = renderScreen();
     fireEvent.press(screen.getByTestId('change-pin-open'));
@@ -141,6 +168,7 @@ describe('SecuritySettingsScreen Change PIN', () => {
     fireEvent.press(screen.getByTestId('change-pin-save'));
 
     expect(changePin).toHaveBeenCalledTimes(1);
+    expect(changePin).toHaveBeenCalledWith('123456', 'master-1');
     resolveChange(true);
 
     await waitFor(() => expect(screen.queryByTestId('change-pin-new')).toBeNull());

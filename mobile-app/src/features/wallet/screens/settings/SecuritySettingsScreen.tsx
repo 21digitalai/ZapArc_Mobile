@@ -86,6 +86,7 @@ export function SecuritySettingsScreen(): React.JSX.Element {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricType, setBiometricType] = useState<string>('Biometric');
   const [isChangePinVisible, setIsChangePinVisible] = useState(false);
+  const [changePinMasterKeyId, setChangePinMasterKeyId] = useState<string | null>(null);
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [pinFormError, setPinFormError] = useState<string | null>(null);
@@ -96,13 +97,28 @@ export function SecuritySettingsScreen(): React.JSX.Element {
     setNewPin('');
     setConfirmPin('');
     setPinFormError(null);
+    setChangePinMasterKeyId(null);
     setIsChangePinVisible(false);
+  };
+
+  const openChangePin = (): void => {
+    if (!currentMasterKeyId) {
+      setPinFormError('No active wallet is available.');
+      return;
+    }
+    setChangePinMasterKeyId(currentMasterKeyId);
+    setPinFormError(null);
+    setIsChangePinVisible(true);
   };
 
   const submitPinChange = async (): Promise<void> => {
     if (isPinChangeSubmitting.current) return;
-    if (!currentMasterKeyId) {
-      setPinFormError('No active wallet is available.');
+    if (!changePinMasterKeyId || currentMasterKeyId !== changePinMasterKeyId) {
+      closeChangePin();
+      Alert.alert(
+        'Wallet changed',
+        'Your active wallet changed. Reopen Change PIN for the wallet you want to update.'
+      );
       return;
     }
     if (newPin.length !== 6 || !/^\d+$/.test(newPin)) {
@@ -116,7 +132,7 @@ export function SecuritySettingsScreen(): React.JSX.Element {
     setPinFormError(null);
     isPinChangeSubmitting.current = true;
     try {
-      const changed = await changePin(newPin);
+      const changed = await changePin(newPin, changePinMasterKeyId);
       if (!changed) return;
       closeChangePin();
       Alert.alert('PIN changed', 'Your current wallet now uses the new PIN.');
@@ -282,7 +298,7 @@ export function SecuritySettingsScreen(): React.JSX.Element {
                 style={styles.changePinButton}
                 buttonColor={BRAND_COLOR}
                 textColor="#1a1a2e"
-                onPress={() => setIsChangePinVisible(true)}
+                onPress={openChangePin}
                 accessibilityLabel={`Change PIN for ${activeWalletName}`}
                 testID="change-pin-open"
               >
