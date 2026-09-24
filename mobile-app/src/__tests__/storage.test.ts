@@ -34,7 +34,12 @@ jest.mock('expo-crypto', () => {
   };
 });
 
-import { encryptData, decryptData, verifyPin, generateUUID } from '../services/crypto';
+import {
+  encryptData,
+  decryptData,
+  verifyPin,
+  generateUUID,
+} from '../services/crypto';
 
 // =============================================================================
 // Crypto Utilities Tests
@@ -61,7 +66,8 @@ describe('Crypto Utilities', () => {
 
   describe('encryptData and decryptData', () => {
     const testPin = '123456';
-    const testData = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+    const testData =
+      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 
     it('should encrypt then decrypt and return original data', async () => {
       const encrypted = await encryptData(testData, testPin);
@@ -156,8 +162,12 @@ describe('StorageService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (SecureStore.getItemAsync as jest.Mock).mockReset().mockResolvedValue(null);
-    (SecureStore.setItemAsync as jest.Mock).mockReset().mockResolvedValue(undefined);
-    (SecureStore.deleteItemAsync as jest.Mock).mockReset().mockResolvedValue(undefined);
+    (SecureStore.setItemAsync as jest.Mock)
+      .mockReset()
+      .mockResolvedValue(undefined);
+    (SecureStore.deleteItemAsync as jest.Mock)
+      .mockReset()
+      .mockResolvedValue(undefined);
     storageService = new StorageService();
   });
 
@@ -231,10 +241,14 @@ describe('StorageService', () => {
 
     it('should create a new master key', async () => {
       const values = new Map<string, string>();
-      (SecureStore.getItemAsync as jest.Mock).mockImplementation(async (key: string) => values.get(key) ?? null);
-      (SecureStore.setItemAsync as jest.Mock).mockImplementation(async (key: string, value: string) => {
-        values.set(key, value);
-      });
+      (SecureStore.getItemAsync as jest.Mock).mockImplementation(
+        async (key: string) => values.get(key) ?? null
+      );
+      (SecureStore.setItemAsync as jest.Mock).mockImplementation(
+        async (key: string, value: string) => {
+          values.set(key, value);
+        }
+      );
 
       const masterKeyId = await storageService.createMasterKey(
         testMnemonic,
@@ -246,6 +260,100 @@ describe('StorageService', () => {
       expect(typeof masterKeyId).toBe('string');
       expect(masterKeyId.length).toBeGreaterThan(0);
       expect(SecureStore.setItemAsync).toHaveBeenCalled();
+    });
+  });
+
+  describe('rotateActiveMasterKeyPin', () => {
+    const mnemonic =
+      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+
+    it('rotates only the active master key and leaves other master records intact', async () => {
+      const values = new Map<string, string>();
+      const activeCiphertext = await encryptData(mnemonic, '111111');
+      const otherCiphertext = await encryptData(mnemonic, '222222');
+      values.set(
+        'zap_arc_multi_wallet_data',
+        JSON.stringify({
+          masterKeys: [
+            {
+              id: 'active',
+              encryptedMnemonic: activeCiphertext,
+              subWallets: [{ index: 0 }],
+              archivedSubWallets: [],
+            },
+            {
+              id: 'other',
+              encryptedMnemonic: otherCiphertext,
+              subWallets: [{ index: 0 }],
+              archivedSubWallets: [],
+            },
+          ],
+          activeMasterKeyId: 'active',
+          activeSubWalletIndex: 0,
+          version: 1,
+        })
+      );
+      (SecureStore.getItemAsync as jest.Mock).mockImplementation(
+        async (key: string) => values.get(key) ?? null
+      );
+      (SecureStore.setItemAsync as jest.Mock).mockImplementation(
+        async (key: string, value: string) => {
+          values.set(key, value);
+        }
+      );
+      (SecureStore.deleteItemAsync as jest.Mock).mockImplementation(
+        async (key: string) => {
+          values.delete(key);
+        }
+      );
+
+      await expect(
+        storageService.rotateActiveMasterKeyPin('active', '111111', '333333')
+      ).resolves.toBe(true);
+      await expect(
+        storageService.verifyMasterKeyPin('active', '111111')
+      ).resolves.toBe(false);
+      await expect(
+        storageService.verifyMasterKeyPin('active', '333333')
+      ).resolves.toBe(true);
+      await expect(
+        storageService.verifyMasterKeyPin('other', '222222')
+      ).resolves.toBe(true);
+    });
+
+    it('counts a wrong current PIN and leaves the encrypted record unchanged', async () => {
+      const values = new Map<string, string>();
+      const ciphertext = await encryptData(mnemonic, '111111');
+      const originalStorage = JSON.stringify({
+        masterKeys: [
+          {
+            id: 'active',
+            encryptedMnemonic: ciphertext,
+            subWallets: [],
+            archivedSubWallets: [],
+          },
+        ],
+        activeMasterKeyId: 'active',
+        activeSubWalletIndex: 0,
+        version: 1,
+      });
+      values.set('zap_arc_multi_wallet_data', originalStorage);
+      (SecureStore.getItemAsync as jest.Mock).mockImplementation(
+        async (key: string) => values.get(key) ?? null
+      );
+      (SecureStore.setItemAsync as jest.Mock).mockImplementation(
+        async (key: string, value: string) => {
+          values.set(key, value);
+        }
+      );
+
+      await expect(
+        storageService.rotateActiveMasterKeyPin('active', '999999', '333333')
+      ).resolves.toBe(false);
+      expect(values.get('zap_arc_multi_wallet_data')).toBe(originalStorage);
+      await expect(
+        storageService.getPinAuthStatus('active')
+      ).resolves.toMatchObject({ failedAttempts: 1, isLocked: false });
     });
   });
 
@@ -307,16 +415,23 @@ describe('StorageService', () => {
     it('applies lockout after threshold failed PIN attempts', async () => {
       const masterKeyId = 'mk-lockout';
       const values = new Map<string, string>();
-      (SecureStore.getItemAsync as jest.Mock).mockImplementation(async (key: string) => values.get(key) ?? null);
-      (SecureStore.setItemAsync as jest.Mock).mockImplementation(async (key: string, value: string) => {
-        values.set(key, value);
-      });
-      jest.spyOn(storageService, 'getMasterKeyMnemonic').mockRejectedValue(new Error('Wrong PIN'));
+      (SecureStore.getItemAsync as jest.Mock).mockImplementation(
+        async (key: string) => values.get(key) ?? null
+      );
+      (SecureStore.setItemAsync as jest.Mock).mockImplementation(
+        async (key: string, value: string) => {
+          values.set(key, value);
+        }
+      );
+      jest
+        .spyOn(storageService, 'getMasterKeyMnemonic')
+        .mockRejectedValue(new Error('Wrong PIN'));
 
       await storageService.verifyMasterKeyPin(masterKeyId, '111111');
       await storageService.verifyMasterKeyPin(masterKeyId, '111111');
 
-      const beforeThreshold = await storageService.getPinAuthStatus(masterKeyId);
+      const beforeThreshold =
+        await storageService.getPinAuthStatus(masterKeyId);
       expect(beforeThreshold.failedAttempts).toBe(2);
       expect(beforeThreshold.isLocked).toBe(false);
 
@@ -330,15 +445,22 @@ describe('StorageService', () => {
 
     it('clears lockout state on successful PIN verification', async () => {
       const masterKeyId = 'mk-success-reset';
-      jest.spyOn(storageService, 'getMasterKeyMnemonic').mockRejectedValue(new Error('Wrong PIN'));
+      jest
+        .spyOn(storageService, 'getMasterKeyMnemonic')
+        .mockRejectedValue(new Error('Wrong PIN'));
 
       await storageService.verifyMasterKeyPin(masterKeyId, '111111');
       await storageService.verifyMasterKeyPin(masterKeyId, '111111');
       await storageService.verifyMasterKeyPin(masterKeyId, '111111');
 
-      (storageService.getMasterKeyMnemonic as jest.Mock).mockResolvedValue('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+      (storageService.getMasterKeyMnemonic as jest.Mock).mockResolvedValue(
+        'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+      );
 
-      const isValid = await storageService.verifyMasterKeyPin(masterKeyId, '123456');
+      const isValid = await storageService.verifyMasterKeyPin(
+        masterKeyId,
+        '123456'
+      );
       expect(isValid).toBe(true);
 
       const status = await storageService.getPinAuthStatus(masterKeyId);
@@ -355,23 +477,33 @@ describe('StorageService', () => {
       const status = await storageService.getPinAuthStatus('mk-expired');
       expect(status.failedAttempts).toBe(0);
       expect(status.isLocked).toBe(false);
-      expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith('zap_arc_pin_auth_state_mk-expired');
+      expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith(
+        'zap_arc_pin_auth_state_mk-expired'
+      );
     });
   });
 
   describe('biometric PIN auth gating', () => {
     it('keeps biometric PINs isolated by master wallet ID', async () => {
       const values = new Map<string, string>();
-      (SecureStore.setItemAsync as jest.Mock).mockImplementation(async (key: string, value: string) => {
-        values.set(key, value);
-      });
-      (SecureStore.getItemAsync as jest.Mock).mockImplementation(async (key: string) => values.get(key) ?? null);
+      (SecureStore.setItemAsync as jest.Mock).mockImplementation(
+        async (key: string, value: string) => {
+          values.set(key, value);
+        }
+      );
+      (SecureStore.getItemAsync as jest.Mock).mockImplementation(
+        async (key: string) => values.get(key) ?? null
+      );
 
       await storageService.storeBiometricPin('mk-one', '1111');
       await storageService.storeBiometricPin('mk-two', '2222');
 
-      await expect(storageService.getBiometricPin('mk-one')).resolves.toBe('1111');
-      await expect(storageService.getBiometricPin('mk-two')).resolves.toBe('2222');
+      await expect(storageService.getBiometricPin('mk-one')).resolves.toBe(
+        '1111'
+      );
+      await expect(storageService.getBiometricPin('mk-two')).resolves.toBe(
+        '2222'
+      );
       expect(values.has('zap_arc_biometric_pin_mk-one')).toBe(true);
       expect(values.has('zap_arc_biometric_pin_mk-two')).toBe(true);
     });
@@ -381,15 +513,23 @@ describe('StorageService', () => {
         ['zap_arc_biometric_pin_mk-one', '1111'],
         ['zap_arc_biometric_pin_mk-two', '2222'],
       ]);
-      (SecureStore.deleteItemAsync as jest.Mock).mockImplementation(async (key: string) => {
-        values.delete(key);
-      });
-      (SecureStore.getItemAsync as jest.Mock).mockImplementation(async (key: string) => values.get(key) ?? null);
+      (SecureStore.deleteItemAsync as jest.Mock).mockImplementation(
+        async (key: string) => {
+          values.delete(key);
+        }
+      );
+      (SecureStore.getItemAsync as jest.Mock).mockImplementation(
+        async (key: string) => values.get(key) ?? null
+      );
 
       await storageService.deleteBiometricPin('mk-one');
 
-      await expect(storageService.getBiometricPin('mk-one')).resolves.toBeNull();
-      await expect(storageService.getBiometricPin('mk-two')).resolves.toBe('2222');
+      await expect(
+        storageService.getBiometricPin('mk-one')
+      ).resolves.toBeNull();
+      await expect(storageService.getBiometricPin('mk-two')).resolves.toBe(
+        '2222'
+      );
     });
 
     it('stores biometric PIN with requireAuthentication enabled', async () => {
@@ -457,7 +597,10 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SettingsService } from '../services/settingsService';
-import { DomainStatus, DEFAULT_USER_SETTINGS } from '../features/settings/types';
+import {
+  DomainStatus,
+  DEFAULT_USER_SETTINGS,
+} from '../features/settings/types';
 
 describe('SettingsService', () => {
   let settingsService: SettingsService;
@@ -567,7 +710,8 @@ describe('SettingsService', () => {
       const isBlacklisted = await settingsService.isBlacklisted(lnurl);
       expect(isBlacklisted).toBe(true);
 
-      const isNotBlacklisted = await settingsService.isBlacklisted('other-lnurl');
+      const isNotBlacklisted =
+        await settingsService.isBlacklisted('other-lnurl');
       expect(isNotBlacklisted).toBe(false);
     });
   });

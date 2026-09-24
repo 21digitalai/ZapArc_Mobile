@@ -94,8 +94,15 @@ export interface WalletAuthActions {
   disableBiometric: () => Promise<{ ok: boolean; reason?: string }>;
 
   // Wallet selection
-  selectWallet: (masterKeyId: string, subWalletIndex: number, pin: string) => Promise<boolean>;
-  selectWalletWithBiometric: (masterKeyId: string, subWalletIndex: number) => Promise<boolean>;
+  selectWallet: (
+    masterKeyId: string,
+    subWalletIndex: number,
+    pin: string
+  ) => Promise<boolean>;
+  selectWalletWithBiometric: (
+    masterKeyId: string,
+    subWalletIndex: number
+  ) => Promise<boolean>;
   selectSubWallet: (subWalletIndex: number) => Promise<boolean>;
 
   // Session management
@@ -132,19 +139,24 @@ const authStore = createStore<WalletAuthState>({
   autoLockTimeout: 900, // 15 minutes default
 });
 
-const setIsUnlocked = (v: boolean): void => authStore.setState({ isUnlocked: v });
+const setIsUnlocked = (v: boolean): void =>
+  authStore.setState({ isUnlocked: v });
 const setIsLoading = (v: boolean): void => authStore.setState({ isLoading: v });
 const setError = (v: string | null): void => authStore.setState({ error: v });
-const setBiometricAvailable = (v: boolean): void => authStore.setState({ biometricAvailable: v });
-const setBiometricEnabled = (v: boolean): void => authStore.setState({ biometricEnabled: v });
+const setBiometricAvailable = (v: boolean): void =>
+  authStore.setState({ biometricAvailable: v });
+const setBiometricEnabled = (v: boolean): void =>
+  authStore.setState({ biometricEnabled: v });
 const setBiometricType = (v: WalletAuthState['biometricType']): void =>
   authStore.setState({ biometricType: v });
 const setActiveWalletInfo = (v: ActiveWalletInfo | null): void =>
   authStore.setState({ activeWalletInfo: v });
 const setCurrentMasterKeyId = (v: string | null): void =>
   authStore.setState({ currentMasterKeyId: v });
-const setLastActivity = (v: number): void => authStore.setState({ lastActivity: v });
-const setAutoLockTimeout = (v: number): void => authStore.setState({ autoLockTimeout: v });
+const setLastActivity = (v: number): void =>
+  authStore.setState({ lastActivity: v });
+const setAutoLockTimeout = (v: number): void =>
+  authStore.setState({ autoLockTimeout: v });
 
 // The one-time initialize runs for the first mounted consumer only; the shared
 // store keeps subsequent consumers in sync without re-reading storage.
@@ -170,7 +182,9 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
   } = authStore.useStore();
 
   // Refs
-  const autoLockTimerRef = useRef<ReturnType<typeof global.setTimeout> | null>(null);
+  const autoLockTimerRef = useRef<ReturnType<typeof global.setTimeout> | null>(
+    null
+  );
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   // ========================================
@@ -216,7 +230,9 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         await checkAutoLock();
       } catch (err) {
         console.error('❌ [useWalletAuth] Initialize failed:', err);
-        setError(err instanceof Error ? err.message : 'Failed to initialize auth');
+        setError(
+          err instanceof Error ? err.message : 'Failed to initialize auth'
+        );
       } finally {
         setIsLoading(false);
       }
@@ -230,7 +246,9 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
   // ========================================
 
   useEffect(() => {
-    const handleAppStateChange = async (nextAppState: AppStateStatus): Promise<void> => {
+    const handleAppStateChange = async (
+      nextAppState: AppStateStatus
+    ): Promise<void> => {
       if (
         appStateRef.current.match(/inactive|background/) &&
         nextAppState === 'active'
@@ -246,7 +264,10 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       appStateRef.current = nextAppState;
     };
 
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    const subscription = AppState.addEventListener(
+      'change',
+      handleAppStateChange
+    );
 
     return (): void => {
       subscription?.remove();
@@ -268,10 +289,17 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       setBiometricAvailable(hasHardware && isEnrolled);
 
       if (hasHardware && isEnrolled) {
-        const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
-        const hasFacial = types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION);
-        const hasFingerprint = types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT);
-        const hasIris = types.includes(LocalAuthentication.AuthenticationType.IRIS);
+        const types =
+          await LocalAuthentication.supportedAuthenticationTypesAsync();
+        const hasFacial = types.includes(
+          LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION
+        );
+        const hasFingerprint = types.includes(
+          LocalAuthentication.AuthenticationType.FINGERPRINT
+        );
+        const hasIris = types.includes(
+          LocalAuthentication.AuthenticationType.IRIS
+        );
 
         // IMPORTANT: supportedAuthenticationTypesAsync() reports what the
         // HARDWARE can do, NOT what the user has enrolled. Many Android
@@ -323,7 +351,10 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         });
       } catch (authErr) {
         // User cancelled or auth failed. Don't surface as an error — user stays on PIN screen.
-        console.log('ℹ️ [useWalletAuth] Biometric unlock cancelled/failed:', authErr);
+        console.log(
+          'ℹ️ [useWalletAuth] Biometric unlock cancelled/failed:',
+          authErr
+        );
         return false;
       }
 
@@ -332,7 +363,9 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       // init the SDK, so refuse to unlock and let the user enter their PIN.
       if (!pin && getModuleSessionPin()) {
         pin = getModuleSessionPin();
-        console.log('🔍 [useWalletAuth] Using cached session PIN for SDK initialization');
+        console.log(
+          '🔍 [useWalletAuth] Using cached session PIN for SDK initialization'
+        );
       }
 
       if (!pin) {
@@ -342,8 +375,12 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         // global preference and let the normal PIN path enroll this wallet.
         // Authentication cancellation/failure is handled above and never
         // reaches this branch.
-        console.log('ℹ️ [useWalletAuth] No biometric key bound for this wallet; PIN is required once to enroll it');
-        setError('Biometric unlock is not set up for this wallet yet. Enter your PIN once to enable it for future unlocks.');
+        console.log(
+          'ℹ️ [useWalletAuth] No biometric key bound for this wallet; PIN is required once to enroll it'
+        );
+        setError(
+          'Biometric unlock is not set up for this wallet yet. Enter your PIN once to enable it for future unlocks.'
+        );
         return false;
       }
 
@@ -364,24 +401,46 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       const pinForInit = pin;
       (async () => {
         try {
-          const mnemonic = await storageService.getMasterKeyMnemonic(masterKeyId, pinForInit);
+          const mnemonic = await storageService.getMasterKeyMnemonic(
+            masterKeyId,
+            pinForInit
+          );
           if (mnemonic) {
             const walletInfo = await storageService.getActiveWalletInfo();
             const subWalletIndex = walletInfo?.subWalletIndex ?? 0;
-            const derivedMnemonic = deriveSubWalletMnemonic(mnemonic, subWalletIndex);
+            const derivedMnemonic = deriveSubWalletMnemonic(
+              mnemonic,
+              subWalletIndex
+            );
 
-            await BreezSparkService.initializeSDK(derivedMnemonic, undefined, walletInfo?.subWalletNickname, walletInfo ? { masterKeyId: walletInfo.masterKeyId, subWalletIndex: walletInfo.subWalletIndex } : undefined);
+            await BreezSparkService.initializeSDK(
+              derivedMnemonic,
+              undefined,
+              walletInfo?.subWalletNickname,
+              walletInfo
+                ? {
+                    masterKeyId: walletInfo.masterKeyId,
+                    subWalletIndex: walletInfo.subWalletIndex,
+                  }
+                : undefined
+            );
 
-            console.log('✅ [useWalletAuth] Breez SDK initialized (background biometric)');
+            console.log(
+              '✅ [useWalletAuth] Breez SDK initialized (background biometric)'
+            );
           }
         } catch (sdkError) {
-          console.warn('⚠️ [useWalletAuth] SDK initialization failed (biometric):', sdkError);
+          console.warn(
+            '⚠️ [useWalletAuth] SDK initialization failed (biometric):',
+            sdkError
+          );
         }
       })();
 
       return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Biometric unlock failed';
+      const message =
+        err instanceof Error ? err.message : 'Biometric unlock failed';
       setError(message);
       return false;
     } finally {
@@ -404,18 +463,26 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
           throw new Error('No wallet selected');
         }
 
-        const isValid = await storageService.verifyMasterKeyPin(currentMasterKeyId, pin);
+        const isValid = await storageService.verifyMasterKeyPin(
+          currentMasterKeyId,
+          pin
+        );
         if (!isValid) {
-          const authStatus = await storageService.getPinAuthStatus(currentMasterKeyId);
+          const authStatus =
+            await storageService.getPinAuthStatus(currentMasterKeyId);
           if (authStatus.isLocked) {
-            setError(`PIN temporarily locked. Try again in ${Math.ceil(authStatus.remainingMs / 1000)}s.`);
+            setError(
+              `PIN temporarily locked. Try again in ${Math.ceil(authStatus.remainingMs / 1000)}s.`
+            );
           } else {
             setError('Invalid PIN');
           }
           return false;
         }
 
-        console.log('🔵 [useWalletAuth] PIN VERIFIED - unlocking wallet immediately');
+        console.log(
+          '🔵 [useWalletAuth] PIN VERIFIED - unlocking wallet immediately'
+        );
 
         // Cache PIN for biometric unlock SDK initialization.
         // Module-level cache is visible across every useWalletAuth() caller
@@ -436,11 +503,16 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
           } catch (enrollmentError) {
             // The switch is already authenticated. Keep it successful and
             // allow the next PIN switch to retry enrollment safely.
-            console.warn('⚠️ [useWalletAuth] Could not enroll wallet biometric PIN:', enrollmentError);
+            console.warn(
+              '⚠️ [useWalletAuth] Could not enroll wallet biometric PIN:',
+              enrollmentError
+            );
           }
         }
 
-        console.log('✅ [useWalletAuth] Unlocked with PIN - starting background init');
+        console.log(
+          '✅ [useWalletAuth] Unlocked with PIN - starting background init'
+        );
 
         // NON-BLOCKING: Initialize SDK in background so the user can navigate
         // to the home screen immediately.
@@ -455,14 +527,32 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         (async () => {
           try {
             // Initialize Breez SDK in background
-            const mnemonic = await storageService.getMasterKeyMnemonic(masterKeyId, pin);
+            const mnemonic = await storageService.getMasterKeyMnemonic(
+              masterKeyId,
+              pin
+            );
             if (mnemonic) {
               const walletInfo = await storageService.getActiveWalletInfo();
               const subWalletIndex = walletInfo?.subWalletIndex ?? 0;
-              const derivedMnemonic = deriveSubWalletMnemonic(mnemonic, subWalletIndex);
+              const derivedMnemonic = deriveSubWalletMnemonic(
+                mnemonic,
+                subWalletIndex
+              );
 
-              await BreezSparkService.initializeSDK(derivedMnemonic, undefined, walletInfo?.subWalletNickname, walletInfo ? { masterKeyId: walletInfo.masterKeyId, subWalletIndex: walletInfo.subWalletIndex } : undefined);
-              console.log('✅ [useWalletAuth] Breez SDK initialized (background)');
+              await BreezSparkService.initializeSDK(
+                derivedMnemonic,
+                undefined,
+                walletInfo?.subWalletNickname,
+                walletInfo
+                  ? {
+                      masterKeyId: walletInfo.masterKeyId,
+                      subWalletIndex: walletInfo.subWalletIndex,
+                    }
+                  : undefined
+              );
+              console.log(
+                '✅ [useWalletAuth] Breez SDK initialized (background)'
+              );
             }
           } catch (bgError) {
             console.warn('⚠️ [useWalletAuth] Background init failed:', bgError);
@@ -514,14 +604,51 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
   );
 
   const changePin = useCallback(
-    async (_oldPin: string, _newPin: string): Promise<boolean> => {
-      // TODO(security): Implement atomic PIN rotation in storageService.
-      // Must decrypt with old PIN, re-encrypt with new PIN, verify round-trip,
-      // and only then commit to avoid lockout/data-loss windows.
-      console.log('🔵 [useWalletAuth] Change PIN (not implemented)');
-      return false;
+    async (oldPin: string, newPin: string): Promise<boolean> => {
+      const masterKeyId = currentMasterKeyId;
+      if (!masterKeyId || !isUnlocked || oldPin === newPin) return false;
+
+      setIsLoading(true);
+      setError(null);
+      try {
+        const changed = await storageService.rotateActiveMasterKeyPin(
+          masterKeyId,
+          oldPin,
+          newPin
+        );
+        if (!changed) {
+          const authStatus = await storageService.getPinAuthStatus(masterKeyId);
+          setError(
+            authStatus.isLocked
+              ? `PIN temporarily locked. Try again in ${Math.ceil(authStatus.remainingMs / 1000)}s.`
+              : 'Could not change PIN. Check your current PIN and try again.'
+          );
+          return false;
+        }
+
+        // The durable wallet record is already committed. Rebind only this
+        // master key's biometric credential; if that cannot be made safe,
+        // clear it so no stale old PIN can remain in SecureStore.
+        if (biometricEnabled && biometricAvailable) {
+          try {
+            await storageService.storeBiometricPin(masterKeyId, newPin);
+          } catch {
+            await storageService.deleteBiometricPin(masterKeyId);
+            setError(
+              'PIN changed, but biometric unlock was reset for this wallet. Enable it again in Security Settings.'
+            );
+          }
+        }
+        setModuleSessionPin(newPin);
+        return true;
+      } catch {
+        setError('Could not change PIN. Your existing PIN is still active.');
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
     },
-    []
+    [biometricAvailable, biometricEnabled, currentMasterKeyId, isUnlocked]
   );
 
   // ========================================
@@ -541,11 +668,16 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
 
         // SECURITY: Always verify PIN when selecting via wallet selection screen
         // This is called from WalletSelectionScreen which requires re-authentication
-        const isValid = await storageService.verifyMasterKeyPin(masterKeyId, pin);
+        const isValid = await storageService.verifyMasterKeyPin(
+          masterKeyId,
+          pin
+        );
         if (!isValid) {
           const authStatus = await storageService.getPinAuthStatus(masterKeyId);
           if (authStatus.isLocked) {
-            setError(`PIN temporarily locked. Try again in ${Math.ceil(authStatus.remainingMs / 1000)}s.`);
+            setError(
+              `PIN temporarily locked. Try again in ${Math.ceil(authStatus.remainingMs / 1000)}s.`
+            );
           } else {
             setError('Invalid PIN');
           }
@@ -578,7 +710,10 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
           try {
             await storageService.storeBiometricPin(masterKeyId, pin);
           } catch (enrollmentError) {
-            console.warn('⚠️ [useWalletAuth] Could not enroll switched wallet biometric PIN:', enrollmentError);
+            console.warn(
+              '⚠️ [useWalletAuth] Could not enroll switched wallet biometric PIN:',
+              enrollmentError
+            );
           }
         }
 
@@ -586,22 +721,38 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         setIsUnlocked(true);
         updateActivity();
 
-        console.log('✅ [useWalletAuth] Wallet selected — initializing SDK before navigation');
+        console.log(
+          '✅ [useWalletAuth] Wallet selected — initializing SDK before navigation'
+        );
 
         // Await full SDK disconnect + reinit so HomeScreen is ready to send/receive.
         // The PIN screen stays visible during this (isLoading=true).
         const nickname = walletInfo?.subWalletNickname;
         try {
           await BreezSparkService.disconnectSDK(); // await in-flight or fresh disconnect
-          const mnemonic = await storageService.getMasterKeyMnemonic(masterKeyId, pin);
+          const mnemonic = await storageService.getMasterKeyMnemonic(
+            masterKeyId,
+            pin
+          );
           if (mnemonic) {
-            const derivedMnemonic = deriveSubWalletMnemonic(mnemonic, subWalletIndex);
-            await BreezSparkService.initializeSDK(derivedMnemonic, undefined, nickname, { masterKeyId, subWalletIndex });
+            const derivedMnemonic = deriveSubWalletMnemonic(
+              mnemonic,
+              subWalletIndex
+            );
+            await BreezSparkService.initializeSDK(
+              derivedMnemonic,
+              undefined,
+              nickname,
+              { masterKeyId, subWalletIndex }
+            );
             console.log('✅ [useWalletAuth] SDK reinitialized for new wallet');
           }
         } catch (sdkError) {
           // Non-fatal — user can still navigate, SDK will be unavailable
-          console.warn('⚠️ [useWalletAuth] SDK reinitialization failed:', sdkError);
+          console.warn(
+            '⚠️ [useWalletAuth] SDK reinitialization failed:',
+            sdkError
+          );
         }
 
         // Notify the shared wallet state only after the SDK reconnect attempt.
@@ -616,7 +767,8 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
 
         return true;
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to select wallet';
+        const message =
+          err instanceof Error ? err.message : 'Failed to select wallet';
         setError(message);
         return false;
       } finally {
@@ -640,7 +792,10 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         if (!pin) return false;
         return await selectWallet(masterKeyId, subWalletIndex, pin, false);
       } catch (biometricError) {
-        console.log('ℹ️ [useWalletAuth] Biometric wallet switch unavailable:', biometricError);
+        console.log(
+          'ℹ️ [useWalletAuth] Biometric wallet switch unavailable:',
+          biometricError
+        );
         return false;
       }
     },
@@ -658,7 +813,10 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         }
 
         // Switching sub-wallet within same master key - no PIN needed for storage
-        await storageService.setActiveWallet(currentMasterKeyId, subWalletIndex);
+        await storageService.setActiveWallet(
+          currentMasterKeyId,
+          subWalletIndex
+        );
         const walletInfo = await storageService.getActiveWalletInfo();
         setActiveWalletInfo(walletInfo);
         updateActivity();
@@ -679,18 +837,42 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
           const pin = getModuleSessionPin();
 
           if (pin) {
-            const mnemonic = await storageService.getMasterKeyMnemonic(currentMasterKeyId, pin);
+            const mnemonic = await storageService.getMasterKeyMnemonic(
+              currentMasterKeyId,
+              pin
+            );
             if (mnemonic) {
-              const derivedMnemonic = deriveSubWalletMnemonic(mnemonic, subWalletIndex);
+              const derivedMnemonic = deriveSubWalletMnemonic(
+                mnemonic,
+                subWalletIndex
+              );
               await BreezSparkService.disconnectSDK();
-              await BreezSparkService.initializeSDK(derivedMnemonic, undefined, walletInfo?.subWalletNickname, walletInfo ? { masterKeyId: walletInfo.masterKeyId, subWalletIndex: walletInfo.subWalletIndex } : undefined);
-              console.log('✅ [useWalletAuth] SDK reinitialized for sub-wallet:', subWalletIndex);
+              await BreezSparkService.initializeSDK(
+                derivedMnemonic,
+                undefined,
+                walletInfo?.subWalletNickname,
+                walletInfo
+                  ? {
+                      masterKeyId: walletInfo.masterKeyId,
+                      subWalletIndex: walletInfo.subWalletIndex,
+                    }
+                  : undefined
+              );
+              console.log(
+                '✅ [useWalletAuth] SDK reinitialized for sub-wallet:',
+                subWalletIndex
+              );
             }
           } else {
-            console.warn('⚠️ [useWalletAuth] No PIN available for SDK reinit on sub-wallet switch');
+            console.warn(
+              '⚠️ [useWalletAuth] No PIN available for SDK reinit on sub-wallet switch'
+            );
           }
         } catch (sdkError) {
-          console.error('❌ [useWalletAuth] SDK reinitialization failed:', sdkError);
+          console.error(
+            '❌ [useWalletAuth] SDK reinitialization failed:',
+            sdkError
+          );
         }
 
         // The WalletProvider remains mounted during same-master sub-wallet
@@ -707,7 +889,8 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         return true;
       } catch (err) {
         console.error('❌ [useWalletAuth] selectSubWallet error:', err);
-        const message = err instanceof Error ? err.message : 'Failed to switch sub-wallet';
+        const message =
+          err instanceof Error ? err.message : 'Failed to switch sub-wallet';
         setError(message);
         return false;
       } finally {
@@ -782,7 +965,10 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
    * Returns true only if the PIN was actually stored AND the setting flipped.
    * Returns false (without changing the setting) on any failure.
    */
-  const enableBiometric = useCallback(async (): Promise<{ ok: boolean; reason?: string }> => {
+  const enableBiometric = useCallback(async (): Promise<{
+    ok: boolean;
+    reason?: string;
+  }> => {
     try {
       setError(null);
 
@@ -802,11 +988,15 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         // We can't enable biometric unlock without a PIN to bind to the
         // keystore entry. This should only happen if the wallet is locked
         // or the session PIN was cleared — bail without mutating settings.
-        console.warn('⚠️ [useWalletAuth] enableBiometric: missing masterKeyId or session PIN, aborting', {
-          hasMasterKeyId: Boolean(masterKeyId),
-          hasSessionPin: Boolean(pin),
-        });
-        const reason = 'Unlock your wallet with your PIN first, then enable biometric.';
+        console.warn(
+          '⚠️ [useWalletAuth] enableBiometric: missing masterKeyId or session PIN, aborting',
+          {
+            hasMasterKeyId: Boolean(masterKeyId),
+            hasSessionPin: Boolean(pin),
+          }
+        );
+        const reason =
+          'Unlock your wallet with your PIN first, then enable biometric.';
         setError(reason);
         return { ok: false, reason };
       }
@@ -821,7 +1011,10 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
           disableDeviceFallback: false,
         });
         if (!auth.success) {
-          const isCancel = auth.error === 'user_cancel' || auth.error === 'system_cancel' || auth.error === 'app_cancel';
+          const isCancel =
+            auth.error === 'user_cancel' ||
+            auth.error === 'system_cancel' ||
+            auth.error === 'app_cancel';
           const reason = isCancel
             ? 'Biometric prompt was cancelled. Try again to enable.'
             : 'Could not verify biometrics. Please try again.';
@@ -837,11 +1030,16 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       try {
         await storageService.storeBiometricPin(masterKeyId, pin);
       } catch (storeErr) {
-        console.error('❌ [useWalletAuth] enableBiometric: storeBiometricPin failed', storeErr);
-        const detail = storeErr instanceof Error ? storeErr.message : String(storeErr);
+        console.error(
+          '❌ [useWalletAuth] enableBiometric: storeBiometricPin failed',
+          storeErr
+        );
+        const detail =
+          storeErr instanceof Error ? storeErr.message : String(storeErr);
         // Distinguish user-cancel (common, expected) from a real keystore
         // failure so the message we surface matches what actually happened.
-        const isCancel = /cancel|UserCancel|user_cancel|biometric_canceled/i.test(detail);
+        const isCancel =
+          /cancel|UserCancel|user_cancel|biometric_canceled/i.test(detail);
         const reason = isCancel
           ? 'Biometric prompt was cancelled. Try again to enable.'
           : `Could not save the biometric key (${detail}).`;
@@ -851,11 +1049,17 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
 
       await settingsService.updateUserSettings({ biometricEnabled: true });
       setBiometricEnabled(true);
-      console.log('✅ [useWalletAuth] Biometric unlock enabled for master key:', masterKeyId);
+      console.log(
+        '✅ [useWalletAuth] Biometric unlock enabled for master key:',
+        masterKeyId
+      );
       return { ok: true };
     } catch (err) {
       console.error('❌ [useWalletAuth] enableBiometric failed:', err);
-      const reason = err instanceof Error ? err.message : 'Unknown error enabling biometric.';
+      const reason =
+        err instanceof Error
+          ? err.message
+          : 'Unknown error enabling biometric.';
       setError(reason);
       return { ok: false, reason };
     }
@@ -867,19 +1071,30 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
    * Keeping these two in lockstep prevents the previous failure mode where the
    * setting said "on" but no PIN was bound, leading to broken-state recovery.
    */
-  const disableBiometric = useCallback(async (): Promise<{ ok: boolean; reason?: string }> => {
+  const disableBiometric = useCallback(async (): Promise<{
+    ok: boolean;
+    reason?: string;
+  }> => {
     try {
       setError(null);
       const walletStorage = await storageService.loadMultiWalletStorage();
-      const masterKeyIds = walletStorage?.masterKeys.map((masterKey) => masterKey.id) || [];
-      await Promise.all(masterKeyIds.map((masterKeyId) => storageService.deleteBiometricPin(masterKeyId)));
+      const masterKeyIds =
+        walletStorage?.masterKeys.map((masterKey) => masterKey.id) || [];
+      await Promise.all(
+        masterKeyIds.map((masterKeyId) =>
+          storageService.deleteBiometricPin(masterKeyId)
+        )
+      );
       await settingsService.updateUserSettings({ biometricEnabled: false });
       setBiometricEnabled(false);
       console.log('✅ [useWalletAuth] Biometric unlock disabled');
       return { ok: true };
     } catch (err) {
       console.error('❌ [useWalletAuth] disableBiometric failed:', err);
-      const reason = err instanceof Error ? err.message : 'Unknown error disabling biometric.';
+      const reason =
+        err instanceof Error
+          ? err.message
+          : 'Unknown error disabling biometric.';
       return { ok: false, reason };
     }
   }, []);

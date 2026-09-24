@@ -2,8 +2,22 @@
 // Configure biometric authentication (fingerprint/Face ID)
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Alert, Platform, BackHandler } from 'react-native';
-import { Text, Switch, IconButton } from 'react-native-paper';
+import {
+  View,
+  StyleSheet,
+  ScrollView,
+  Alert,
+  Platform,
+  BackHandler,
+  Modal,
+} from 'react-native';
+import {
+  Text,
+  Switch,
+  IconButton,
+  Button,
+  TextInput,
+} from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -12,7 +26,12 @@ import { useSettings } from '../../../../hooks/useSettings';
 import { useWalletAuth } from '../../../../hooks/useWalletAuth';
 import { useLanguage } from '../../../../hooks/useLanguage';
 import { useAppTheme } from '../../../../contexts/ThemeContext';
-import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_COLOR } from '../../../../utils/theme-helpers';
+import {
+  getGradientColors,
+  getPrimaryTextColor,
+  getSecondaryTextColor,
+  BRAND_COLOR,
+} from '../../../../utils/theme-helpers';
 import { PinLockoutBanner } from '../../components/PinLockoutBanner';
 import { createSafeBackHandler } from '../../utils/safeBack';
 
@@ -21,13 +40,36 @@ import { createSafeBackHandler } from '../../utils/safeBack';
 // =============================================================================
 
 export function SecuritySettingsScreen(): React.JSX.Element {
-  const safeBack = useMemo(() => createSafeBackHandler({ canGoBack: () => router.canGoBack(), back: () => router.back(), replace: (route) => router.replace(route) }, '/wallet/settings'), []);
-  useFocusEffect(React.useCallback(() => {
-    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
-    return () => subscription.remove();
-  }, [safeBack]));
+  const safeBack = useMemo(
+    () =>
+      createSafeBackHandler(
+        {
+          canGoBack: () => router.canGoBack(),
+          back: () => router.back(),
+          replace: (route) => router.replace(route),
+        },
+        '/wallet/settings'
+      ),
+    []
+  );
+  useFocusEffect(
+    React.useCallback(() => {
+      const subscription = BackHandler.addEventListener(
+        'hardwareBackPress',
+        safeBack
+      );
+      return () => subscription.remove();
+    }, [safeBack])
+  );
   const { settings } = useSettings();
-  const { enableBiometric, disableBiometric } = useWalletAuth();
+  const {
+    enableBiometric,
+    disableBiometric,
+    changePin,
+    currentMasterKeyId,
+    isLoading,
+    error,
+  } = useWalletAuth();
   const { t } = useLanguage();
   const { themeMode } = useAppTheme();
 
@@ -40,6 +82,44 @@ export function SecuritySettingsScreen(): React.JSX.Element {
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricType, setBiometricType] = useState<string>('Biometric');
+  const [isChangePinVisible, setIsChangePinVisible] = useState(false);
+  const [currentPin, setCurrentPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [pinFormError, setPinFormError] = useState<string | null>(null);
+
+  const closeChangePin = (): void => {
+    if (isLoading) return;
+    setCurrentPin('');
+    setNewPin('');
+    setConfirmPin('');
+    setPinFormError(null);
+    setIsChangePinVisible(false);
+  };
+
+  const submitPinChange = async (): Promise<void> => {
+    if (!currentMasterKeyId) {
+      setPinFormError('No active wallet is available.');
+      return;
+    }
+    if (newPin.length !== 6 || !/^\d+$/.test(newPin)) {
+      setPinFormError('Your new PIN must contain 6 digits.');
+      return;
+    }
+    if (newPin !== confirmPin) {
+      setPinFormError('New PINs do not match.');
+      return;
+    }
+    if (newPin === currentPin) {
+      setPinFormError('Choose a different PIN.');
+      return;
+    }
+    setPinFormError(null);
+    const changed = await changePin(currentPin, newPin);
+    if (!changed) return;
+    closeChangePin();
+    Alert.alert('PIN changed', 'Your current wallet now uses the new PIN.');
+  };
 
   // Check biometric availability
   useEffect(() => {
@@ -121,7 +201,7 @@ export function SecuritySettingsScreen(): React.JSX.Element {
           // a generic "verification failed".
           Alert.alert(
             t('settings.failed'),
-            result.reason ?? t('settings.biometricVerificationFailed'),
+            result.reason ?? t('settings.biometricVerificationFailed')
           );
           return;
         }
@@ -131,16 +211,21 @@ export function SecuritySettingsScreen(): React.JSX.Element {
           setBiometricEnabled(true);
           Alert.alert(
             t('common.error'),
-            result.reason ?? t('settings.failedToSaveSettings'),
+            result.reason ?? t('settings.failedToSaveSettings')
           );
           return;
         }
       }
-      console.log(`🔐 [SecuritySettings] Biometric ${enabled ? 'enabled' : 'disabled'}`);
+      console.log(
+        `🔐 [SecuritySettings] Biometric ${enabled ? 'enabled' : 'disabled'}`
+      );
     } catch (err) {
       console.error('❌ [SecuritySettings] Failed to toggle biometric:', err);
       const detail = err instanceof Error ? err.message : String(err);
-      Alert.alert(t('common.error'), detail || t('settings.failedToSaveSettings'));
+      Alert.alert(
+        t('common.error'),
+        detail || t('settings.failedToSaveSettings')
+      );
       setBiometricEnabled(!enabled);
     }
   };
@@ -148,10 +233,7 @@ export function SecuritySettingsScreen(): React.JSX.Element {
   // handleSave removed (saving immediately now)
 
   return (
-    <LinearGradient
-      colors={gradientColors}
-      style={styles.gradient}
-    >
+    <LinearGradient colors={gradientColors} style={styles.gradient}>
       <SafeAreaView style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
@@ -174,6 +256,34 @@ export function SecuritySettingsScreen(): React.JSX.Element {
                 don't think the biometric toggle is just "broken". */}
             <PinLockoutBanner />
 
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <IconButton
+                  icon="lock-reset"
+                  iconColor={BRAND_COLOR}
+                  size={28}
+                  style={styles.sectionIcon}
+                />
+                <Text style={[styles.sectionTitle, { color: primaryText }]}>
+                  Change PIN
+                </Text>
+              </View>
+              <Text
+                style={[styles.switchDescription, { color: secondaryText }]}
+              >
+                Change the PIN for the wallet currently open in ZapArc.
+              </Text>
+              <Button
+                mode="contained"
+                style={styles.changePinButton}
+                buttonColor={BRAND_COLOR}
+                textColor="#1a1a2e"
+                onPress={() => setIsChangePinVisible(true)}
+              >
+                Change PIN
+              </Button>
+            </View>
+
             {/* Biometric Authentication */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
@@ -184,15 +294,23 @@ export function SecuritySettingsScreen(): React.JSX.Element {
                   style={styles.sectionIcon}
                 />
                 <Text style={[styles.sectionTitle, { color: primaryText }]}>
-                  {biometricType === 'Fingerprint' ? t('settings.fingerprintUnlock') : biometricType === 'Biometric' ? t('settings.biometricUnlock') : t('settings.faceIdUnlock')}
+                  {biometricType === 'Fingerprint'
+                    ? t('settings.fingerprintUnlock')
+                    : biometricType === 'Biometric'
+                      ? t('settings.biometricUnlock')
+                      : t('settings.faceIdUnlock')}
                 </Text>
               </View>
 
               <View style={styles.switchRow}>
                 <View style={styles.switchContent}>
-                  <Text style={[styles.switchDescription, { color: secondaryText }]}>
+                  <Text
+                    style={[styles.switchDescription, { color: secondaryText }]}
+                  >
                     {biometricAvailable
-                      ? t('settings.useBiometricToUnlock', { type: biometricType })
+                      ? t('settings.useBiometricToUnlock', {
+                          type: biometricType,
+                        })
                       : t('settings.notAvailableOnDevice')}
                   </Text>
                 </View>
@@ -217,9 +335,9 @@ export function SecuritySettingsScreen(): React.JSX.Element {
             <View style={styles.infoBox}>
               <Text style={styles.infoTitle}>{t('settings.securityTips')}</Text>
               <Text style={[styles.infoText, { color: secondaryText }]}>
-                • {t('settings.securityTip1')}{'\n'}
-                • {t('settings.securityTip2')}{'\n'}
-                • {t('settings.securityTip4')}
+                • {t('settings.securityTip1')}
+                {'\n'}• {t('settings.securityTip2')}
+                {'\n'}• {t('settings.securityTip4')}
               </Text>
             </View>
           </View>
@@ -227,6 +345,78 @@ export function SecuritySettingsScreen(): React.JSX.Element {
 
         {/* Footer spacer */}
         <View style={styles.bottomSpacer} />
+
+        <Modal
+          visible={isChangePinVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={closeChangePin}
+        >
+          <View style={styles.modalOverlay}>
+            <View
+              style={[
+                styles.modalCard,
+                { backgroundColor: getGradientColors(themeMode)[0] },
+              ]}
+            >
+              <Text style={[styles.modalTitle, { color: primaryText }]}>
+                Change PIN
+              </Text>
+              <Text style={[styles.modalDescription, { color: secondaryText }]}>
+                Verify your current PIN, then choose a new PIN for this wallet
+                only.
+              </Text>
+              <TextInput
+                label="Current PIN"
+                value={currentPin}
+                onChangeText={setCurrentPin}
+                secureTextEntry
+                keyboardType="number-pad"
+                maxLength={6}
+                disabled={isLoading}
+                style={styles.pinInput}
+              />
+              <TextInput
+                label="New PIN"
+                value={newPin}
+                onChangeText={setNewPin}
+                secureTextEntry
+                keyboardType="number-pad"
+                maxLength={6}
+                disabled={isLoading}
+                style={styles.pinInput}
+              />
+              <TextInput
+                label="Confirm new PIN"
+                value={confirmPin}
+                onChangeText={setConfirmPin}
+                secureTextEntry
+                keyboardType="number-pad"
+                maxLength={6}
+                disabled={isLoading}
+                style={styles.pinInput}
+              />
+              {(pinFormError || error) && (
+                <Text style={styles.pinError}>{pinFormError || error}</Text>
+              )}
+              <View style={styles.modalActions}>
+                <Button onPress={closeChangePin} disabled={isLoading}>
+                  Cancel
+                </Button>
+                <Button
+                  mode="contained"
+                  buttonColor={BRAND_COLOR}
+                  textColor="#1a1a2e"
+                  onPress={submitPinChange}
+                  loading={isLoading}
+                  disabled={isLoading}
+                >
+                  Save PIN
+                </Button>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </LinearGradient>
   );
@@ -361,5 +551,42 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 32,
+  },
+  changePinButton: {
+    alignSelf: 'flex-start',
+    marginTop: 14,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+  },
+  modalCard: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  modalDescription: {
+    marginTop: 8,
+    marginBottom: 18,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  pinInput: {
+    marginBottom: 12,
+  },
+  pinError: {
+    color: '#F44336',
+    marginBottom: 8,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+    marginTop: 8,
   },
 });
