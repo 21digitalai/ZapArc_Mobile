@@ -274,6 +274,40 @@ describe('SendScreen on-chain flow', () => {
     expect(screen.getAllByText('••••••').length).toBeGreaterThan(0);
   });
 
+  it('shows an honest unknown-fee balance summary while entering a Lightning payment', () => {
+    renderScreen();
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
+
+    expect(screen.getByTestId('send-balance-summary-input')).toBeTruthy();
+    expect(screen.getByText('Payment')).toBeTruthy();
+    expect(screen.getByText('Calculated at preview')).toBeTruthy();
+    expect(screen.queryByText('Remaining after send')).toBeNull();
+    expect(screen.queryByTestId('send-balance-status-input')).toBeNull();
+  });
+
+  it('shows the fee-inclusive remaining balance in the decoded payment preview', async () => {
+    mockParsePaymentRequest.mockResolvedValue({
+      type: 'bolt11',
+      isValid: true,
+      amountSat: 499980,
+    });
+    mockPrepareSendPayment.mockResolvedValue({
+      paymentMethod: {
+        tag: 'Bolt11Invoice',
+        inner: { lightningFeeSats: 20 },
+      },
+    });
+
+    renderScreen();
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'lnbc1balancepreview');
+    fireEvent.press(screen.getByText('Preview Payment'));
+
+    await waitFor(() => expect(screen.getByTestId('send-balance-summary-preview')).toBeTruthy());
+    expect(screen.getByText('Remaining after send')).toBeTruthy();
+    expect(screen.getByText('Enough balance to send')).toBeTruthy();
+    expect(screen.getByText('0 sats')).toBeTruthy();
+  });
+
   it('updates the balance estimate when the configured default fiat is EUR', () => {
     mockSecondaryFiatCurrency = 'eur';
     renderScreen();
