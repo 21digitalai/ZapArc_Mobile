@@ -67,6 +67,7 @@ export function SecuritySettingsScreen(): React.JSX.Element {
     disableBiometric,
     changePin,
     currentMasterKeyId,
+    activeWalletInfo,
     isLoading,
     error,
   } = useWalletAuth();
@@ -77,6 +78,8 @@ export function SecuritySettingsScreen(): React.JSX.Element {
   const gradientColors = getGradientColors(themeMode);
   const primaryText = getPrimaryTextColor(themeMode);
   const secondaryText = getSecondaryTextColor(themeMode);
+  const activeWalletName =
+    activeWalletInfo?.masterKeyNickname || 'the current wallet';
 
   // State
   const [biometricEnabled, setBiometricEnabled] = useState(false);
@@ -272,7 +275,7 @@ export function SecuritySettingsScreen(): React.JSX.Element {
               <Text
                 style={[styles.switchDescription, { color: secondaryText }]}
               >
-                Change the PIN for the wallet currently open in ZapArc.
+                Change the PIN for {activeWalletName}.
               </Text>
               <Button
                 mode="contained"
@@ -280,6 +283,8 @@ export function SecuritySettingsScreen(): React.JSX.Element {
                 buttonColor={BRAND_COLOR}
                 textColor="#1a1a2e"
                 onPress={() => setIsChangePinVisible(true)}
+                accessibilityLabel={`Change PIN for ${activeWalletName}`}
+                testID="change-pin-open"
               >
                 Change PIN
               </Button>
@@ -352,6 +357,7 @@ export function SecuritySettingsScreen(): React.JSX.Element {
           transparent
           animationType="slide"
           onRequestClose={closeChangePin}
+          accessibilityViewIsModal
         >
           <View style={styles.modalOverlay}>
             <View
@@ -363,8 +369,11 @@ export function SecuritySettingsScreen(): React.JSX.Element {
               <Text style={[styles.modalTitle, { color: primaryText }]}>
                 Change PIN
               </Text>
-              <Text style={[styles.modalDescription, { color: secondaryText }]}>
-                Choose a new PIN for the wallet currently open in ZapArc.
+              <Text
+                style={[styles.modalDescription, { color: secondaryText }]}
+                accessibilityLabel={`Choose a new PIN for ${activeWalletName}`}
+              >
+                Choose a new PIN for {activeWalletName}.
               </Text>
               <TextInput
                 label="New PIN"
@@ -375,6 +384,8 @@ export function SecuritySettingsScreen(): React.JSX.Element {
                 maxLength={6}
                 disabled={isLoading}
                 style={styles.pinInput}
+                accessibilityLabel="New PIN"
+                testID="change-pin-new"
               />
               <TextInput
                 label="Confirm new PIN"
@@ -385,12 +396,25 @@ export function SecuritySettingsScreen(): React.JSX.Element {
                 maxLength={6}
                 disabled={isLoading}
                 style={styles.pinInput}
+                accessibilityLabel="Confirm new PIN"
+                testID="change-pin-confirm"
               />
               {(pinFormError || error) && (
-                <Text style={styles.pinError}>{pinFormError || error}</Text>
+                <Text
+                  style={styles.pinError}
+                  accessibilityRole="alert"
+                  accessibilityLiveRegion="polite"
+                >
+                  {pinFormError || error}
+                </Text>
               )}
               <View style={styles.modalActions}>
-                <Button onPress={closeChangePin} disabled={isLoading}>
+                <Button
+                  onPress={closeChangePin}
+                  disabled={isLoading}
+                  accessibilityLabel="Cancel PIN change"
+                  testID="change-pin-cancel"
+                >
                   Cancel
                 </Button>
                 <Button
@@ -400,6 +424,8 @@ export function SecuritySettingsScreen(): React.JSX.Element {
                   onPress={submitPinChange}
                   loading={isLoading}
                   disabled={isLoading}
+                  accessibilityLabel="Save new PIN"
+                  testID="change-pin-save"
                 >
                   Save PIN
                 </Button>
