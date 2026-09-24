@@ -75,4 +75,40 @@ describe('useWalletAuth changePin biometric recovery', () => {
     expect(storageService.rotateActiveMasterKeyPin).not.toHaveBeenCalled();
     expect(result.current.error).toMatch(/unlock this wallet/i);
   });
+
+  it('serializes duplicate PIN changes without recording a false failed attempt', async () => {
+    let finishRotation: ((changed: boolean) => void) | undefined;
+    (storageService.rotateActiveMasterKeyPin as jest.Mock).mockImplementation(
+      () => new Promise<boolean>((resolve) => {
+        finishRotation = resolve;
+      })
+    );
+    (storageService.getPinAuthStatus as jest.Mock).mockResolvedValue({
+      isLocked: false,
+      remainingMs: 0,
+      failedAttempts: 0,
+    });
+
+    const { result } = renderHook(() => useWalletAuth());
+    await waitFor(() => expect(result.current.currentMasterKeyId).toBe('wallet-a'));
+    primeSessionPin('111111');
+
+    let firstChange: Promise<boolean> | undefined;
+    let secondChange: Promise<boolean> | undefined;
+    await act(async () => {
+      firstChange = result.current.changePin('222222');
+      secondChange = result.current.changePin('222222');
+    });
+
+    expect(storageService.rotateActiveMasterKeyPin).toHaveBeenCalledTimes(1);
+    await expect(secondChange).resolves.toBe(false);
+    expect(storageService.getPinAuthStatus).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishRotation?.(true);
+      await expect(firstChange).resolves.toBe(true);
+    });
+
+    expect(storageService.getPinAuthStatus).not.toHaveBeenCalled();
+  });
 });

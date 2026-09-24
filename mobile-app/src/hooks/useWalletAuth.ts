@@ -27,6 +27,10 @@ import type { PinAuthStatus } from '../services/storageService';
 // to live at module scope for the same reasons the mnemonic cache lives in
 // storageService's in-memory cache: the JS heap dies with the app process.
 let moduleSessionPin: string | null = null;
+// PIN rotation changes durable encrypted storage. Keep one process-wide guard
+// because several mounted useWalletAuth consumers share the same wallet state.
+// React's isLoading update is asynchronous and cannot safely serialize taps.
+let pinRotationInFlight = false;
 
 function getModuleSessionPin(): string | null {
   return moduleSessionPin;
@@ -605,6 +609,10 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
 
   const changePin = useCallback(
     async (newPin: string): Promise<boolean> => {
+      if (pinRotationInFlight) {
+        return false;
+      }
+
       const masterKeyId = currentMasterKeyId;
       const currentPin = getModuleSessionPin();
       if (!masterKeyId || !isUnlocked || !currentPin) {
@@ -612,6 +620,7 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         return false;
       }
 
+      pinRotationInFlight = true;
       setIsLoading(true);
       setError(null);
       try {
@@ -679,6 +688,7 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         );
         return false;
       } finally {
+        pinRotationInFlight = false;
         setIsLoading(false);
       }
     },

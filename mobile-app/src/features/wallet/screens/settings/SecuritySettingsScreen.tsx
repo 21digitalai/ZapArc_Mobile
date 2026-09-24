@@ -1,7 +1,7 @@
 // Security Settings Screen
 // Configure biometric authentication (fingerprint/Face ID)
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -86,6 +86,7 @@ export function SecuritySettingsScreen(): React.JSX.Element {
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [pinFormError, setPinFormError] = useState<string | null>(null);
+  const isPinChangeSubmitting = useRef(false);
 
   const closeChangePin = (): void => {
     if (isLoading) return;
@@ -96,6 +97,7 @@ export function SecuritySettingsScreen(): React.JSX.Element {
   };
 
   const submitPinChange = async (): Promise<void> => {
+    if (isPinChangeSubmitting.current) return;
     if (!currentMasterKeyId) {
       setPinFormError('No active wallet is available.');
       return;
@@ -109,10 +111,15 @@ export function SecuritySettingsScreen(): React.JSX.Element {
       return;
     }
     setPinFormError(null);
-    const changed = await changePin(newPin);
-    if (!changed) return;
-    closeChangePin();
-    Alert.alert('PIN changed', 'Your current wallet now uses the new PIN.');
+    isPinChangeSubmitting.current = true;
+    try {
+      const changed = await changePin(newPin);
+      if (!changed) return;
+      closeChangePin();
+      Alert.alert('PIN changed', 'Your current wallet now uses the new PIN.');
+    } finally {
+      isPinChangeSubmitting.current = false;
+    }
   };
 
   // Check biometric availability
