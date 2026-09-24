@@ -257,4 +257,20 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     expect(fileSystem.readAsStringAsync).not.toHaveBeenCalled();
     expect(mockGetMnemonic).not.toHaveBeenCalled();
   });
+
+  it('rejects an oversized local backup before reading it', async () => {
+    const documentPicker = require('expo-document-picker');
+    const fileSystem = require('expo-file-system');
+    documentPicker.getDocumentAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///backup.json', name: 'backup.json', size: 1024 * 1024 + 1 }],
+    });
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Choose Backup File')).toBeTruthy());
+    fireEvent.press(screen.getByText('Choose Backup File'));
+
+    await waitFor(() => expect(documentPicker.getDocumentAsync).toHaveBeenCalled());
+    expect(fileSystem.readAsStringAsync).not.toHaveBeenCalled();
+  });
 });
