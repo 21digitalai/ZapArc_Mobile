@@ -263,6 +263,17 @@ describe('SendScreen on-chain flow', () => {
     expect(screen.getByText('≈ $500.00')).toBeTruthy();
   });
 
+  it('hides the shared send-flow balance values with the privacy control', () => {
+    renderScreen();
+
+    fireEvent.press(screen.getByTestId('toggle-send-balance-privacy'));
+
+    expect(screen.getByLabelText('Show balance values')).toBeTruthy();
+    expect(screen.queryByText('500,000 sats')).toBeNull();
+    expect(screen.queryByText('≈ $500.00')).toBeNull();
+    expect(screen.getAllByText('••••••').length).toBeGreaterThan(0);
+  });
+
   it('updates the balance estimate when the configured default fiat is EUR', () => {
     mockSecondaryFiatCurrency = 'eur';
     renderScreen();

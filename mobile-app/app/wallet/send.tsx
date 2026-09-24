@@ -245,6 +245,7 @@ export default function SendScreen() {
   const [activeAsset, setActiveAsset] = useState<'BTC' | 'USDB'>('BTC');
   const [contactModalVisible, setContactModalVisible] = useState(false);
   const [isFetchingFees, setIsFetchingFees] = useState(false);
+  const [isBalanceVisible, setIsBalanceVisible] = useState(true);
   const [addressError, setAddressError] = useState<string | null>(null);
   const [usdbLightningError, setUsdbLightningError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<{ title: string; message: string } | null>(null);
@@ -435,6 +436,31 @@ export default function SendScreen() {
       fiatDisplay: formatted.secondary,
     };
   }, [isUsdbAsset, rates, usdbBalance, secondaryFiatCurrency, balance, format]);
+
+  const spendableBalance = isUsdbAsset
+    ? convertUsdbDisplayToBaseUnits(usdbBalance)
+    : balance;
+
+  const inputBalanceSummary = useMemo(() => {
+    const paymentAmount = isUsdbAsset
+      ? (effectiveInputCurrency === 'usdb'
+        ? convertUsdbDisplayToBaseUnits(Number(amount))
+        : convertUsdbDisplayToBaseUnits(fiatToUsdb(Number(amount), effectiveInputCurrency as 'usd' | 'eur', rates)))
+      : previewSats;
+    if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) return null;
+
+    const knownFee = activeTab === 'onchain' && onchainFeeQuotes
+      ? Number(onchainFeeQuotes[selectedSpeed]?.feeSats || 0)
+      : null;
+    const total = knownFee === null ? null : paymentAmount + knownFee;
+    return {
+      paymentAmount,
+      knownFee,
+      total,
+      remaining: total === null ? null : spendableBalance - total,
+      isSufficient: total === null ? null : total <= spendableBalance,
+    };
+  }, [activeTab, amount, convertUsdbDisplayToBaseUnits, effectiveInputCurrency, isUsdbAsset, onchainFeeQuotes, previewSats, rates, selectedSpeed, spendableBalance]);
 
   const formatPreviewFiat = useCallback((sats: number): string | null => {
     if (isUsdbAsset || !Number.isFinite(sats) || sats < 0) return null;
@@ -1444,6 +1470,52 @@ export default function SendScreen() {
     </View>
   ) : null;
 
+  const renderBalanceSummary = (summary: { paymentAmount: number; knownFee: number | null; total: number | null; remaining: number | null; isSufficient: boolean | null } | null, surface: 'input' | 'preview') => {
+    const formatValue = (value: number) => isUsdbAsset
+      ? `${formatUsdbFromBaseUnits(value)} USDB`
+      : `${value.toLocaleString()} sats`;
+    const visibilityLabel = isBalanceVisible ? 'Hide balance values' : 'Show balance values';
+    const hidden = '••••••';
+    const displayed = (value: number) => isBalanceVisible ? formatValue(value) : hidden;
+    const knownTotal = summary?.total;
+    const sufficient = summary?.isSufficient;
+
+    return (
+      <View testID={`send-balance-summary-${surface}`} style={[styles.balanceSummary, sufficient === false && styles.balanceSummaryInsufficient]} accessibilityLiveRegion="polite">
+        <View style={styles.balanceSummaryHeader}>
+          <Text style={[styles.balanceSummaryTitle, { color: primaryTextColor }]}>Spendable balance</Text>
+          <IconButton icon={isBalanceVisible ? 'eye-off' : 'eye'} size={20} iconColor={secondaryTextColor} onPress={() => setIsBalanceVisible((visible) => !visible)} accessibilityLabel={visibilityLabel} testID="toggle-send-balance-privacy" />
+        </View>
+        <View style={styles.balanceSummaryRow}>
+          <Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Now</Text>
+          <View style={styles.balanceSummaryValueStack}>
+            <Text style={[styles.balanceSummaryValue, { color: primaryTextColor }]}>{displayed(spendableBalance)}</Text>
+            {isBalanceVisible && balanceDisplay.fiatDisplay && <Text style={[styles.balanceSummaryFiat, { color: secondaryTextColor }]}>{balanceDisplay.fiatDisplay}</Text>}
+          </View>
+        </View>
+        {summary && (
+          <>
+            <View style={styles.balanceSummaryRow}>
+              <Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Payment</Text>
+              <Text style={[styles.balanceSummaryValue, { color: primaryTextColor }]}>{displayed(summary.paymentAmount)}</Text>
+            </View>
+            <View style={styles.balanceSummaryRow}>
+              <Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Fees</Text>
+              <Text style={[styles.balanceSummaryValue, { color: secondaryTextColor }]}>{summary.knownFee === null ? 'Calculated at preview' : displayed(summary.knownFee)}</Text>
+            </View>
+          </>
+        )}
+        {knownTotal !== null && summary && (
+          <View style={styles.balanceSummaryRow}>
+            <Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Remaining after send</Text>
+            <Text style={[styles.balanceSummaryValue, { color: sufficient ? BRAND_COLOR : '#ff8a80' }]}>{displayed(summary.remaining || 0)}</Text>
+          </View>
+        )}
+        {summary && sufficient !== null && <Text testID={`send-balance-status-${surface}`} style={[styles.balanceSummaryStatus, { color: sufficient ? BRAND_COLOR : '#ff8a80' }]}>{sufficient ? 'Enough balance to send' : 'Insufficient balance including fees'}</Text>}
+      </View>
+    );
+  };
+
   if (step === 'scanning') {
     return (
       <LinearGradient colors={gradientColors} style={styles.gradient}>
@@ -1629,6 +1701,14 @@ export default function SendScreen() {
               )}
             </View>
 
+            {renderBalanceSummary({
+              paymentAmount: preview.amount,
+              knownFee: preview.fee,
+              total: preview.total,
+              remaining: spendableBalance - preview.total,
+              isSufficient: preview.total <= spendableBalance,
+            }, 'preview')}
+
             {paymentErrorBanner}
 
             <View style={styles.buttonRow}>
@@ -1646,7 +1726,7 @@ export default function SendScreen() {
                 mode="contained"
                 onPress={handleSendPayment}
                 loading={isSending}
-                disabled={isSending}
+                disabled={isSending || preview.total > spendableBalance}
                 style={styles.sendButton}
                 buttonColor={BRAND_COLOR}
                 textColor="#1a1a2e"
@@ -1728,11 +1808,9 @@ export default function SendScreen() {
         >
           <View style={styles.balanceContainer}>
             <Text style={[styles.balanceLabel, { color: secondaryTextColor }]}>{t('send.availableBalance')}</Text>
-            <Text style={styles.balanceAmount}>{isUsdbAsset ? `${usdbBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDB` : `${balance.toLocaleString()} sats`}</Text>
-            {balanceDisplay.fiatDisplay && (
-              <Text style={[styles.balanceFiat, { color: secondaryTextColor }]}>{balanceDisplay.fiatDisplay}</Text>
-            )}
           </View>
+
+          {renderBalanceSummary(inputBalanceSummary, 'input')}
 
           {!isLightningTab && (
             <View style={styles.onchainInfoCard}>
@@ -2022,6 +2100,7 @@ export default function SendScreen() {
               (!isLightningTab && !!addressError) ||
               (!isLightningTab && Number(amount) > 0 && Number(amount) < 1000) ||
               (isLightningTab && inputCurrency !== 'sats' && isLoadingRates && amount !== '')
+              || inputBalanceSummary?.isSufficient === false
             }
             style={styles.previewButton}
             buttonColor={BRAND_COLOR}
@@ -2179,6 +2258,54 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: BRAND_COLOR,
+  },
+  balanceSummary: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 193, 7, 0.35)',
+    backgroundColor: 'rgba(255, 193, 7, 0.08)',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  balanceSummaryInsufficient: {
+    borderColor: 'rgba(255, 138, 128, 0.65)',
+    backgroundColor: 'rgba(244, 67, 54, 0.1)',
+  },
+  balanceSummaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  balanceSummaryTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  balanceSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  balanceSummaryLabel: {
+    fontSize: 13,
+  },
+  balanceSummaryValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'right',
+  },
+  balanceSummaryValueStack: {
+    alignItems: 'flex-end',
+  },
+  balanceSummaryFiat: {
+    marginTop: 2,
+    fontSize: 12,
+  },
+  balanceSummaryStatus: {
+    marginTop: 6,
+    fontSize: 13,
+    fontWeight: '700',
   },
   onchainInfoCard: {
     backgroundColor: 'rgba(255, 193, 7, 0.12)',

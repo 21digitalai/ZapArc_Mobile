@@ -68,6 +68,13 @@
 - Use `getBtcSpotPrice` from `src/utils/currency.ts` for both Send and Receive. It uses the selected input fiat (or secondary fiat for sats), and suppresses loading, invalid, zero, or five-minute-stale rates.
 - The preview accessibility label includes the estimate and spot price when present.
 
+### Send balance summary
+
+`app/wallet/send.tsx`
+- Use the single parameterized `renderBalanceSummary` shell on both amount entry and payment preview; do not create separate balance cards for the two send steps.
+- It presents spendable balance, payment, known fees, and remaining balance when fees are known. Unknown fees must say `Calculated at preview`, never imply a precise remainder.
+- The eye control is the active send-flow privacy owner and hides the summary's balance values consistently across both surfaces. Insufficient balance uses the error treatment and disables preview/send where the total is known.
+
 ### Asset tabs
 
 `AssetTabBar` (`src/features/wallet/components/AssetTabBar.tsx`)
