@@ -631,8 +631,8 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
 
     // Cloud Backup
     cloudBackup: {
-      title: 'Cloud Backup',
-      description: 'Encrypted backup to Google Drive',
+      title: 'Backup',
+      description: 'Encrypted Google Drive or local-file backup',
       encryptedBackup: 'Encrypted Backup',
       securityInfo: 'Your seed phrase is encrypted with AES-256-GCM before being uploaded. Only you can decrypt it with your password.',
       googleAccount: 'Google Account',
@@ -1322,8 +1322,8 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
 
     // Cloud Backup - Bulgarian
     cloudBackup: {
-      title: 'Облачно копие',
-      description: 'Криптирано копие в Google Drive',
+      title: 'Архивиране',
+      description: 'Криптирано копие в Google Drive или локален файл',
       encryptedBackup: 'Криптирано копие',
       securityInfo: 'Вашата seed фраза е криптирана с AES-256-GCM преди качване. Само вие можете да я декриптирате с вашата парола.',
       googleAccount: 'Google акаунт',

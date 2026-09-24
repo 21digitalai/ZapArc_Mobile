@@ -59,6 +59,9 @@ import { sanitizeImportedContact } from '../../../addressBook/services/contactSe
 import type { Contact } from '../../../addressBook/types';
 import { CONTACTS_BACKUP_ENABLED } from '../../../../config/features';
 import {
+  clearSensitiveString,
+  encryptMnemonic,
+  encryptStringBlob,
   validatePasswordStrength,
   validateBackupStructure,
   decryptMnemonic,
@@ -67,6 +70,10 @@ import {
 } from '../../../../services/backupEncryption';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+
+type BackupDestination = 'googleDrive' | 'localFile';
+const MAX_LOCAL_BACKUP_BYTES = 1024 * 1024;
 
 export function getContactSyncErrorMessage(
   error: string | undefined,
@@ -438,6 +445,8 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
 
   // Which master key to back up
   const [selectedMasterKeyId, setSelectedMasterKeyId] = useState<string | null>(null);
+  const [backupDestination, setBackupDestination] =
+    useState<BackupDestination>('googleDrive');
 
   const getSelectedMasterKey = () => {
     if (selectedMasterKeyId) {
@@ -452,7 +461,10 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     return backups.find((backup) => backup.seedFingerprint === fingerprint);
   }, [backups, localFingerprints]);
 
-  const handleCreateBackup = async (masterKeyId?: string): Promise<void> => {
+  const handleCreateBackup = async (
+    masterKeyId?: string,
+    destination: BackupDestination = 'googleDrive'
+  ): Promise<void> => {
     const targetId = masterKeyId || activeMasterKey?.id;
 
     if (!targetId) {
@@ -461,6 +473,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     }
 
     setSelectedMasterKeyId(targetId);
+    setBackupDestination(destination);
 
     // Authenticate first
     const authenticated = await authenticateUser();
@@ -469,7 +482,11 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     }
 
     // Show password modal
-    setModalMode(getWalletBackupById(targetId) ? 'replace' : 'create');
+    setModalMode(
+      destination === 'googleDrive' && getWalletBackupById(targetId)
+        ? 'replace'
+        : 'create'
+    );
     setPassword('');
     setConfirmPassword('');
     setCurrentBackupPassword('');
@@ -563,6 +580,51 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
           }
         }
 
+        if (backupDestination === 'localFile') {
+          try {
+            const encryptedBackup = await encryptMnemonic(
+              mnemonic,
+              backupPassword,
+              targetKey.nickname
+            );
+            if (CONTACTS_BACKUP_ENABLED && contactsToBackup?.length) {
+              encryptedBackup.contacts = await encryptStringBlob(
+                JSON.stringify(contactsToBackup),
+                backupPassword
+              );
+            }
+            const filename = `zaparc-backup-${new Date()
+              .toISOString()
+              .replace(/[:.]/g, '-')}.json`;
+            const fileUri = `${FileSystem.cacheDirectory}${filename}`;
+            try {
+              await FileSystem.writeAsStringAsync(
+                fileUri,
+                JSON.stringify(encryptedBackup),
+                { encoding: FileSystem.EncodingType.UTF8 }
+              );
+              if (!(await Sharing.isAvailableAsync())) {
+                throw new Error('Local file sharing is not available on this device.');
+              }
+              await Sharing.shareAsync(fileUri, {
+                mimeType: 'application/json',
+                dialogTitle: 'Save encrypted ZapArc backup',
+              });
+            } finally {
+              await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(
+                () => undefined
+              );
+            }
+          } finally {
+            clearSensitiveString(mnemonic);
+          }
+          Alert.alert(t('common.success'), 'Encrypted local backup ready to save.');
+          setShowPasswordModal(false);
+          setPassword('');
+          setConfirmPassword('');
+          return;
+        }
+
         const result = await googleDriveBackupService.createBackup(
           mnemonic,
           backupPassword,
@@ -591,7 +653,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
         setIsProcessing(false);
       }
     },
-    [masterKeys, getMnemonic, includeContacts, t]
+    [masterKeys, getMnemonic, includeContacts, t, backupDestination]
   );
 
   const handleConfirmCreateBackup = async (): Promise<void> => {
@@ -753,7 +815,20 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
       }
 
       const fileUri = result.assets[0].uri;
+      const fileName = result.assets[0].name || '';
+      const fileSize = result.assets[0].size;
+      if (
+        !fileName.toLowerCase().endsWith('.json') ||
+        (typeof fileSize === 'number' && fileSize > MAX_LOCAL_BACKUP_BYTES)
+      ) {
+        Alert.alert(t('common.error'), 'Choose a valid ZapArc backup JSON file.');
+        return;
+      }
       const content = await FileSystem.readAsStringAsync(fileUri);
+      if (content.length > MAX_LOCAL_BACKUP_BYTES) {
+        Alert.alert(t('common.error'), 'This backup file is too large.');
+        return;
+      }
       let parsed: unknown;
       try {
         parsed = JSON.parse(content);
@@ -1349,6 +1424,23 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                   {t('cloudBackup.connectGoogle')}
                 </Button>
               )}
+            </View>
+
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: primaryText }]}>Local Backup</Text>
+              <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>
+                Save an encrypted backup through your device's Files or share sheet.
+              </Text>
+              <Button
+                mode="outlined"
+                onPress={() => handleCreateBackup(activeMasterKey?.id, 'localFile')}
+                icon="file-export"
+                disabled={!activeMasterKey || isProcessing}
+                style={[styles.actionButton, { borderColor: BRAND_COLOR }]}
+                textColor={BRAND_COLOR}
+              >
+                Save Encrypted Backup
+              </Button>
             </View>
 
             {/* Your Wallets */}
