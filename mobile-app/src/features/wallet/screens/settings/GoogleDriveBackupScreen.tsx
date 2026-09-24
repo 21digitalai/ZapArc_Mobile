@@ -618,7 +618,10 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
           } finally {
             clearSensitiveString(mnemonic);
           }
-          Alert.alert(t('common.success'), 'Encrypted local backup ready to save.');
+          Alert.alert(
+            t('common.success'),
+            'The encrypted backup is in the share sheet. Choose a save location to finish.'
+          );
           setShowPasswordModal(false);
           setPassword('');
           setConfirmPassword('');
