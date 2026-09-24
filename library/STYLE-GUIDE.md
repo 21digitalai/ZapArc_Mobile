@@ -72,8 +72,9 @@
 
 `app/wallet/send.tsx`
 - Use the single parameterized `renderBalanceSummary` shell on both amount entry and payment preview; do not create separate balance cards for the two send steps.
-- It presents spendable balance, payment, known fees, and remaining balance when fees are known. Unknown fees must say `Calculated at preview`, never imply a precise remainder.
-- The eye control is the active send-flow privacy owner and hides the summary's balance values consistently across both surfaces. Insufficient balance uses the error treatment and disables preview/send where the total is known.
+- Place the amount-entry instance immediately below the amount input. It replaces the standalone conversion bubble and must not repeat the current Available Balance shown at the top of the screen.
+- It presents payment plus selected-fiat conversion, BTC spot price, known fees, fee-inclusive total, and remaining balance when those values are known. Unknown fees must say `Calculated at preview`, never imply a precise remainder.
+- The eye control is the active send-flow privacy owner and hides all payment, fiat, fee, total, remaining, and shortfall values consistently across both surfaces. Insufficient balance uses the error treatment, names the shortfall instead of a negative remainder, and disables preview/send where coverage is known.
 
 ### Asset tabs
 

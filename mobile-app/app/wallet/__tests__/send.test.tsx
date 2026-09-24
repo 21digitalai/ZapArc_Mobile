@@ -252,29 +252,33 @@ describe('SendScreen on-chain flow', () => {
     cleanup();
   });
 
-  it('shows the fresh BTC price in the Send estimate bubble', () => {
+  it('shows the fresh BTC price in the unified Send estimate card', () => {
     renderScreen();
     fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
 
     expect(screen.getByText('1 BTC ≈ $100,000')).toBeTruthy();
-    expect(screen.getByLabelText('Estimated 1000 sats. 1 BTC ≈ $100,000')).toBeTruthy();
+    expect(screen.getByTestId('send-balance-summary-input')).toBeTruthy();
   });
 
-  it('shows the configured default-fiat estimate below the sats balance', () => {
+  it('uses exactly one lower estimate card without duplicating the current balance', () => {
     renderScreen();
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
 
-    expect(screen.getByText('500,000 sats')).toBeTruthy();
-    expect(screen.getByText('≈ $500.00')).toBeTruthy();
+    expect(screen.getAllByTestId('send-balance-summary-input')).toHaveLength(1);
+    expect(screen.queryByText('Now')).toBeNull();
+    expect(screen.queryByText('500,000 sats')).toBeNull();
+    expect(screen.getByText('≈ $1.00')).toBeTruthy();
   });
 
   it('hides the shared send-flow balance values with the privacy control', () => {
     renderScreen();
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
 
     fireEvent.press(screen.getByTestId('toggle-send-balance-privacy'));
 
     expect(screen.getByLabelText('Show balance values')).toBeTruthy();
-    expect(screen.queryByText('500,000 sats')).toBeNull();
-    expect(screen.queryByText('≈ $500.00')).toBeNull();
+    expect(screen.queryByText('1,000 sats')).toBeNull();
+    expect(screen.queryByText('≈ $1.00')).toBeNull();
     expect(screen.getAllByText('••••••').length).toBeGreaterThan(0);
   });
 
@@ -287,6 +291,17 @@ describe('SendScreen on-chain flow', () => {
     expect(screen.getByText('Calculated at preview')).toBeTruthy();
     expect(screen.queryByText('Remaining after send')).toBeNull();
     expect(screen.queryByTestId('send-balance-status-input')).toBeNull();
+  });
+
+  it('shows an amount-only shortfall and blocks preview before an unknown fee is quoted', () => {
+    renderScreen();
+    fireEvent.changeText(screen.getByTestId('amount-input'), '500001');
+
+    expect(screen.getByTestId('send-balance-status-input')).toHaveTextContent('Insufficient balance');
+    expect(screen.getByText('Short by')).toBeTruthy();
+    expect(screen.getAllByText('1 sats').length).toBeGreaterThan(0);
+    fireEvent.press(screen.getByTestId('preview-payment-button'));
+    expect(mockParsePaymentRequest).not.toHaveBeenCalled();
   });
 
   it('shows the fee-inclusive remaining balance in the decoded payment preview', async () => {
@@ -330,16 +345,18 @@ describe('SendScreen on-chain flow', () => {
     fireEvent.press(screen.getByText('Preview Payment'));
 
     await waitFor(() => expect(screen.getByTestId('send-balance-summary-preview')).toBeTruthy());
-    expect(screen.getByText('Insufficient balance including fees')).toBeTruthy();
-    expect(screen.getByText('Remaining after send')).toBeTruthy();
+    expect(screen.getByText('Insufficient balance')).toBeTruthy();
+    expect(screen.getByText('Short by')).toBeTruthy();
+    expect(screen.getAllByText('20 sats').length).toBeGreaterThan(0);
     expect(screen.getByTestId('send-payment-button').props.accessibilityState.disabled).toBe(true);
   });
 
   it('updates the balance estimate when the configured default fiat is EUR', () => {
     mockSecondaryFiatCurrency = 'eur';
     renderScreen();
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
 
-    expect(screen.getByText('≈ €450,00')).toBeTruthy();
+    expect(screen.getByText('≈ €0.90')).toBeTruthy();
     expect(screen.queryByText('≈ $500.00')).toBeNull();
   });
 
@@ -350,7 +367,7 @@ describe('SendScreen on-chain flow', () => {
     fireEvent.press(screen.getByLabelText('Select eur'));
 
     expect(screen.getByText('1 BTC ≈ €90,000')).toBeTruthy();
-    expect(screen.getByLabelText('Estimated 1000 sats. 1 BTC ≈ €90,000')).toBeTruthy();
+    expect(screen.getByTestId('send-balance-summary-input')).toBeTruthy();
   });
 
   it('uses the secondary fiat spot price for sats Send input', () => {
@@ -431,7 +448,7 @@ describe('SendScreen on-chain flow', () => {
 
     await waitFor(() => {
       expect(screen.getAllByText('30 sats').length).toBeGreaterThan(0);
-      expect(screen.getByText('1,030 sats')).toBeTruthy();
+      expect(screen.getAllByText('1,030 sats').length).toBeGreaterThan(0);
     });
   });
 
@@ -559,7 +576,7 @@ describe('SendScreen on-chain flow', () => {
     fireEvent.press(screen.getByText('Switch to BTC'));
 
     await waitFor(() => {
-      expect(screen.getByText('500,000 sats')).toBeTruthy();
+      expect(screen.getByText('Available Balance:')).toBeTruthy();
     });
   });
 
