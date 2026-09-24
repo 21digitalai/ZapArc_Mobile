@@ -652,9 +652,15 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
                 throw new Error('Biometric PIN is still present');
               }
             } catch {
+              // SecureStore cannot confirm removal, so retaining the global
+              // preference would let a future launch attempt an unknown
+              // (possibly old) wallet credential. Disable biometric unlock
+              // durably rather than treating the rotation as unchanged.
+              await settingsService.updateUserSettings({ biometricEnabled: false });
+              setBiometricEnabled(false);
               setModuleSessionPin(newPin);
               setError(
-                'PIN changed, but biometric unlock could not be safely reset. Use your new PIN and re-enable biometrics.'
+                'PIN changed, but biometric unlock was disabled because its secure credential could not be safely reset. Use your new PIN and enable biometrics again.'
               );
               return true;
             }
