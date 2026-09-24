@@ -623,20 +623,6 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
           return false;
         }
 
-        // Rebind before durable rotation: a failed SecureStore write leaves
-        // the wallet PIN untouched, so rotation cannot retain an old-PIN
-        // biometric binding.
-        if (biometricEnabled && biometricAvailable) {
-          try {
-            await storageService.storeBiometricPin(masterKeyId, newPin);
-          } catch {
-            setError(
-              'Could not update biometric unlock. Your PIN was not changed.'
-            );
-            return false;
-          }
-        }
-
         const changed = await storageService.rotateActiveMasterKeyPin(
           masterKeyId,
           oldPin,
@@ -650,6 +636,32 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
               : 'Could not change PIN. Check your current PIN and try again.'
           );
           return false;
+        }
+
+        // Rotate durable wallet data before replacing the biometric secret.
+        // A SecureStore write is not transactional with encrypted storage, so
+        // a failed rebind must clear the old entry instead of leaving a PIN
+        // that can no longer unlock this master wallet.
+        if (biometricEnabled && biometricAvailable) {
+          try {
+            await storageService.storeBiometricPin(masterKeyId, newPin);
+          } catch {
+            try {
+              await storageService.deleteBiometricPin(masterKeyId);
+              if (await storageService.hasBiometricPin(masterKeyId)) {
+                throw new Error('Biometric PIN is still present');
+              }
+            } catch {
+              setModuleSessionPin(newPin);
+              setError(
+                'PIN changed, but biometric unlock could not be safely reset. Use your new PIN and re-enable biometrics.'
+              );
+              return true;
+            }
+            setError(
+              'PIN changed. Biometric unlock was disabled for this wallet; enable it again to continue using it.'
+            );
+          }
         }
 
         // A lock or wallet switch that happened after durable commit must not

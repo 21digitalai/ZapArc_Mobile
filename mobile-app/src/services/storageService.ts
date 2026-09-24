@@ -1724,7 +1724,7 @@ class StorageService {
         '❌ [StorageService] Failed to delete biometric PIN:',
         error
       );
-      // Don't throw - deletion failure shouldn't block other operations
+      throw error;
     }
   }
 
