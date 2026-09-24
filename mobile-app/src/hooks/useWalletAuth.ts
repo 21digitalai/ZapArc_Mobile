@@ -78,7 +78,7 @@ export interface WalletAuthActions {
   unlock: (pin: string) => Promise<boolean>;
   lock: () => Promise<void>;
   verifyPin: (pin: string) => Promise<boolean>;
-  changePin: (oldPin: string, newPin: string) => Promise<boolean>;
+  changePin: (newPin: string) => Promise<boolean>;
   getPinAuthStatus: (masterKeyId?: string) => Promise<PinAuthStatus | null>;
 
   // Biometric
@@ -604,28 +604,20 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
   );
 
   const changePin = useCallback(
-    async (oldPin: string, newPin: string): Promise<boolean> => {
+    async (newPin: string): Promise<boolean> => {
       const masterKeyId = currentMasterKeyId;
-      if (!masterKeyId || !isUnlocked || oldPin === newPin) return false;
+      const currentPin = getModuleSessionPin();
+      if (!masterKeyId || !isUnlocked || !currentPin) {
+        setError('Unlock this wallet with your PIN before changing it.');
+        return false;
+      }
 
       setIsLoading(true);
       setError(null);
       try {
-        // Authenticate before touching the biometric record. A failed current
-        // PIN must not replace a still-valid biometric credential.
-        if (!(await storageService.verifyMasterKeyPin(masterKeyId, oldPin))) {
-          const authStatus = await storageService.getPinAuthStatus(masterKeyId);
-          setError(
-            authStatus.isLocked
-              ? `PIN temporarily locked. Try again in ${Math.ceil(authStatus.remainingMs / 1000)}s.`
-              : 'Could not change PIN. Check your current PIN and try again.'
-          );
-          return false;
-        }
-
         const changed = await storageService.rotateActiveMasterKeyPin(
           masterKeyId,
-          oldPin,
+          currentPin,
           newPin
         );
         if (!changed) {

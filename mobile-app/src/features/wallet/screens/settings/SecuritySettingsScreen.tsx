@@ -83,14 +83,12 @@ export function SecuritySettingsScreen(): React.JSX.Element {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricType, setBiometricType] = useState<string>('Biometric');
   const [isChangePinVisible, setIsChangePinVisible] = useState(false);
-  const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [pinFormError, setPinFormError] = useState<string | null>(null);
 
   const closeChangePin = (): void => {
     if (isLoading) return;
-    setCurrentPin('');
     setNewPin('');
     setConfirmPin('');
     setPinFormError(null);
@@ -110,12 +108,8 @@ export function SecuritySettingsScreen(): React.JSX.Element {
       setPinFormError('New PINs do not match.');
       return;
     }
-    if (newPin === currentPin) {
-      setPinFormError('Choose a different PIN.');
-      return;
-    }
     setPinFormError(null);
-    const changed = await changePin(currentPin, newPin);
+    const changed = await changePin(newPin);
     if (!changed) return;
     closeChangePin();
     Alert.alert('PIN changed', 'Your current wallet now uses the new PIN.');
@@ -363,19 +357,8 @@ export function SecuritySettingsScreen(): React.JSX.Element {
                 Change PIN
               </Text>
               <Text style={[styles.modalDescription, { color: secondaryText }]}>
-                Verify your current PIN, then choose a new PIN for this wallet
-                only.
+                Choose a new PIN for the wallet currently open in ZapArc.
               </Text>
-              <TextInput
-                label="Current PIN"
-                value={currentPin}
-                onChangeText={setCurrentPin}
-                secureTextEntry
-                keyboardType="number-pad"
-                maxLength={6}
-                disabled={isLoading}
-                style={styles.pinInput}
-              />
               <TextInput
                 label="New PIN"
                 value={newPin}

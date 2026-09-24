@@ -38,7 +38,7 @@ jest.mock('../services/walletCacheService', () => ({
 }));
 
 import { settingsService, storageService } from '../services';
-import { useWalletAuth } from '../hooks/useWalletAuth';
+import { primeSessionPin, useWalletAuth } from '../hooks/useWalletAuth';
 
 describe('useWalletAuth changePin biometric recovery', () => {
   beforeEach(() => jest.clearAllMocks());
@@ -50,9 +50,10 @@ describe('useWalletAuth changePin biometric recovery', () => {
 
     const { result } = renderHook(() => useWalletAuth());
     await waitFor(() => expect(result.current.currentMasterKeyId).toBe('wallet-a'));
+    primeSessionPin('111111');
 
     await act(async () => {
-      await expect(result.current.changePin('111111', '222222')).resolves.toBe(true);
+      await expect(result.current.changePin('222222')).resolves.toBe(true);
     });
 
     expect(storageService.rotateActiveMasterKeyPin).toHaveBeenCalledWith('wallet-a', '111111', '222222');
