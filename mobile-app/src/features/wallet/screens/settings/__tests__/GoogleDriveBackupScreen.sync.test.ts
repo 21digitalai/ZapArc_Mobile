@@ -18,7 +18,17 @@ jest.mock('react-native-safe-area-context', () => {
 jest.mock('expo-linear-gradient', () => ({ LinearGradient: ({ children }: { children: React.ReactNode }) => children }));
 jest.mock('expo-local-authentication', () => ({ hasHardwareAsync: jest.fn(), isEnrolledAsync: jest.fn() }));
 jest.mock('expo-document-picker', () => ({ getDocumentAsync: jest.fn() }));
-jest.mock('expo-file-system', () => ({ readAsStringAsync: jest.fn() }));
+jest.mock('expo-file-system', () => ({
+  cacheDirectory: 'file:///cache/',
+  EncodingType: { UTF8: 'utf8' },
+  readAsStringAsync: jest.fn(),
+  writeAsStringAsync: jest.fn(),
+  deleteAsync: jest.fn(),
+}));
+jest.mock('expo-sharing', () => ({
+  isAvailableAsync: jest.fn(),
+  shareAsync: jest.fn(),
+}));
 jest.mock('../../../../../hooks/useWallet', () => ({ useWallet: () => ({ getMnemonic: jest.fn(), activeMasterKey: { id: 'wallet-1' }, importMasterKey: jest.fn(), masterKeys: [{ id: 'wallet-1', nickname: 'Primary' }] }) }));
 jest.mock('../../../../../hooks/useWalletAuth', () => ({ useWalletAuth: () => ({ selectWallet: jest.fn(), getSessionPin: jest.fn() }) }));
 jest.mock('../../../../../contexts/ThemeContext', () => ({ useAppTheme: () => ({ themeMode: 'dark' }) }));
@@ -182,5 +192,18 @@ describe('GoogleDriveBackupScreen backup management layout', () => {
     const scrollSheet = screen.getByTestId('manage-backup-scroll');
     expect(scrollSheet.props.showsVerticalScrollIndicator).toBe(true);
     expect(scrollSheet.props.contentContainerStyle).toEqual(expect.objectContaining({ paddingBottom: 12 }));
+  });
+});
+
+describe('GoogleDriveBackupScreen local backup entry', () => {
+  it('offers a local encrypted backup without requiring Google connection', async () => {
+    const backupService = require('../../../../../services/googleDriveBackupService').googleDriveBackupService;
+    backupService.restoreSession.mockResolvedValueOnce(false);
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Save Encrypted Backup')).toBeTruthy());
+    fireEvent.press(screen.getByText('Save Encrypted Backup'));
+
+    await waitFor(() => expect(screen.getByText('cloudBackup.enterBackupPassword')).toBeTruthy());
   });
 });
