@@ -1198,17 +1198,6 @@ export default function SendScreen() {
 
       const totalAmount = paymentAmount + feeAmount;
 
-      if (totalAmount > balance) {
-        showPaymentError(
-          t('send.insufficientBalance'),
-          t('send.insufficientBalanceWithFee')
-            .replace('{{total}}', totalAmount.toLocaleString())
-            .replace('{{fee}}', feeAmount.toLocaleString())
-            .replace('{{balance}}', balance.toLocaleString())
-        );
-        return;
-      }
-
       const paymentPreview: PaymentPreview = {
         recipient: resolvedInput,
         amount: paymentAmount,
@@ -1727,6 +1716,7 @@ export default function SendScreen() {
                 onPress={handleSendPayment}
                 loading={isSending}
                 disabled={isSending || preview.total > spendableBalance}
+                testID="send-payment-button"
                 style={styles.sendButton}
                 buttonColor={BRAND_COLOR}
                 textColor="#1a1a2e"

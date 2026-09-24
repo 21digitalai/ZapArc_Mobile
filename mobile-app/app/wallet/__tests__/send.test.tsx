@@ -25,8 +25,12 @@ jest.mock('react-native-paper', () => {
   const React = require('react');
   const { Text, TextInput, TouchableOpacity, View } = require('react-native');
 
-  const Button = ({ children, onPress, testID }: any) =>
-    React.createElement(TouchableOpacity, { onPress, testID }, React.createElement(Text, null, children));
+  const Button = ({ children, onPress, testID, disabled }: any) =>
+    React.createElement(
+      TouchableOpacity,
+      { onPress, testID, accessibilityState: testID === 'send-payment-button' ? { disabled } : undefined },
+      React.createElement(Text, null, children),
+    );
 
   const Menu = ({ anchor, children }: any) =>
     React.createElement(View, null, anchor, children);
@@ -306,6 +310,29 @@ describe('SendScreen on-chain flow', () => {
     expect(screen.getByText('Remaining after send')).toBeTruthy();
     expect(screen.getByText('Enough balance to send')).toBeTruthy();
     expect(screen.getByText('0 sats')).toBeTruthy();
+  });
+
+  it('shows insufficient fee-inclusive balance and disables sending from the preview', async () => {
+    mockParsePaymentRequest.mockResolvedValue({
+      type: 'bolt11',
+      isValid: true,
+      amountSat: 500000,
+    });
+    mockPrepareSendPayment.mockResolvedValue({
+      paymentMethod: {
+        tag: 'Bolt11Invoice',
+        inner: { lightningFeeSats: 20 },
+      },
+    });
+
+    renderScreen();
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'lnbc1insufficientbalance');
+    fireEvent.press(screen.getByText('Preview Payment'));
+
+    await waitFor(() => expect(screen.getByTestId('send-balance-summary-preview')).toBeTruthy());
+    expect(screen.getByText('Insufficient balance including fees')).toBeTruthy();
+    expect(screen.getByText('Remaining after send')).toBeTruthy();
+    expect(screen.getByTestId('send-payment-button').props.accessibilityState.disabled).toBe(true);
   });
 
   it('updates the balance estimate when the configured default fiat is EUR', () => {
