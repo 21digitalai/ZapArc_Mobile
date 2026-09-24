@@ -611,6 +611,20 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
       setIsLoading(true);
       setError(null);
       try {
+        // Rebind first: a failed SecureStore write leaves the existing PIN
+        // record untouched, so rotation never creates an old-PIN biometric
+        // binding after the durable wallet credential changes.
+        if (biometricEnabled && biometricAvailable) {
+          try {
+            await storageService.storeBiometricPin(masterKeyId, newPin);
+          } catch {
+            setError(
+              'Could not update biometric unlock. Your PIN was not changed.'
+            );
+            return false;
+          }
+        }
+
         const changed = await storageService.rotateActiveMasterKeyPin(
           masterKeyId,
           oldPin,
@@ -626,23 +640,21 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
           return false;
         }
 
-        // The durable wallet record is already committed. Rebind only this
-        // master key's biometric credential; if that cannot be made safe,
-        // clear it so no stale old PIN can remain in SecureStore.
-        if (biometricEnabled && biometricAvailable) {
-          try {
-            await storageService.storeBiometricPin(masterKeyId, newPin);
-          } catch {
-            await storageService.deleteBiometricPin(masterKeyId);
-            setError(
-              'PIN changed, but biometric unlock was reset for this wallet. Enable it again in Security Settings.'
-            );
-          }
+        // A lock or wallet switch that happened after durable commit must not
+        // revive the old in-memory session with the new PIN.
+        const activeWallet = await storageService.getActiveWalletInfo();
+        if (
+          !(await storageService.isWalletUnlocked()) ||
+          activeWallet?.masterKeyId !== masterKeyId
+        ) {
+          return true;
         }
         setModuleSessionPin(newPin);
         return true;
       } catch {
-        setError('Could not change PIN. Your existing PIN is still active.');
+        setError(
+          'Could not change PIN. Please check your wallet and try again.'
+        );
         return false;
       } finally {
         setIsLoading(false);

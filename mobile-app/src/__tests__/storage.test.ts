@@ -293,6 +293,7 @@ describe('StorageService', () => {
           version: 1,
         })
       );
+      values.set('zap_arc_is_unlocked', 'true');
       (SecureStore.getItemAsync as jest.Mock).mockImplementation(
         async (key: string) => values.get(key) ?? null
       );
@@ -338,6 +339,7 @@ describe('StorageService', () => {
         version: 1,
       });
       values.set('zap_arc_multi_wallet_data', originalStorage);
+      values.set('zap_arc_is_unlocked', 'true');
       (SecureStore.getItemAsync as jest.Mock).mockImplementation(
         async (key: string) => values.get(key) ?? null
       );

@@ -1066,6 +1066,8 @@ class StorageService {
       const authStatus = await this.getPinAuthStatus(masterKeyId);
       if (authStatus.isLocked) return false;
 
+      if (!(await this.isWalletUnlocked())) return false;
+
       const storage = await this.loadMultiWalletStorage();
       const masterKey = storage?.masterKeys.find(
         (entry) => entry.id === masterKeyId
@@ -1101,6 +1103,10 @@ class StorageService {
       ) {
         return false;
       }
+
+      // Auto-lock/background can occur while deriving the replacement. Never
+      // commit a credential rotation for a session that has since ended.
+      if (!(await this.isWalletUnlocked())) return false;
 
       masterKey.encryptedMnemonic = replacement;
       await this.saveMultiWalletStorageUnlocked(storage);
