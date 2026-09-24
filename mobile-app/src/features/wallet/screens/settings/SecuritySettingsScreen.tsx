@@ -54,10 +54,7 @@ export function SecuritySettingsScreen(): React.JSX.Element {
   );
   useFocusEffect(
     React.useCallback(() => {
-      const subscription = BackHandler.addEventListener(
-        'hardwareBackPress',
-        safeBack
-      );
+      const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
       return () => subscription.remove();
     }, [safeBack])
   );
