@@ -23,7 +23,7 @@ import {
 } from '../../src/services/breezSparkService';
 import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
 import { useCurrency } from '../../src/hooks/useCurrency';
-import { formatFiat, getBtcSpotPrice, satsToFiat, fiatToUsdb } from '../../src/utils/currency';
+import { formatFiat, satsToFiat, fiatToUsdb } from '../../src/utils/currency';
 import { cycleDisplayCurrency, type DisplayCurrency } from '../../src/services/displayCurrencyService';
 import { useLightningAddress } from '../../src/hooks/useLightningAddress';
 import { useKeyboardAwareScroll } from '../../src/hooks/useKeyboardAwareScroll';
@@ -413,11 +413,6 @@ export default function SendScreen() {
     return convertToSats(numAmount, inputCurrency);
   }, [amount, inputCurrency, convertToSats]);
 
-  const sendSpotPrice = useMemo(
-    () => getBtcSpotPrice(effectiveInputCurrency, secondaryFiatCurrency, rates, isLoadingRates),
-    [effectiveInputCurrency, secondaryFiatCurrency, rates, isLoadingRates],
-  );
-
   const spendableBalance = isUsdbAsset
     ? convertUsdbDisplayToBaseUnits(usdbBalance)
     : balance;
@@ -439,7 +434,9 @@ export default function SendScreen() {
       paymentAmount,
       knownFee,
       total,
-      remaining: total === null ? null : spendableBalance - total,
+      // Before an invoice/quote supplies a fee, show the amount-only
+      // projection but explicitly label it as non-final in the UI.
+      remaining: spendableBalance - requiredAmount,
       isSufficient: requiredAmount > spendableBalance ? false : total === null ? null : true,
     };
   }, [activeTab, amount, convertUsdbDisplayToBaseUnits, effectiveInputCurrency, isUsdbAsset, onchainFeeQuotes, previewSats, rates, selectedSpeed, spendableBalance]);
@@ -1452,60 +1449,38 @@ export default function SendScreen() {
     </View>
   ) : null;
 
-  const renderBalanceSummary = (summary: { paymentAmount: number; knownFee: number | null; total: number | null; remaining: number | null; isSufficient: boolean | null } | null, surface: 'input' | 'preview') => {
+  const renderAvailableBalance = (summary: { paymentAmount: number; knownFee: number | null; total: number | null; remaining: number | null; isSufficient: boolean | null } | null) => {
     const formatValue = (value: number) => isUsdbAsset
       ? `${formatUsdbFromBaseUnits(value)} USDB`
       : `${value.toLocaleString()} sats`;
     const visibilityLabel = isBalanceVisible ? 'Hide balance values' : 'Show balance values';
     const hidden = '••••••';
     const displayed = (value: number) => isBalanceVisible ? formatValue(value) : hidden;
-    const knownTotal = summary?.total;
     const sufficient = summary?.isSufficient;
-    const paymentFiat = summary ? formatPreviewFiat(summary.paymentAmount) : null;
-    const requiredAmount = knownTotal === null ? summary?.paymentAmount : summary?.total;
-    const shortfall = summary && sufficient === false && typeof requiredAmount === 'number'
-      ? Math.max(0, requiredAmount - spendableBalance)
+    const projectedValue = summary && typeof summary.remaining === 'number'
+      ? Math.abs(summary.remaining)
       : null;
-    const shortfallFiat = shortfall === null ? null : formatPreviewFiat(shortfall);
+    const projectedFiat = projectedValue === null ? null : formatPreviewFiat(projectedValue);
 
     return (
-      <View testID={`send-balance-summary-${surface}`} style={[styles.balanceSummary, sufficient === false && styles.balanceSummaryInsufficient]} accessibilityLiveRegion="polite">
-        <View style={styles.balanceSummaryHeader}>
-          <Text style={[styles.balanceSummaryTitle, { color: primaryTextColor }]}>Payment estimate</Text>
+      <View testID="send-available-balance" style={[styles.balanceContainer, sufficient === false && styles.balanceContainerInsufficient]} accessibilityLiveRegion="polite">
+        <View style={styles.balanceHeader}>
+          <Text style={[styles.balanceLabel, { color: secondaryTextColor }]}>{t('send.availableBalance')}</Text>
           <IconButton icon={isBalanceVisible ? 'eye-off' : 'eye'} size={20} iconColor={secondaryTextColor} onPress={() => setIsBalanceVisible((visible) => !visible)} accessibilityLabel={visibilityLabel} testID="toggle-send-balance-privacy" />
         </View>
-        {summary && (
-          <>
-            <View style={styles.balanceSummaryRow}>
-              <Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Payment</Text>
-              <View style={styles.balanceSummaryValueStack}>
-                <Text style={[styles.balanceSummaryValue, { color: primaryTextColor }]}>{displayed(summary.paymentAmount)}</Text>
-                {paymentFiat && <Text style={[styles.balanceSummaryFiat, { color: secondaryTextColor }]}>{isBalanceVisible ? paymentFiat : hidden}</Text>}
-              </View>
+        <Text style={styles.balanceAmount}>{displayed(spendableBalance)}</Text>
+        {summary && projectedValue !== null && (
+          <View testID="send-balance-projection" style={styles.balanceProjection}>
+            <Text style={[styles.balanceProjectionLabel, { color: secondaryTextColor }]}>{sufficient === false ? 'Short by' : 'Remaining after send'}</Text>
+            <View style={styles.balanceProjectionValueStack}>
+              <Text style={[styles.balanceProjectionValue, { color: sufficient === false ? '#ff8a80' : BRAND_COLOR }]}>{displayed(projectedValue)}</Text>
+              {projectedFiat && <Text style={[styles.balanceProjectionFiat, { color: sufficient === false ? '#ff8a80' : secondaryTextColor }]}>{isBalanceVisible ? projectedFiat : hidden}</Text>}
             </View>
-            <View style={styles.balanceSummaryRow}>
-              <Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Fees</Text>
-              <Text style={[styles.balanceSummaryValue, { color: secondaryTextColor }]}>{summary.knownFee === null ? 'Calculated at preview' : displayed(summary.knownFee)}</Text>
-            </View>
-            {typeof knownTotal === 'number' && (
-              <View style={styles.balanceSummaryRow}>
-                <Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Total</Text>
-                <Text style={[styles.balanceSummaryValue, { color: primaryTextColor }]}>{displayed(knownTotal)}</Text>
-              </View>
-            )}
-          </>
-        )}
-        {sendSpotPrice && <Text style={[styles.balanceSummarySpotPrice, { color: secondaryTextColor }]}>{isBalanceVisible ? sendSpotPrice : hidden}</Text>}
-        {(typeof knownTotal === 'number' || sufficient === false) && summary && (
-          <View style={styles.balanceSummaryRow}>
-            <Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>{sufficient ? 'Remaining after send' : 'Short by'}</Text>
-            <View style={styles.balanceSummaryValueStack}>
-              <Text style={[styles.balanceSummaryValue, { color: sufficient ? BRAND_COLOR : '#ff8a80' }]}>{displayed(sufficient ? Math.max(0, summary.remaining || 0) : shortfall || 0)}</Text>
-              {shortfallFiat && <Text style={[styles.balanceSummaryFiat, { color: '#ff8a80' }]}>{isBalanceVisible ? shortfallFiat : hidden}</Text>}
-            </View>
+            <Text testID="send-balance-projection-status" style={[styles.balanceProjectionStatus, { color: sufficient === false ? '#ff8a80' : secondaryTextColor }]}>
+              {sufficient === false ? 'Insufficient balance' : summary.knownFee === null ? 'Before fees — not final' : 'Enough balance to send'}
+            </Text>
           </View>
         )}
-        {summary && sufficient !== null && <Text testID={`send-balance-status-${surface}`} style={[styles.balanceSummaryStatus, { color: sufficient ? BRAND_COLOR : '#ff8a80' }]}>{sufficient ? 'Enough balance to send' : 'Insufficient balance'}</Text>}
       </View>
     );
   };
@@ -1681,6 +1656,23 @@ export default function SendScreen() {
                 </View>
               </View>
 
+              <View testID="send-preview-balance-outcome" style={[styles.previewRow, preview.total > spendableBalance && styles.previewBalanceOutcomeInsufficient]}>
+                <Text style={[styles.previewLabel, { color: secondaryTextColor }]}>{preview.total > spendableBalance ? 'Short by' : 'Remaining after send'}</Text>
+                <View style={styles.previewValueStack}>
+                  <Text style={[styles.previewAmount, { color: preview.total > spendableBalance ? '#ff8a80' : BRAND_COLOR }]}>
+                    {isBalanceVisible
+                      ? (isUsdbAsset
+                        ? `${formatUsdbFromBaseUnits(Math.abs(spendableBalance - preview.total))} USDB`
+                        : `${Math.abs(spendableBalance - preview.total).toLocaleString()} sats`)
+                      : '••••••'}
+                  </Text>
+                  <Text testID="send-preview-balance-status" style={[styles.previewFiatEstimate, { color: preview.total > spendableBalance ? '#ff8a80' : secondaryTextColor }]}>
+                    {preview.total > spendableBalance ? 'Insufficient balance' : 'Enough balance to send'}
+                  </Text>
+                </View>
+                <IconButton icon={isBalanceVisible ? 'eye-off' : 'eye'} size={20} iconColor={secondaryTextColor} onPress={() => setIsBalanceVisible((visible) => !visible)} accessibilityLabel={isBalanceVisible ? 'Hide balance values' : 'Show balance values'} testID="toggle-send-preview-balance-privacy" />
+              </View>
+
               {shouldShowFiatUnavailable && (
                 <Text style={[styles.previewFiatUnavailable, { color: secondaryTextColor }]}>
                   Fiat estimate unavailable
@@ -1694,14 +1686,6 @@ export default function SendScreen() {
                 </View>
               )}
             </View>
-
-            {renderBalanceSummary({
-              paymentAmount: preview.amount,
-              knownFee: preview.fee,
-              total: preview.total,
-              remaining: spendableBalance - preview.total,
-              isSufficient: preview.total <= spendableBalance,
-            }, 'preview')}
 
             {paymentErrorBanner}
 
@@ -1801,9 +1785,7 @@ export default function SendScreen() {
           scrollEventThrottle={16}
           onScroll={onFormScroll}
         >
-          <View style={styles.balanceContainer}>
-            <Text style={[styles.balanceLabel, { color: secondaryTextColor }]}>{t('send.availableBalance')}</Text>
-          </View>
+          {renderAvailableBalance(inputBalanceSummary)}
 
           {!isLightningTab && (
             <View style={styles.onchainInfoCard}>
@@ -1936,8 +1918,6 @@ export default function SendScreen() {
                 <Text style={[styles.conversionFiat, { marginTop: 4 }]}>Amount fixed by invoice</Text>
               )}
 
-              {renderBalanceSummary(inputBalanceSummary, 'input')}
-
               {/* No low-amount warning on the Lightning tab — LN can route
                   arbitrary amounts down to 1 sat. The warning only applies
                   to on-chain sends, where dust-limit + fee economics make
@@ -1990,8 +1970,6 @@ export default function SendScreen() {
               {amountLocked && (
                 <Text style={[styles.conversionFiat, { marginTop: 4 }]}>Amount fixed by URI</Text>
               )}
-
-              {renderBalanceSummary(inputBalanceSummary, 'input')}
 
               {(() => {
                 // On-chain tab is BTC-only; `inputCurrency` is sats/usd/eur here.
@@ -2225,68 +2203,58 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     alignItems: 'center',
   },
+  balanceContainerInsufficient: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 138, 128, 0.65)',
+    backgroundColor: 'rgba(244, 67, 54, 0.1)',
+  },
+  balanceHeader: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   balanceLabel: {
     fontSize: 14,
     color: 'rgba(255, 255, 255, 0.7)',
-    marginBottom: 4,
   },
   balanceAmount: {
     fontSize: 24,
     fontWeight: 'bold',
     color: BRAND_COLOR,
   },
-  balanceSummary: {
-    borderWidth: 1,
-    borderColor: 'rgba(255, 193, 7, 0.35)',
-    backgroundColor: 'rgba(255, 193, 7, 0.08)',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
-  },
-  balanceSummaryInsufficient: {
-    borderColor: 'rgba(255, 138, 128, 0.65)',
-    backgroundColor: 'rgba(244, 67, 54, 0.1)',
-  },
-  balanceSummaryHeader: {
-    flexDirection: 'row',
+  balanceProjection: {
+    width: '100%',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.12)',
+    marginTop: 12,
+    paddingTop: 10,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
   },
-  balanceSummaryTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  balanceSummaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  balanceSummaryLabel: {
+  balanceProjectionLabel: {
     fontSize: 13,
   },
-  balanceSummaryValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'right',
+  balanceProjectionValueStack: {
+    alignItems: 'center',
+    marginTop: 2,
   },
-  balanceSummaryValueStack: {
-    alignItems: 'flex-end',
+  balanceProjectionValue: {
+    fontSize: 18,
+    fontWeight: '700',
   },
-  balanceSummaryFiat: {
+  balanceProjectionFiat: {
     marginTop: 2,
     fontSize: 12,
   },
-  balanceSummaryStatus: {
-    marginTop: 6,
+  balanceProjectionStatus: {
+    marginTop: 4,
     fontSize: 13,
     fontWeight: '700',
   },
-  balanceSummarySpotPrice: {
-    marginTop: 2,
-    fontSize: 12,
-    textAlign: 'right',
+  previewBalanceOutcomeInsufficient: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 138, 128, 0.5)',
+    paddingTop: 10,
   },
   onchainInfoCard: {
     backgroundColor: 'rgba(255, 193, 7, 0.12)',
