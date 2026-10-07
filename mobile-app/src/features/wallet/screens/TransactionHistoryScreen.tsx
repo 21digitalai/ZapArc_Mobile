@@ -52,7 +52,7 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
     return () => subscription.remove();
   }, [safeBack]));
-  const { transactions, refreshTransactions, isLoading, activeWalletInfo } = useWallet();
+  const { transactions, refreshTransactions, activeWalletInfo } = useWallet();
   const { t } = useLanguage();
   const { formatTx, refreshSettings } = useCurrency();
 
@@ -212,8 +212,6 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     const isFailed = tx.status === 'failed';
     const method = row.isSwap ? 'swap' : (tx.method || (tx.txid ? 'onchain' : 'lightning'));
     const isDirectUsdbTransfer = !row.isSwap && tx.asset === 'USDB';
-    const txIcon = isDirectUsdbTransfer ? (isReceived ? '$↓' : '$↑') : (method === 'swap' ? '⇄' : method === 'onchain' ? '⛓️' : '⚡');
-    const txIconColor = isDirectUsdbTransfer ? '#4CAF50' : primaryTextColor;
     const rowAsset: 'BTC' | 'USDB' = row.isSwap ? activeAsset : (tx.asset === 'USDB' ? 'USDB' : 'BTC');
     const formattedAmount = formatTx(row.displayAmount ?? 0, isReceived, {
       asset: rowAsset,
@@ -582,7 +580,9 @@ export function TransactionHistoryScreen(): React.JSX.Element {
                   try {
                     await Clipboard.setStringAsync(detailPopover.value);
                     ToastAndroid && ToastAndroid.show?.(t('common.copied'), ToastAndroid.SHORT);
-                  } catch {}
+                  } catch {
+                    // Copy feedback is optional; the detail remains visible.
+                  }
                 }}
                 style={[
                   styles.popoverBubble,
@@ -736,7 +736,9 @@ function DetailRow({ label, value, copyable, fullValue, onShowFull }: DetailRowP
     try {
       await Clipboard.setStringAsync(fullValue || value);
       ToastAndroid && ToastAndroid.show?.(t('common.copied'), ToastAndroid.SHORT);
-    } catch {}
+    } catch {
+      // Copy feedback is optional; the detail remains visible.
+    }
   };
 
   // Tapping the value measures the row's on-screen rect and asks the parent

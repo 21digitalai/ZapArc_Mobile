@@ -38,7 +38,6 @@ import { SaveContactPrompt } from '../../addressBook';
 import { AssetSelectorPill } from '../components/AssetSelectorPill';
 import { AssetPickerSheet } from '../components/AssetPickerSheet';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
-import { getAssetMeta } from '../registry/assetRegistry';
 import type { Transaction } from '../types';
 import { buildTransactionRows, type TransactionRow } from '../utils/transactionRows';
 import { loadPaymentComment, shouldShowPaymentComment } from '../utils/paymentComment';
@@ -939,8 +938,6 @@ export function HomeScreen(): React.JSX.Element {
     // `displayAmount` is already the amount in that tab's units. For regular
     // rows, trust tx.asset.
     const rowAsset: 'BTC' | 'USDB' = row.isSwap ? activeAsset : (tx.asset === 'USDB' ? 'USDB' : 'BTC');
-    const txIcon = isDirectUsdbTransfer ? (isReceived ? '$↓' : '$↑') : (method === 'swap' ? '⇄' : method === 'onchain' ? '⛓️' : '⚡');
-    const txIconColor = isDirectUsdbTransfer ? '#4CAF50' : primaryTextColor;
     const amount = row.displayAmount;
     const timestamp = typeof tx.timestamp === 'number' && tx.timestamp > 0 ? tx.timestamp : Date.now();
     const dateObj = new Date(timestamp);
@@ -1101,7 +1098,9 @@ export function HomeScreen(): React.JSX.Element {
                       subtitle: lightningAddressInfo.lightningAddress,
                     });
                   }
-                } catch {}
+                } catch {
+                  // Copy feedback is optional; the address remains visible.
+                }
               }}
               accessibilityRole="button"
               accessibilityLabel={`Lightning address ${lightningAddressInfo.lightningAddress}. Tap to copy.`}
@@ -1690,7 +1689,9 @@ export function HomeScreen(): React.JSX.Element {
         if (Platform.OS === 'android' && ToastAndroid?.show) {
           ToastAndroid.show(t('common.copied'), ToastAndroid.SHORT);
         }
-      } catch {}
+      } catch {
+        // Copy feedback is optional; the detail remains visible.
+      }
     };
     return (
       <TouchableOpacity
