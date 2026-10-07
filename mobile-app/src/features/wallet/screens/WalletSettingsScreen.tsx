@@ -29,7 +29,7 @@ export function WalletSettingsScreen(): React.JSX.Element {
       return () => subscription.remove();
     }, [safeBack])
   );
-  const { settings, isLoading: settingsLoading, loadSettings } = useSettings();
+  const { settings, loadSettings } = useSettings();
   const appVersion = Constants.expoConfig?.version ?? '1.1.2';
   const { currentLanguage, t } = useLanguage();
   const { themeMode } = useAppTheme();

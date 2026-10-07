@@ -176,7 +176,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
   const [isConnected, setIsConnected] = useState(false);
   const [userInfo, setUserInfo] = useState<GoogleUser | null>(null);
   const [backups, setBackups] = useState<BackupMetadata[]>([]);
-  const [lastBackupTimestamp, setLastBackupTimestamp] = useState<number | null>(null);
+  const [, setLastBackupTimestamp] = useState<number | null>(null);
   const [localFingerprints, setLocalFingerprints] = useState<Record<string, string>>({});
 
   // Modal state
@@ -243,8 +243,8 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
   const [restoredMnemonic, setRestoredMnemonic] = useState<string | null>(null);
   const [restoredWalletName, setRestoredWalletName] = useState<string | null>(null);
   const [showPinModal, setShowPinModal] = useState(false);
-  const [restorePin, setRestorePin] = useState('');
-  const [confirmRestorePin, setConfirmRestorePin] = useState('');
+  const [, setRestorePin] = useState('');
+  const [, setConfirmRestorePin] = useState('');
   const [isImporting, setIsImporting] = useState(false);
 
   // Backup flow: manual PIN entry fallback (when session + biometric storage are empty)
@@ -345,7 +345,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
       } else {
         Alert.alert(t('common.error'), result.error || 'Failed to connect');
       }
-    } catch (error) {
+    } catch {
       Alert.alert(t('common.error'), 'Failed to connect to Google Drive');
     } finally {
       setIsLoading(false);
@@ -369,7 +369,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
               setUserInfo(null);
               setBackups([]);
               setLastBackupTimestamp(null);
-            } catch (error) {
+            } catch {
               Alert.alert(t('common.error'), 'Failed to disconnect');
             } finally {
               setIsLoading(false);
@@ -1101,11 +1101,6 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
   // ==========================================================================
   // Render
   // ==========================================================================
-
-  const getWalletLabel = (walletId: string): string => {
-    const wallet = (masterKeys || []).find((key) => key.id === walletId);
-    return wallet?.nickname || wallet?.id.substring(0, 8) || walletId.substring(0, 8);
-  };
 
   const renderPasswordModal = (): React.JSX.Element => (
     <Modal

@@ -173,7 +173,7 @@ export function BlacklistScreen(): React.JSX.Element {
       Alert.alert('Saved', 'Blacklist updated', [
         { text: 'OK', onPress: safeBack },
       ]);
-    } catch (err) {
+    } catch {
       Alert.alert('Error', 'Failed to save settings');
     } finally {
       setIsSaving(false);

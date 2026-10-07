@@ -8,7 +8,6 @@ import {
   ScrollView,
   Alert,
   FlatList,
-  TouchableOpacity,
   BackHandler,
 } from 'react-native';
 import { useKeyboardAwareScroll } from '../../../../hooks/useKeyboardAwareScroll';
@@ -139,7 +138,7 @@ export function DomainManagementScreen(): React.JSX.Element {
       Alert.alert('Saved', 'Domain settings updated', [
         { text: 'OK', onPress: safeBack },
       ]);
-    } catch (err) {
+    } catch {
       Alert.alert('Error', 'Failed to save settings');
     } finally {
       setIsSaving(false);
