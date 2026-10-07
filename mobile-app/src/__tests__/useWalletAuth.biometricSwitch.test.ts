@@ -73,7 +73,7 @@ describe('useWalletAuth biometric master-wallet switching', () => {
     expect(storageService.storeBiometricPin).not.toHaveBeenCalled();
   });
 
-  it('keeps the manual-PIN fallback when the target entry is absent or unavailable', async () => {
+  it('keeps the manual-PIN fallback when the target entry is absent or unavailable without enrolling biometrics', async () => {
     (storageService.getBiometricPin as jest.Mock)
       .mockResolvedValueOnce(null)
       .mockRejectedValueOnce(new Error('biometric invalidated'));
@@ -95,7 +95,41 @@ describe('useWalletAuth biometric master-wallet switching', () => {
     await act(async () => {
       await expect(result.current.selectWallet('wallet-b', 0, '222222')).resolves.toBe(true);
     });
-    expect(storageService.storeBiometricPin).toHaveBeenCalledWith('wallet-b', '222222');
+    expect(storageService.storeBiometricPin).not.toHaveBeenCalled();
+  });
+
+  it('unlocks with a valid PIN without touching biometric storage', async () => {
+    (storageService.verifyMasterKeyPin as jest.Mock).mockResolvedValue(true);
+    (storageService.unlockWallet as jest.Mock).mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useWalletAuth());
+    await waitFor(() => expect(result.current.currentMasterKeyId).toBeTruthy());
+    const masterKeyId = result.current.currentMasterKeyId as string;
+
+    await act(async () => {
+      await expect(result.current.unlock('111111')).resolves.toBe(true);
+    });
+
+    expect(storageService.verifyMasterKeyPin).toHaveBeenCalledWith(masterKeyId, '111111');
+    expect(storageService.getBiometricPin).not.toHaveBeenCalled();
+    expect(storageService.storeBiometricPin).not.toHaveBeenCalled();
+  });
+
+  it('stores a biometric PIN only after explicit biometric opt-in', async () => {
+    primeSessionPin('111111');
+    (storageService.storeBiometricPin as jest.Mock).mockResolvedValue(undefined);
+    (settingsService.updateUserSettings as jest.Mock).mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useWalletAuth());
+    await waitFor(() => expect(result.current.currentMasterKeyId).toBeTruthy());
+    const masterKeyId = result.current.currentMasterKeyId as string;
+
+    await act(async () => {
+      await expect(result.current.enableBiometric()).resolves.toEqual({ ok: true });
+    });
+
+    expect(storageService.storeBiometricPin).toHaveBeenCalledWith(masterKeyId, '111111');
+    expect(settingsService.updateUserSettings).toHaveBeenCalledWith({ biometricEnabled: true });
   });
 
   it('disabling biometrics clears every master-wallet entry and the global preference', async () => {
