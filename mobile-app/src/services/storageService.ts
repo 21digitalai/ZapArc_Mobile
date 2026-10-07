@@ -1617,7 +1617,6 @@ class StorageService {
   /**
    * Retrieve PIN for biometric unlock.
    * Primary path enforces OS-level authentication on read.
-   * Legacy migration: if an older record exists without auth gating, re-save it with auth required.
    *
    * Pass `authenticationPrompt` to customise the message shown in the OS biometric dialog.
    * When reading the PIN as part of an unlock flow, callers SHOULD pass a prompt and MUST NOT
@@ -1659,51 +1658,17 @@ class StorageService {
 
       return authenticatedPin;
     } catch (authError) {
-      // authError on the auth-gated read can mean EITHER:
-      //   (a) user cancelled / failed the biometric prompt
-      //   (b) nothing was ever stored at this key (rare — key doesn't exist yet)
-      //
-      // The legacy fallback below tries the NON-auth-gated read to detect pre-
-      // migration state. If that also throws, we can't distinguish (a) from (b)
-      // perfectly, but in practice:
-      //   - key never stored → getItemAsync resolves to null, no throw
-      //   - user cancelled auth → getItemAsync throws
-      // So a thrown legacy fallback strongly implies user-cancel. Re-throw so
-      // the caller can treat it as cancellation (returns false) rather than
-      // the "keystore missing → auto-disable biometric" recovery path.
-      try {
-        const legacyPin = await SecureStore.getItemAsync(key);
-        if (!legacyPin) {
-          return null; // truly missing — OK to fall through to recovery
-        }
-
-        await SecureStore.setItemAsync(
-          key,
-          legacyPin,
-          BIOMETRIC_SECURE_STORE_OPTIONS
+      // The stored item's authentication requirement is enforced by the OS,
+      // regardless of caller options. Retrying this key without options after
+      // cancellation opens a second fingerprint prompt. Never fall back to a
+      // non-authenticated PIN read after biometric authentication fails.
+      if (__DEV__) {
+        console.warn(
+          'ℹ️ [StorageService] Biometric read failed (likely user cancel):',
+          (authError as Error)?.message || authError
         );
-
-        if (__DEV__) {
-          console.log(
-            '♻️ [StorageService] Migrated legacy biometric PIN to auth-gated storage for master key:',
-            masterKeyId
-          );
-        }
-
-        return legacyPin;
-      } catch {
-        // Both reads threw → most likely user cancelled biometric prompt.
-        // Use warn (not error) so we don't trigger RedBox in dev. Re-throw
-        // the ORIGINAL authError so the caller's cancel-handling path kicks in
-        // instead of the auto-disable-biometric recovery.
-        if (__DEV__) {
-          console.warn(
-            'ℹ️ [StorageService] Biometric read failed (likely user cancel):',
-            (authError as Error)?.message || authError
-          );
-        }
-        throw authError;
       }
+      throw authError;
     }
   }
 

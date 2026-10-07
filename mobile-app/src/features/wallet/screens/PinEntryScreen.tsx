@@ -77,19 +77,12 @@ export function PinEntryScreen(): React.JSX.Element {
 
   // Animation ref for shake effect
   const shakeAnimation = useRef(new Animated.Value(0)).current;
+  const autoBiometricAttemptedRef = useRef(false);
+  const biometricAttemptInFlightRef = useRef(false);
 
   // ========================================
   // Effects
   // ========================================
-
-  useEffect(() => {
-    // The target wallet's protected entry determines whether a switch can use
-    // biometrics. If it is missing or the prompt is cancelled, the PIN keypad
-    // remains available without implying that the device biometric is broken.
-    if (biometricAvailable && biometricEnabled) {
-      handleBiometricUnlock();
-    }
-  }, [biometricAvailable, biometricEnabled, targetMasterKeyId]);
 
   // Prevent back navigation to welcome/create screens
   useEffect(() => {
@@ -241,6 +234,8 @@ export function PinEntryScreen(): React.JSX.Element {
   }, [pin, unlock, selectWallet, targetMasterKeyId, targetSubWalletIndex, shake, applyPinAuthStatus, t]);
 
   const handleBiometricUnlock = useCallback(async () => {
+    if (biometricAttemptInFlightRef.current) return;
+    biometricAttemptInFlightRef.current = true;
     try {
       if (targetMasterKeyId) {
         setIsUnlocking(true);
@@ -260,8 +255,19 @@ export function PinEntryScreen(): React.JSX.Element {
     } catch (err) {
       // User cancelled or biometric failed - they can use PIN
       console.log('Biometric unlock failed:', err);
+    } finally {
+      biometricAttemptInFlightRef.current = false;
     }
   }, [unlockWithBiometric, selectWalletWithBiometric, targetMasterKeyId, targetSubWalletIndex]);
+
+  useEffect(() => {
+    // Auto-prompt once per lock-screen presentation. React effects can re-run as
+    // wallet/biometric state settles; cancelling must leave the PIN usable.
+    if (!targetMasterKeyId && !activeWalletInfo?.masterKeyId) return;
+    if (!biometricAvailable || !biometricEnabled || autoBiometricAttemptedRef.current) return;
+    autoBiometricAttemptedRef.current = true;
+    void handleBiometricUnlock();
+  }, [activeWalletInfo?.masterKeyId, biometricAvailable, biometricEnabled, handleBiometricUnlock, targetMasterKeyId, targetSubWalletIndex]);
 
   // ========================================
   // Get biometric icon

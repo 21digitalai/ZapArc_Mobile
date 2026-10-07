@@ -610,29 +610,17 @@ describe('StorageService', () => {
       );
     });
 
-    it('migrates legacy biometric PIN when authenticated read fails', async () => {
-      (SecureStore.getItemAsync as jest.Mock)
-        .mockRejectedValueOnce(new Error('Auth required'))
-        .mockResolvedValueOnce('4321');
-      (SecureStore.setItemAsync as jest.Mock).mockResolvedValue(undefined);
+    it('does not retry biometric PIN after cancellation', async () => {
+      const cancellation = new Error('Authentication cancelled');
+      (SecureStore.getItemAsync as jest.Mock).mockRejectedValueOnce(cancellation);
 
-      const pin = await storageService.getBiometricPin('mk-legacy');
-
-      expect(pin).toBe('4321');
-      expect(SecureStore.getItemAsync).toHaveBeenNthCalledWith(
-        1,
-        'zap_arc_biometric_pin_mk-legacy',
+      await expect(storageService.getBiometricPin('mk-one')).rejects.toBe(cancellation);
+      expect(SecureStore.getItemAsync).toHaveBeenCalledTimes(1);
+      expect(SecureStore.getItemAsync).toHaveBeenCalledWith(
+        'zap_arc_biometric_pin_mk-one',
         expect.objectContaining({ requireAuthentication: true })
       );
-      expect(SecureStore.getItemAsync).toHaveBeenNthCalledWith(
-        2,
-        'zap_arc_biometric_pin_mk-legacy'
-      );
-      expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
-        'zap_arc_biometric_pin_mk-legacy',
-        '4321',
-        expect.objectContaining({ requireAuthentication: true })
-      );
+      expect(SecureStore.setItemAsync).not.toHaveBeenCalled();
     });
   });
 });
