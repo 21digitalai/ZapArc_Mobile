@@ -11,14 +11,12 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
-  Modal,
   BackHandler,
-  Linking,
   Platform,
   ToastAndroid,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { Text, IconButton, ActivityIndicator, Button, Divider } from 'react-native-paper';
+import { Text, IconButton, ActivityIndicator } from 'react-native-paper';
 import { ToastBanner, type ToastTone } from '../components/ToastBanner';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -40,7 +38,6 @@ import { AssetPickerSheet } from '../components/AssetPickerSheet';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 import type { Transaction } from '../types';
 import { buildTransactionRows, type TransactionRow } from '../utils/transactionRows';
-import { loadPaymentComment, shouldShowPaymentComment } from '../utils/paymentComment';
 import {
   enableNotificationsIfNeeded,
   getActiveSecurityReminder,
@@ -259,7 +256,6 @@ export function HomeScreen(): React.JSX.Element {
   const [sparkStatus, setSparkStatus] = useState<SparkNetworkStatus | null>(null);
   const [showBalance, setShowBalance] = useState(true);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
-  const [selectedTxComment, setSelectedTxComment] = useState<string | null>(null);
   // When the tapped row is a swap pair, keep both sides so the detail modal
   // can show "paid X sats, received Y USDB" rather than just one leg.
   const [selectedSwapRow, setSelectedSwapRow] = useState<import('../utils/transactionRows').TransactionRow | null>(null);
@@ -315,20 +311,6 @@ export function HomeScreen(): React.JSX.Element {
     clearPendingTerminalTimer();
     if (trackedPendingClearTimerRef.current) clearTimeout(trackedPendingClearTimerRef.current);
   }, [clearPendingTerminalTimer]);
-
-  useEffect(() => {
-    if (!selectedTransaction?.id) {
-      setSelectedTxComment(null);
-      return;
-    }
-    if (selectedTransaction.type === 'receive') {
-      setSelectedTxComment(selectedTransaction.comment || null);
-      return;
-    }
-    loadPaymentComment(activeWalletInfo, selectedTransaction.id)
-      .then(setSelectedTxComment)
-      .catch(() => setSelectedTxComment(null));
-  }, [selectedTransaction, activeWalletInfo]);
 
   const displayBalance = getBalanceForAsset(activeAsset);
   const canonicalDisplayTransactions = getTransactionsForAsset(activeAsset);
@@ -933,7 +915,6 @@ export function HomeScreen(): React.JSX.Element {
     const isReceived = row.displayType === 'receive';
     const isFailed = tx.status === 'failed';
     const method = row.isSwap ? 'swap' : (tx.method || (tx.txid ? 'onchain' : 'lightning'));
-    const isDirectUsdbTransfer = !row.isSwap && tx.asset === 'USDB';
     // For swap rows, the display asset equals the current tab - the row's
     // `displayAmount` is already the amount in that tab's units. For regular
     // rows, trust tx.asset.
@@ -1439,278 +1420,6 @@ export function HomeScreen(): React.JSX.Element {
     </LinearGradient>
   );
 
-  // Helper function to format time
-  function formatTime(timestamp: number): string {
-    return new Date(timestamp).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  }
-
-  // Render transaction details modal
-  function renderDetailsModal(): React.JSX.Element | null {
-    if (!selectedTransaction) return null;
-
-    const tx = selectedTransaction;
-    const isReceived = tx.type === 'receive';
-    const method = tx.method || (tx.txid ? 'onchain' : 'lightning');
-    const date = new Date(tx.timestamp);
-    const claimStatusLabel = tx.onchainClaimState === 'confirming'
-      ? tx.onchainConfirmations !== undefined && tx.onchainRequiredConfirmations
-        ? t('deposit.statusConfirmingProgress', {
-            count: tx.onchainConfirmations,
-            required: tx.onchainRequiredConfirmations,
-          })
-        : t('deposit.statusConfirming')
-      : tx.onchainClaimState === 'claiming'
-        ? t('deposit.statusClaiming')
-        : tx.onchainClaimState === 'retrying'
-          ? t('deposit.statusRetrying')
-          : tx.onchainClaimState === 'too-small'
-            ? t('deposit.statusTooSmall')
-            : null;
-
-    return (
-      <Modal
-        visible={!!selectedTransaction}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSelectedTransaction(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            {/* Header */}
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: primaryTextColor }]}>{t('wallet.transactionDetails')}</Text>
-              <IconButton
-                icon="close"
-                iconColor={iconColor}
-                size={24}
-                onPress={() => { setSelectedTransaction(null); setSelectedSwapRow(null); }}
-              />
-            </View>
-
-            {/* Amount */}
-            <View style={styles.modalAmountContainer}>
-              <View style={styles.modalIcon}>
-                <Text style={[styles.modalIconText, { color: primaryTextColor }]}>
-                  {method === 'onchain' ? '⛓️' : '⚡'}
-                </Text>
-              </View>
-              <Text
-                style={[
-                  styles.modalAmount,
-                  isReceived ? styles.amountReceived : styles.amountSent,
-                ]}
-              >
-                {formatTx(tx.amount ?? 0, isReceived, { asset: tx.asset === 'USDB' ? 'USDB' : 'BTC' }).primary}
-              </Text>
-              {formatTx(tx.amount ?? 0, isReceived, { asset: tx.asset === 'USDB' ? 'USDB' : 'BTC' }).secondary && (
-                <Text style={[styles.modalAmountSecondary, { color: secondaryTextColor }]}>
-                  {formatTx(tx.amount ?? 0, isReceived, { asset: tx.asset === 'USDB' ? 'USDB' : 'BTC' }).secondary}
-                </Text>
-              )}
-              <Text style={[
-                styles.modalStatus,
-                { color: secondaryTextColor },
-                (tx.status === 'completed' || (tx.status === 'pending' && method === 'onchain' && tx.txid && !claimStatusLabel)) && styles.statusCompleted,
-                (tx.status === 'pending' && (!(method === 'onchain' && tx.txid) || !!claimStatusLabel)) && styles.statusPending,
-                tx.status === 'failed' && styles.statusFailed,
-              ]}>
-                {claimStatusLabel
-                  ? `${tx.onchainClaimState === 'too-small' ? '\u26A0' : '\u23F3'} ${claimStatusLabel}`
-                  : tx.status === 'failed'
-                    ? `\u2715 ${t('wallet.statusFailed')}`
-                    : (tx.status === 'pending' && !(method === 'onchain' && tx.txid))
-                      ? `\u23F3 ${t('wallet.statusPending')}`
-                      : `\u2713 ${t('wallet.statusCompleted')}`}
-              </Text>
-            </View>
-
-            <Divider style={styles.divider} />
-
-            {/* Details */}
-            <View style={styles.detailsContainer}>
-              <DetailRow label={t('wallet.type')} value={isReceived ? t('wallet.received') : t('wallet.sent')} />
-              <DetailRow label={t('wallet.method')} value={method === 'onchain' ? t('wallet.methodOnchain') : t('wallet.methodLightning')} />
-              <DetailRow
-                label={t('wallet.date')}
-                value={date.toLocaleDateString('en-US', {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-              />
-              <DetailRow label={t('wallet.time')} value={formatTime(tx.timestamp)} />
-              {tx.description && (
-                <DetailRow label={t('payments.description')} value={tx.description} />
-              )}
-              {shouldShowPaymentComment(tx.description, selectedTxComment) && (
-                <DetailRow label={t('wallet.comment')} value={selectedTxComment || ''} />
-              )}
-              {tx.failureReason && (tx.status === 'failed' || !!claimStatusLabel) && (
-                <DetailRow
-                  label={claimStatusLabel ? t('deposit.statusDetails') : t('wallet.failureReason')}
-                  value={tx.failureReason}
-                  copyable
-                  fullValue={tx.failureReason}
-                />
-              )}
-              {tx.feeSats !== undefined && tx.feeSats > 0 && (
-                <DetailRow
-                  label={t('wallet.fee')}
-                  value={
-                    tx.asset === 'USDB'
-                      ? `${(tx.feeSats / 1e6).toFixed(6)} USDB`
-                      : `${tx.feeSats.toLocaleString()} ${t('wallet.sats')}`
-                  }
-                />
-              )}
-              {/* Type: swap / lightning / on-chain */}
-              {(tx.paymentType === 'conversion' || selectedSwapRow?.isSwap) && (
-                <DetailRow
-                  label={t('wallet.type')}
-                  value={
-                    selectedSwapRow?.swapDirection === 'USDB_TO_BTC'
-                      ? `${t('swap.history.label')} (${t('swap.history.usdbToBtc')})`
-                      : `${t('swap.history.label')} (${t('swap.history.btcToUsdb')})`
-                  }
-                />
-              )}
-              {/* Swap-pair amounts: always show BOTH legs so the user can
-                  see how many sats were paid AND how many USDB were received
-                  (or vice versa). */}
-              {selectedSwapRow?.isSwap && selectedSwapRow.btcSide && selectedSwapRow.usdbSide && (
-                selectedSwapRow.swapDirection === 'BTC_TO_USDB' ? (
-                  <>
-                    <DetailRow
-                      label={t('swap.youPay')}
-                      value={`${Number(selectedSwapRow.btcSide.amount || 0).toLocaleString()} sats`}
-                    />
-                    <DetailRow
-                      label={t('swap.youReceive')}
-                      value={`${(Number(selectedSwapRow.usdbSide.amount || 0) / 1e6).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 6,
-                      })} USDB`}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <DetailRow
-                      label={t('swap.youPay')}
-                      value={`${(Number(selectedSwapRow.usdbSide.amount || 0) / 1e6).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 6,
-                      })} USDB`}
-                    />
-                    <DetailRow
-                      label={t('swap.youReceive')}
-                      value={`${Number(selectedSwapRow.btcSide.amount || 0).toLocaleString()} sats`}
-                    />
-                  </>
-                )
-              )}
-              {/* Non-swap single-leg amount (regular send/receive) */}
-              {!selectedSwapRow?.isSwap && tx.asset === 'USDB' && (
-                <DetailRow
-                  label={t('payments.amount')}
-                  value={`${(Number(tx.amount || 0) / 1e6).toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 6,
-                  })} USDB`}
-                />
-              )}
-              {!selectedSwapRow?.isSwap && tx.asset !== 'USDB' && tx.amount !== undefined && (
-                <DetailRow
-                  label={t('payments.amount')}
-                  value={`${Number(tx.amount).toLocaleString()} sats`}
-                />
-              )}
-              {/* Payment ID (useful for swap + lightning debugging) */}
-              {tx.id && (
-                <DetailRow
-                  label={t('wallet.paymentId')}
-                  value={String(tx.id)}
-                  copyable
-                  fullValue={String(tx.id)}
-                />
-              )}
-              {tx.tokenIdentifier && (
-                <DetailRow
-                  label={t('wallet.token')}
-                  value={String(tx.tokenIdentifier)}
-                  copyable
-                  fullValue={String(tx.tokenIdentifier)}
-                />
-              )}
-              {method === 'onchain' && tx.txid && (
-                <>
-                  <DetailRow label="TXID" value={`${tx.txid.slice(0, 16)}...`} />
-                  <TouchableOpacity onPress={() => Linking.openURL(`https://mempool.space/tx/${tx.txid}`)}>
-                    <Text style={styles.mempoolLink}>{t('wallet.viewOnMempool')}</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-
-            {/* Close Button */}
-            <Button
-              mode="outlined"
-              onPress={() => setSelectedTransaction(null)}
-              style={styles.closeModalButton}
-              labelStyle={[styles.closeModalButtonLabel, { color: primaryTextColor }]}
-            >
-              {t('common.close')}
-            </Button>
-          </View>
-        </View>
-      </Modal>
-    );
-  }
-
-  // Detail row component. When `copyable` is set, tapping the row copies
-  // `fullValue ?? value` to the clipboard. Value text uses middle ellipsis
-  // so bech32-style identifiers remain identifiable at a glance.
-  function DetailRow({
-    label,
-    value,
-    copyable,
-    fullValue,
-  }: {
-    label: string;
-    value: string;
-    copyable?: boolean;
-    fullValue?: string;
-  }): React.JSX.Element {
-    const handleCopy = async (): Promise<void> => {
-      try {
-        await Clipboard.setStringAsync(fullValue || value);
-        if (Platform.OS === 'android' && ToastAndroid?.show) {
-          ToastAndroid.show(t('common.copied'), ToastAndroid.SHORT);
-        }
-      } catch {
-        // Copy feedback is optional; the detail remains visible.
-      }
-    };
-    return (
-      <TouchableOpacity
-        style={styles.detailRow}
-        onPress={copyable ? handleCopy : undefined}
-        disabled={!copyable}
-        activeOpacity={copyable ? 0.6 : 1}
-      >
-        <Text style={[styles.detailLabel, { color: secondaryTextColor }]}>{label}</Text>
-        <Text
-          style={[styles.detailValue, { color: primaryTextColor }]}
-          numberOfLines={1}
-          ellipsizeMode="middle"
-        >
-          {value}
-        </Text>
-      </TouchableOpacity>
-    );
-  }
 }
 
 // =============================================================================

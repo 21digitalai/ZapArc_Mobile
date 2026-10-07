@@ -1,22 +1,16 @@
 // Transaction History Screen
 // Full transaction list with filtering and details
 
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   StyleSheet,
   FlatList,
   TouchableOpacity,
   RefreshControl,
-  Modal,
-  Linking,
-  ToastAndroid,
-  Dimensions,
   BackHandler,
 } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
-import { Text, IconButton, Chip, Button, Divider } from 'react-native-paper';
+import { Text, IconButton, Chip } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -28,8 +22,6 @@ import { useCurrency } from '../../../hooks/useCurrency';
 import type { Transaction } from '../types';
 import { buildTransactionRows, type TransactionRow, type WalletAsset } from '../utils/transactionRows';
 import { createSafeBackHandler } from '../utils/safeBack';
-import { loadPaymentComment, shouldShowPaymentComment } from '../utils/paymentComment';
-import { exportPaymentDiagnostics } from '../../../services/breezSparkService';
 import { TransactionDetailsModal } from '../components/TransactionDetailsModal';
 
 // =============================================================================
@@ -70,44 +62,6 @@ export function TransactionHistoryScreen(): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [selectedSwapRow, setSelectedSwapRow] = useState<TransactionRow | null>(null);
-  const [selectedTxNote, setSelectedTxNote] = useState<string | null>(null);
-  const [selectedTxRecipient, setSelectedTxRecipient] = useState<string | null>(null);
-  const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
-  // Full-text popover for truncated detail values. Holds the label + full
-  // value + the on-screen anchor rect (measured from the tapped row) so we
-  // can float a bubble just above it.
-  const [detailPopover, setDetailPopover] = useState<
-    { label: string; value: string; x: number; y: number; width: number } | null
-  >(null);
-
-  // Load stored user note + recipient when a transaction detail is opened.
-  // Both are written locally at send time (see send.tsx): the note is the
-  // sender's message to the recipient; the recipient is the Lightning
-  // Address / LNURL the user paid (the SDK history doesn't surface it).
-  useEffect(() => {
-    if (!selectedTransaction?.id) {
-      setSelectedTxNote(null);
-      setSelectedTxRecipient(null);
-      return;
-    }
-    const id = selectedTransaction.id;
-    if (selectedTransaction.type === 'receive') {
-      setSelectedTxNote(selectedTransaction.comment || null);
-    } else {
-      loadPaymentComment(activeWalletInfo, id)
-        .then((note) => setSelectedTxNote(note))
-        .catch(() => setSelectedTxNote(null));
-    }
-    AsyncStorage.getItem(`payment_recipient_${id}`)
-      .then((r) => setSelectedTxRecipient(r))
-      .catch(() => setSelectedTxRecipient(null));
-  }, [selectedTransaction, activeWalletInfo]);
-
-  // Dismiss the popover whenever the detail modal closes.
-  useEffect(() => {
-    if (!selectedTransaction) setDetailPopover(null);
-  }, [selectedTransaction]);
-
   // Filtered transactions
   const transactionRows = useMemo(() => buildTransactionRows(transactions, activeAsset), [transactions, activeAsset]);
 
@@ -152,37 +106,6 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     }
   }, [refreshTransactions]);
 
-  const reconcileDiagnostics = useCallback(async (copy: boolean): Promise<void> => {
-    if (!selectedTransaction?.id || diagnosticsBusy) return;
-    setDiagnosticsBusy(true);
-    try {
-      const payload = await exportPaymentDiagnostics(selectedTransaction.id);
-      const parsed = JSON.parse(payload) as { reconciliation?: string; zaparc?: { reconciliation?: string } };
-      const reconciliation = parsed.zaparc?.reconciliation || parsed.reconciliation;
-      if (copy) {
-        await Clipboard.setStringAsync(payload);
-        ToastAndroid && ToastAndroid.show?.('Diagnostics copied', ToastAndroid.SHORT);
-      } else {
-        const messages: Record<string, string> = {
-          completed_settled: 'Payment is completed and settled.',
-          funds_reserved_until_expiry: 'Funds remain reserved until the listed expiry.',
-          overdue_stuck_reconciliation: 'Payment is overdue. Keep diagnostics for support.',
-          settling_or_claimable: 'Payment is still settling. Refresh again shortly.',
-          funds_returned: 'Wallet sync confirms the funds were returned.',
-          balance_sync_inconsistency: 'Wallet balance needs another sync before it can be confirmed.',
-          failed_but_funds_still_reserved: 'Payment failed, but funds are still reserved.',
-          unknown: 'Current wallet state could not be confirmed. Diagnostics remain available.',
-        };
-        ToastAndroid && ToastAndroid.show?.(messages[reconciliation || 'unknown'], ToastAndroid.LONG);
-      }
-      await refreshTransactions();
-    } catch {
-      ToastAndroid && ToastAndroid.show?.('Could not prepare diagnostics', ToastAndroid.SHORT);
-    } finally {
-      setDiagnosticsBusy(false);
-    }
-  }, [diagnosticsBusy, refreshTransactions, selectedTransaction]);
-
   // Refresh transactions and settings when screen comes into focus
   useFocusEffect(
     useCallback(() => {
@@ -211,7 +134,6 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     const isReceived = row.displayType === 'receive';
     const isFailed = tx.status === 'failed';
     const method = row.isSwap ? 'swap' : (tx.method || (tx.txid ? 'onchain' : 'lightning'));
-    const isDirectUsdbTransfer = !row.isSwap && tx.asset === 'USDB';
     const rowAsset: 'BTC' | 'USDB' = row.isSwap ? activeAsset : (tx.asset === 'USDB' ? 'USDB' : 'BTC');
     const formattedAmount = formatTx(row.displayAmount ?? 0, isReceived, {
       asset: rowAsset,
@@ -294,314 +216,6 @@ export function TransactionHistoryScreen(): React.JSX.Element {
     </View>
   );
 
-  // Render transaction details modal
-  const renderDetailsModal = (): React.JSX.Element | null => {
-    if (!selectedTransaction) return null;
-
-    const tx = selectedTransaction;
-    const isReceived = tx.type === 'receive';
-    const method = tx.method || (tx.txid ? 'onchain' : 'lightning');
-    const date = new Date(tx.timestamp);
-    const claimStatusLabel = tx.onchainClaimState === 'confirming'
-      ? tx.onchainConfirmations !== undefined && tx.onchainRequiredConfirmations
-        ? t('deposit.statusConfirmingProgress', {
-            count: tx.onchainConfirmations,
-            required: tx.onchainRequiredConfirmations,
-          })
-        : t('deposit.statusConfirming')
-      : tx.onchainClaimState === 'claiming'
-        ? t('deposit.statusClaiming')
-        : tx.onchainClaimState === 'retrying'
-          ? t('deposit.statusRetrying')
-          : tx.onchainClaimState === 'too-small'
-            ? t('deposit.statusTooSmall')
-            : null;
-
-    return (
-      <>
-      <Modal
-        visible={!!selectedTransaction}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSelectedTransaction(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            {/* Header */}
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: primaryTextColor }]}>{t('wallet.transactionDetails')}</Text>
-              <IconButton
-                icon="close"
-                iconColor={iconColor}
-                size={24}
-                onPress={() => { setSelectedTransaction(null); setSelectedSwapRow(null); }}
-              />
-            </View>
-
-            {/* Amount */}
-            <View style={styles.modalAmountContainer}>
-              <View
-                style={[
-                  styles.modalIcon,
-                  isReceived ? styles.iconReceived : styles.iconSent,
-                ]}
-              >
-                <Text style={[styles.modalIconText, { color: primaryTextColor }]}> 
-                  {method === 'onchain' ? '⛓️' : '⚡'}
-                </Text>
-              </View>
-              <Text
-                style={[
-                  styles.modalAmount,
-                  isReceived ? styles.amountReceived : styles.amountSent,
-                ]}
-              >
-                {formatTx(tx.amount ?? 0, isReceived, { asset: tx.asset === 'USDB' ? 'USDB' : 'BTC' }).primary}
-              </Text>
-              {formatTx(tx.amount ?? 0, isReceived, { asset: tx.asset === 'USDB' ? 'USDB' : 'BTC' }).secondary && (
-                <Text style={[styles.modalAmountSecondary, { color: secondaryTextColor }]}>
-                  {formatTx(tx.amount ?? 0, isReceived, { asset: tx.asset === 'USDB' ? 'USDB' : 'BTC' }).secondary}
-                </Text>
-              )}
-              <Text style={styles.modalStatus}>
-                {claimStatusLabel
-                  ? `${tx.onchainClaimState === 'too-small' ? '\u26A0' : '\u23F3'} ${claimStatusLabel}`
-                  : tx.status === 'completed'
-                  ? `\u2713 ${t('wallet.statusCompleted')}`
-                  : tx.status === 'failed'
-                    ? `✕ ${t('wallet.statusFailed')}`
-                    : `⏳ ${t('wallet.statusPending')}`}
-              </Text>
-            </View>
-
-            <Divider style={styles.divider} />
-
-            {/* Details */}
-            <View style={styles.detailsContainer}>
-              <DetailRow label={t('wallet.type')} value={isReceived ? t('wallet.received') : t('wallet.sent')} />
-              <DetailRow label="Method" value={method === 'onchain' ? 'On-chain' : 'Lightning'} />
-              <DetailRow
-                label={t('wallet.date')}
-                value={date.toLocaleDateString('en-US', {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-              />
-              <DetailRow label={t('wallet.time')} value={formatTime(tx.timestamp)} />
-              {!isReceived && selectedTxRecipient && (
-                <DetailRow
-                  label={t('wallet.to')}
-                  value={selectedTxRecipient}
-                  copyable
-                  fullValue={selectedTxRecipient}
-                  onShowFull={setDetailPopover}
-                />
-              )}
-              {tx.description && (
-                <DetailRow
-                  label={t('payments.description')}
-                  value={tx.description}
-                  onShowFull={setDetailPopover}
-                />
-              )}
-              {shouldShowPaymentComment(tx.description, selectedTxNote) && (
-                <DetailRow
-                  label={t('wallet.comment')}
-                  value={selectedTxNote || ''}
-                  onShowFull={setDetailPopover}
-                />
-              )}
-              {tx.failureReason && (tx.status === 'failed' || !!claimStatusLabel) && (
-                <DetailRow
-                  label={claimStatusLabel ? t('deposit.statusDetails') : t('wallet.failureReason')}
-                  value={tx.failureReason}
-                  fullValue={tx.failureReason}
-                  onShowFull={setDetailPopover}
-                />
-              )}
-              {tx.feeSats !== undefined && tx.feeSats > 0 && (
-                <DetailRow
-                  label={t('wallet.fee')}
-                  value={
-                    tx.asset === 'USDB'
-                      ? `${(tx.feeSats / 1e6).toFixed(6)} USDB`
-                      : `${tx.feeSats.toLocaleString()} ${t('wallet.sats')}`
-                  }
-                />
-              )}
-              {(tx.paymentType === 'conversion' || selectedSwapRow?.isSwap) && (
-                <DetailRow
-                  label={t('wallet.type')}
-                  value={
-                    selectedSwapRow?.swapDirection === 'USDB_TO_BTC'
-                      ? `${t('swap.history.label')} (${t('swap.history.usdbToBtc')})`
-                      : `${t('swap.history.label')} (${t('swap.history.btcToUsdb')})`
-                  }
-                />
-              )}
-              {selectedSwapRow?.isSwap && selectedSwapRow.btcSide && selectedSwapRow.usdbSide && (
-                selectedSwapRow.swapDirection === 'BTC_TO_USDB' ? (
-                  <>
-                    <DetailRow
-                      label={t('swap.youPay')}
-                      value={`${Number(selectedSwapRow.btcSide.amount || 0).toLocaleString()} sats`}
-                    />
-                    <DetailRow
-                      label={t('swap.youReceive')}
-                      value={`${(Number(selectedSwapRow.usdbSide.amount || 0) / 1e6).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 6,
-                      })} USDB`}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <DetailRow
-                      label={t('swap.youPay')}
-                      value={`${(Number(selectedSwapRow.usdbSide.amount || 0) / 1e6).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 6,
-                      })} USDB`}
-                    />
-                    <DetailRow
-                      label={t('swap.youReceive')}
-                      value={`${Number(selectedSwapRow.btcSide.amount || 0).toLocaleString()} sats`}
-                    />
-                  </>
-                )
-              )}
-              {tx.id && (
-                <DetailRow
-                  label={t('wallet.paymentId')}
-                  value={String(tx.id)}
-                  copyable
-                  fullValue={String(tx.id)}
-                  onShowFull={setDetailPopover}
-                />
-              )}
-              {tx.tokenIdentifier && (
-                <DetailRow
-                  label={t('wallet.token')}
-                  value={String(tx.tokenIdentifier)}
-                  copyable
-                  fullValue={String(tx.tokenIdentifier)}
-                  onShowFull={setDetailPopover}
-                />
-              )}
-              {method === 'onchain' && tx.txid && (
-                <>
-                  <DetailRow
-                    label="TXID"
-                    value={`${tx.txid.slice(0, 16)}...`}
-                    copyable
-                    fullValue={tx.txid}
-                    onShowFull={setDetailPopover}
-                  />
-                  <TouchableOpacity onPress={() => Linking.openURL(`https://mempool.space/tx/${tx.txid}`)}>
-                    <Text style={styles.mempoolLink}>{t('wallet.viewOnMempool')}</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-              {tx.paymentHash && (
-                <DetailRow
-                  label={t('wallet.paymentHash')}
-                  value={`${tx.paymentHash.slice(0, 16)}...`}
-                  copyable
-                  fullValue={tx.paymentHash}
-                  onShowFull={setDetailPopover}
-                />
-              )}
-            </View>
-
-            <View style={styles.diagnosticsActions}>
-              <Button
-                mode="outlined"
-                icon="content-copy"
-                loading={diagnosticsBusy}
-                disabled={diagnosticsBusy}
-                onPress={() => reconcileDiagnostics(true)}
-              >
-                Copy diagnostics
-              </Button>
-              {(tx.status === 'failed' || tx.status === 'pending') && (
-                <Button mode="text" disabled={diagnosticsBusy} onPress={() => reconcileDiagnostics(false)}>Refresh</Button>
-              )}
-            </View>
-
-            {/* Close Button */}
-            <Button
-              mode="outlined"
-              onPress={() => setSelectedTransaction(null)}
-              style={styles.closeModalButton}
-              labelStyle={[styles.closeModalButtonLabel, { color: primaryTextColor }]}
-            >
-              {t('common.close')}
-            </Button>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Full-text bubble. Tapping a truncated detail value floats this
-          above the tapped row, showing the complete text (selectable) with
-          a copy action. Tapping the backdrop dismisses it. Rendered as its
-          own transparent Modal so it overlays the detail sheet cleanly and
-          isn't clipped by the sheet's max height / scroll. */}
-      <Modal
-        visible={!!detailPopover}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setDetailPopover(null)}
-      >
-        <TouchableOpacity
-          style={styles.popoverBackdrop}
-          activeOpacity={1}
-          onPress={() => setDetailPopover(null)}
-        >
-          {detailPopover && (() => {
-            const screen = Dimensions.get('window');
-            const BUBBLE_MARGIN = 16;
-            const maxWidth = screen.width - BUBBLE_MARGIN * 2;
-            // Anchor horizontally to the tapped value but clamp on-screen.
-            let left = detailPopover.x + detailPopover.width - Math.min(maxWidth, 320);
-            if (left < BUBBLE_MARGIN) left = BUBBLE_MARGIN;
-            if (left + Math.min(maxWidth, 320) > screen.width - BUBBLE_MARGIN) {
-              left = screen.width - BUBBLE_MARGIN - Math.min(maxWidth, 320);
-            }
-            // Place the bubble just above the row; if too close to the top,
-            // flip below instead.
-            const flipBelow = detailPopover.y < 140;
-            const top = flipBelow ? detailPopover.y + 28 : undefined;
-            const bottom = flipBelow ? undefined : screen.height - detailPopover.y + 8;
-            return (
-              <TouchableOpacity
-                activeOpacity={1}
-                onPress={async () => {
-                  try {
-                    await Clipboard.setStringAsync(detailPopover.value);
-                    ToastAndroid && ToastAndroid.show?.(t('common.copied'), ToastAndroid.SHORT);
-                  } catch {
-                    // Copy feedback is optional; the detail remains visible.
-                  }
-                }}
-                style={[
-                  styles.popoverBubble,
-                  { left, maxWidth: Math.min(maxWidth, 320), top, bottom },
-                ]}
-              >
-                <Text style={styles.popoverLabel}>{detailPopover.label}</Text>
-                <Text style={styles.popoverValue} selectable>
-                  {detailPopover.value}
-                </Text>
-                <Text style={styles.popoverHint}>{t('wallet.tapToCopy')}</Text>
-              </TouchableOpacity>
-            );
-          })()}
-        </TouchableOpacity>
-      </Modal>
-      </>
-    );
-  };
 
   return (
     <LinearGradient
@@ -705,86 +319,6 @@ export function TransactionHistoryScreen(): React.JSX.Element {
         />
       </SafeAreaView>
     </LinearGradient>
-  );
-}
-
-// =============================================================================
-// Detail Row Component
-// =============================================================================
-
-type DetailPopover = { label: string; value: string; x: number; y: number; width: number };
-
-interface DetailRowProps {
-  label: string;
-  value: string;
-  copyable?: boolean;
-  fullValue?: string;
-  /** When provided, tapping the (possibly truncated) value floats a
-   *  bubble showing the full text just above the row. */
-  onShowFull?: (popover: DetailPopover) => void;
-}
-
-function DetailRow({ label, value, copyable, fullValue, onShowFull }: DetailRowProps): React.JSX.Element {
-  const { t } = useLanguage();
-  const { themeMode } = useAppTheme();
-  const primaryTextColor = getPrimaryTextColor(themeMode);
-  const secondaryTextColor = getSecondaryTextColor(themeMode);
-  const iconColor = getIconColor(themeMode);
-  const valueRef = useRef<View | null>(null);
-
-  const handleCopy = async (): Promise<void> => {
-    try {
-      await Clipboard.setStringAsync(fullValue || value);
-      ToastAndroid && ToastAndroid.show?.(t('common.copied'), ToastAndroid.SHORT);
-    } catch {
-      // Copy feedback is optional; the detail remains visible.
-    }
-  };
-
-  // Tapping the value measures the row's on-screen rect and asks the parent
-  // to float a full-text bubble above it. Falls back to copy if no
-  // onShowFull handler is wired (preserves prior copyable-row behaviour).
-  const handleValuePress = (): void => {
-    if (!onShowFull) {
-      if (copyable) void handleCopy();
-      return;
-    }
-    const node = valueRef.current;
-    if (!node || typeof node.measureInWindow !== 'function') return;
-    node.measureInWindow((x, y, width) => {
-      onShowFull({ label, value: fullValue || value, x, y, width });
-    });
-  };
-
-  return (
-    <View style={styles.detailRow}>
-      <Text style={[styles.detailLabel, { color: secondaryTextColor }]}>{label}</Text>
-      <View style={styles.detailValueContainer}>
-        <TouchableOpacity
-          ref={valueRef}
-          style={styles.detailValueTouch}
-          onPress={handleValuePress}
-          activeOpacity={0.6}
-        >
-          <Text
-            style={[styles.detailValue, { color: primaryTextColor }]}
-            numberOfLines={1}
-            ellipsizeMode="middle"
-          >
-            {value}
-          </Text>
-        </TouchableOpacity>
-        {copyable && (
-          <IconButton
-            icon="content-copy"
-            iconColor={iconColor}
-            size={16}
-            onPress={handleCopy}
-            style={styles.copyButton}
-          />
-        )}
-      </View>
-    </View>
   );
 }
 
