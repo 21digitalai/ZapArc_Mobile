@@ -684,7 +684,7 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         setIsLoading(false);
       }
     },
-    [currentMasterKeyId, isUnlocked]
+    [biometricEnabled, currentMasterKeyId, isUnlocked]
   );
 
   // ========================================
