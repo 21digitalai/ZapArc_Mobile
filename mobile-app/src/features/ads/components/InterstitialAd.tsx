@@ -24,7 +24,6 @@ export const InterstitialAd: React.FC<InterstitialAdProps> = ({
   visible,
   onClose,
   onAdLoaded,
-  onAdError,
 }) => {
   const { isLoading, adConfig, error, shouldShow, trackImpression, trackClick, trackClose } = useAdManager(AdType.INTERSTITIAL);
   const [showCloseButton, setShowCloseButton] = useState(false);
@@ -53,13 +52,12 @@ export const InterstitialAd: React.FC<InterstitialAdProps> = ({
       onAdLoaded?.();
     } else if (error && visible) {
       console.log('InterstitialAd: Ad loading failed:', error);
-      onAdError?.(error);
       onClose();
     } else if (!shouldShow && !isLoading && visible) {
       console.log('InterstitialAd: User should not see ads (premium user)');
       onClose();
     }
-  }, [adConfig, shouldShow, visible, error, isLoading, hasTrackedImpression, onAdLoaded, onAdError, onClose, trackImpression]);
+  }, [adConfig, shouldShow, visible, error, isLoading, hasTrackedImpression, onAdLoaded, onClose, trackImpression]);
 
   // Reset state when modal closes
   useEffect(() => {
