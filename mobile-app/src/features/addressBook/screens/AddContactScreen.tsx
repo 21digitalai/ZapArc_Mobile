@@ -8,7 +8,6 @@ import {
   StyleSheet,
   View,
   ScrollView,
-  Platform,
   BackHandler,
 } from 'react-native';
 import {
@@ -70,7 +69,7 @@ export function AddContactScreen(): React.JSX.Element {
   const [name, setName] = useState(prefillName);
   const [lightningAddress, setLightningAddress] = useState(prefillAddress);
   const [sparkAddress, setSparkAddress] = useState('');
-  const [preferredAsset, setPreferredAsset] = useState<'BTC' | 'USDB'>('BTC');
+  const [preferredAsset] = useState<'BTC' | 'USDB'>('BTC');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);

@@ -8,7 +8,6 @@ import {
   StyleSheet,
   View,
   ScrollView,
-  Platform,
   BackHandler,
 } from 'react-native';
 import {
@@ -199,7 +198,7 @@ export function EditContactScreen(): React.JSX.Element {
     try {
       await deleteContact(contact.id);
       safeBack();
-    } catch (err) {
+    } catch {
       showError('Failed to delete contact. Please try again.');
     } finally {
       setDeleting(false);

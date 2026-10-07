@@ -40,7 +40,7 @@ export function EmailVerificationScreen(): React.JSX.Element {
 
       // Start cooldown
       setResendCooldown(60);
-    } catch (error) {
+    } catch {
       Alert.alert(
         'Failed to Send Email',
         'Please try again later or contact support if the problem persists.'
@@ -82,7 +82,7 @@ export function EmailVerificationScreen(): React.JSX.Element {
           'Your email is not verified yet. Please check your inbox and click the verification link.'
         );
       }
-    } catch (error) {
+    } catch {
       Alert.alert(
         'Verification Check Failed',
         'Unable to check verification status. Please try again.'

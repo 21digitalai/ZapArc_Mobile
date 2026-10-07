@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Pressable, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
 import { useAdManager } from '../hooks';
 import { AdType } from '../types';
 import { COLORS, SPACING } from '../../../utils/constants';
@@ -68,8 +68,6 @@ export const BannerAd: React.FC<BannerAdProps> = ({
     </View>
   );
 };
-
-const { width } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   container: {
