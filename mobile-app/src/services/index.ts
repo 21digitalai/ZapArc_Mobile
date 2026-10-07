@@ -23,6 +23,7 @@ export {
   initializeSDK,
   disconnectSDK,
   isSDKInitialized,
+  getConnectedWalletIdentity,
   getBalance,
   prepareSendPayment,
   sendPayment,

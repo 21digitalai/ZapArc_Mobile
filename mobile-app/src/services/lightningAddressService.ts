@@ -9,6 +9,7 @@ import {
   getLightningAddress,
   unregisterLightningAddress,
   isSDKInitialized,
+  getConnectedWalletIdentity,
 } from './breezSparkService';
 import { storageService } from './storageService';
 
@@ -26,6 +27,12 @@ export interface LightningAddressWalletIdentity {
 
 function getStorageKey(identity: LightningAddressWalletIdentity): string {
   return `${STORAGE_KEY_PREFIX}${identity.masterKeyId}:${identity.subWalletIndex}`;
+}
+
+function isConnectedToIdentity(identity: LightningAddressWalletIdentity): boolean {
+  const connected = getConnectedWalletIdentity();
+  return connected?.masterKeyId === identity.masterKeyId
+    && connected.subWalletIndex === identity.subWalletIndex;
 }
 
 async function resolveWalletIdentity(
@@ -261,7 +268,7 @@ export async function getAddress(
   if (!resolved) return { success: true, data: null };
 
   // If SDK is available, use it as source of truth
-  if (isSDKInitialized()) {
+  if (isSDKInitialized() && isConnectedToIdentity(resolved)) {
     try {
       const sdkAddress = await getLightningAddress();
 
@@ -277,6 +284,8 @@ export async function getAddress(
     } catch (error) {
       console.warn('⚠️ [LightningAddressService] SDK fetch failed, trying cache:', error);
     }
+  } else if (isSDKInitialized()) {
+    console.warn('⚠️ [LightningAddressService] SDK identity differs from selected wallet; preserving scoped cache');
   }
 
   // Fall back to cache (offline mode)

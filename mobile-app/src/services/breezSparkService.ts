@@ -706,6 +706,7 @@ function readInvoiceExpiry(value: unknown): { timestamp?: number; expiry?: numbe
 
 let sdkInstance: BreezSparkSdk.BreezSdkInterface | null = null;
 let _isInitialized = false;
+let connectedWalletIdentity: { masterKeyId: string; subWalletIndex: number } | null = null;
 let cachedResolvedSwapTokens: ResolvedSwapToken[] | null = null;
 const DIAGNOSTICS_APP_METADATA = {
   name: 'ZapArc Mobile',
@@ -1478,6 +1479,15 @@ export function isSDKInitialized(): boolean {
 }
 
 /**
+ * Returns the wallet identity supplied for the currently connected SDK.
+ * Consumers use this only to avoid treating a stale SDK response as the
+ * selected wallet's state.
+ */
+export function getConnectedWalletIdentity(): { masterKeyId: string; subWalletIndex: number } | null {
+  return connectedWalletIdentity;
+}
+
+/**
  * DEVTOOLS ONLY: expose the connected raw SDK instance for local diagnostics.
  * Never use this in production application flows.
  */
@@ -1588,6 +1598,9 @@ export async function initializeSDK(
     });
 
     _isInitialized = true;
+    connectedWalletIdentity = walletIdentity
+      ? { masterKeyId: walletIdentity.masterKeyId, subWalletIndex: walletIdentity.subWalletIndex }
+      : null;
 
     // Setup event listeners for real-time payment notifications
     try {
@@ -1762,6 +1775,7 @@ export async function initializeSDK(
 
     _isInitialized = false;
     sdkInstance = null;
+    connectedWalletIdentity = null;
     return false;
   }
 }
@@ -1781,6 +1795,10 @@ export async function disconnectSDK(): Promise<void> {
 
   if (!_isNativeAvailable) return;
 
+  // A caller may have already selected another wallet in storage. Clear this
+  // marker before async teardown so no stale SDK response can be attributed to it.
+  connectedWalletIdentity = null;
+
   _disconnectPromise = (async () => {
     try {
       // Unsubscribe from events
@@ -1798,6 +1816,7 @@ export async function disconnectSDK(): Promise<void> {
         await sdkInstance.disconnect();
         sdkInstance = null;
         _isInitialized = false;
+        connectedWalletIdentity = null;
         cachedResolvedSwapTokens = null;
         console.log('✅ [BreezSparkService] Breez SDK disconnected');
       }
@@ -1817,6 +1836,7 @@ export async function disconnectSDK(): Promise<void> {
 export function beginDisconnectSDK(): void {
   if (!_isNativeAvailable || !sdkInstance) return;
   _isInitialized = false; // Mark as disconnected immediately
+  connectedWalletIdentity = null;
   disconnectSDK(); // Fire and forget — sets _disconnectPromise
 }
 
@@ -3888,6 +3908,7 @@ export const BreezSparkService = {
   disconnectSDK,
   beginDisconnectSDK,
   isSDKInitialized,
+  getConnectedWalletIdentity,
   getRawSdkInstanceForDevtools,
   resolveSwapTokens,
   getTokenBalances,
