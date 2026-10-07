@@ -5,7 +5,7 @@ jest.mock('react-native', () => ({
   Platform: { OS: 'android' },
 }));
 
-import { QR_GALLERY_ALBUM_NAME, QR_PNG_MIME_TYPE, saveQrToAndroidGallery } from '../saveQrToDevice';
+import { QR_PNG_MIME_TYPE, saveQrToAndroidGallery } from '../saveQrToDevice';
 
 const mediaStore = jest.requireMock('react-native').NativeModules.ZapArcMediaStore;
 

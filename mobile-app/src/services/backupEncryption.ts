@@ -75,10 +75,6 @@ const BACKUP_VERSION = 3;
 // Helpers
 // =============================================================================
 
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString('base64');
-}
-
 function base64ToUint8Array(base64: string): Uint8Array {
   return new Uint8Array(Buffer.from(base64, 'base64'));
 }
@@ -164,7 +160,8 @@ export function validatePasswordStrength(password: string): PasswordStrength {
     score++;
   }
 
-  if (/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+  const specialCharacters = new Set('!@#$%^&*()_+-=[]{};\':"\\|,.<>/?');
+  if ([...password].some((character) => specialCharacters.has(character))) {
     score++;
   }
 

@@ -154,13 +154,18 @@ const LOG_REDACTIONS: Array<[RegExp, string]> = [
 const SECRET_LOG_REDACTIONS: Array<[RegExp, string]> = [
   [/\b(seed|mnemonic|private_?key|preimage|proof)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted:secret]'],
   [/\b(authorization|auth(?:entication)?|bearer|api_?key|access_?token|refresh_?token|secret)\s*[:=]\s*(?:bearer\s+)?[^\s,;]+/gi, '$1=[redacted:credential]'],
-  [/\b(?:bearer\s+)[A-Za-z0-9._~+\/-]+=*/gi, 'Bearer [redacted:credential]'],
+  [/\b(?:bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [redacted:credential]'],
 ];
+
+const CONTROL_CHARACTERS = new RegExp(
+  `[${String.fromCharCode(0)}-${String.fromCharCode(31)}${String.fromCharCode(127)}]`,
+  'g'
+);
 
 /** Preserve SDK context while irreversibly removing material that can control funds or accounts. */
 export function redactSdkLogSecrets(value: unknown): { message?: string; redacted: boolean } {
   if (typeof value !== 'string') return { redacted: false };
-  const original = value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const original = value.replace(CONTROL_CHARACTERS, ' ').replace(/\s+/g, ' ').trim();
   if (!original) return { redacted: false };
   let message = original;
   for (const [pattern, replacement] of SECRET_LOG_REDACTIONS) message = message.replace(pattern, replacement);
@@ -187,7 +192,7 @@ function fingerprintLogLine(value: string): string {
 /** Redact identifiers and secret-bearing values before retaining SDK text. */
 export function sanitizeSdkLogMessage(value: unknown): { message?: string; fingerprint?: string; redacted: boolean; code?: string; kind?: string } {
   if (typeof value !== 'string') return { redacted: false };
-  const original = value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const original = value.replace(CONTROL_CHARACTERS, ' ').replace(/\s+/g, ' ').trim();
   if (!original) return { redacted: false };
   let message = original;
   for (const [pattern, replacement] of LOG_REDACTIONS) message = message.replace(pattern, replacement);

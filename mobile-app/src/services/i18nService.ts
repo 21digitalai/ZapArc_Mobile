@@ -2,7 +2,6 @@
 // Handles translations for English and Bulgarian
 
 import { settingsService } from './settingsService';
-import { locationService } from './locationService';
 
 // =============================================================================
 // Types

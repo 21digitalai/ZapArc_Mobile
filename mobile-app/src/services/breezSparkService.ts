@@ -2598,8 +2598,6 @@ export async function listPayments(): Promise<TransactionInfo[]> {
     // Helper: extract a normalized numeric amount + asset classification
     // for a single payment leg. Used both for the solo-payment path and
     // for swap-pair construction.
-    const toBig = (v: unknown): bigint =>
-      typeof v === 'bigint' ? v : BigInt(String(v ?? '0'));
     const isTokenLeg = (payment: BreezSparkSdk.Payment): boolean =>
       payment.method === BreezSDK.PaymentMethod.Token
       || payment.details?.tag === BreezSDK.PaymentDetails_Tags.Token;
@@ -3397,7 +3395,6 @@ export async function parsePaymentRequest(input: string): Promise<{
     }
 
     if (parsed.tag === 'SparkAddress') {
-      const innerData = unwrapParsedInner(parsed.inner);
       return {
         type: 'sparkAddress',
         isValid: true,

@@ -1691,7 +1691,7 @@ class StorageService {
         }
 
         return legacyPin;
-      } catch (migrationError) {
+      } catch {
         // Both reads threw → most likely user cancelled biometric prompt.
         // Use warn (not error) so we don't trigger RedBox in dev. Re-throw
         // the ORIGINAL authError so the caller's cancel-handling path kicks in

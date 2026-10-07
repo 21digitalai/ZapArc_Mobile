@@ -13,14 +13,11 @@ import {
   validatePayloadIntegrity,
 } from '../utils/crypto.utils';
 import type {
-  EncryptedData,
   MultiWalletStorage,
   MasterKeyEntry,
   MasterKeyMetadata,
   SubWalletEntry,
-  WalletData,
   ActiveWalletInfo,
-  WALLET_CONSTANTS,
 } from '../types';
 import type {
   UserSettings,
@@ -40,9 +37,6 @@ const STORAGE_KEYS = {
   BLACKLIST_DATA: 'blacklistData',
   SELECTED_WALLET_FOR_UNLOCK: 'selectedWalletForUnlock',
 } as const;
-
-// Use SecureStore for sensitive data, AsyncStorage for non-sensitive
-const SECURE_KEYS = [STORAGE_KEYS.MULTI_WALLET_DATA];
 
 /**
  * StorageService class - manages wallet and settings persistence

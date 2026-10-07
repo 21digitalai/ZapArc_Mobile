@@ -5,7 +5,6 @@
 import {
   GoogleSignin,
   statusCodes,
-  type User,
 } from '@react-native-google-signin/google-signin';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
@@ -17,7 +16,6 @@ import {
   decryptStringBlob,
   validateBackupStructure,
   isEncryptionAvailable,
-  type EncryptedBackup,
 } from './backupEncryption';
 import type { Contact } from '../features/addressBook/types';
 import { sanitizeImportedContact } from '../features/addressBook/services/contactService';
@@ -167,7 +165,7 @@ class GoogleDriveBackupService {
       }
       await GoogleSignin.signInSilently();
       console.log('✅ [GoogleDrive] Restored Google session silently');
-    } catch (error) {
+    } catch {
       // "No saved credentials" (SIGN_IN_REQUIRED / noSavedCredentialFound) is
       // expected when the user has never connected — not an error.
       console.log('ℹ️ [GoogleDrive] No Google session to restore silently');
@@ -229,8 +227,6 @@ class GoogleDriveBackupService {
 
       if (userInfo.data?.user) {
         // Request additional scopes for Drive access
-        const hasScopes = await GoogleSignin.hasPlayServices();
-        
         // Try to add scopes if needed (for Drive API access)
         try {
           await GoogleSignin.addScopes({ scopes: SCOPES });
