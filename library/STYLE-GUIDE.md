@@ -181,3 +181,4 @@
 `src/features/wallet/screens/settings/GoogleDriveBackupScreen.tsx`
 - A wallet card has one full-width primary action: `Back Up Now` when it has no backup, otherwise `Manage Backup`. Keep backup status as stacked, localized text so dates and longer translations wrap safely on narrow devices.
 - Manage Backup uses the existing bottom-sheet modal and presents vertically stacked action/explanation pairs. Use `Restore Contacts` for the merge-only cloud-to-phone operation; never call it Sync Contacts. The destructive delete action stays last.
+- Keep Local Backup separate from Google Drive controls. Its paired `Save Encrypted Backup` and `Load from File` actions live in the same Local Backup section with matching outlined rows, so the portable encrypted-file workflow is discoverable together.

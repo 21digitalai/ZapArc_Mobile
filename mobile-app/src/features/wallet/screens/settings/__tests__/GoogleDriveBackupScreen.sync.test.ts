@@ -214,6 +214,15 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     await waitFor(() => expect(screen.getByText('cloudBackup.enterBackupPassword')).toBeTruthy());
   });
 
+  it('keeps save and load actions together in the Local Backup section', async () => {
+    render(React.createElement(GoogleDriveBackupScreen));
+
+    await waitFor(() => expect(screen.getByText('Local Backup')).toBeTruthy());
+    expect(screen.getByText('Save Encrypted Backup')).toBeTruthy();
+    expect(screen.getByText('Load from File')).toBeTruthy();
+    expect(screen.queryByText('Restore from File')).toBeNull();
+  });
+
   it('exports the active wallet as an encrypted temporary file without Google auth', async () => {
     const fileSystem = require('expo-file-system');
     const sharing = require('expo-sharing');
@@ -250,8 +259,8 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     documentPicker.getDocumentAsync.mockResolvedValue({ canceled: true, assets: [] });
 
     render(React.createElement(GoogleDriveBackupScreen));
-    await waitFor(() => expect(screen.getByText('Choose Backup File')).toBeTruthy());
-    fireEvent.press(screen.getByText('Choose Backup File'));
+    await waitFor(() => expect(screen.getByText('Load from File')).toBeTruthy());
+    fireEvent.press(screen.getByText('Load from File'));
 
     await waitFor(() => expect(documentPicker.getDocumentAsync).toHaveBeenCalled());
     expect(fileSystem.readAsStringAsync).not.toHaveBeenCalled();
@@ -267,10 +276,26 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     });
 
     render(React.createElement(GoogleDriveBackupScreen));
-    await waitFor(() => expect(screen.getByText('Choose Backup File')).toBeTruthy());
-    fireEvent.press(screen.getByText('Choose Backup File'));
+    await waitFor(() => expect(screen.getByText('Load from File')).toBeTruthy());
+    fireEvent.press(screen.getByText('Load from File'));
 
     await waitFor(() => expect(documentPicker.getDocumentAsync).toHaveBeenCalled());
     expect(fileSystem.readAsStringAsync).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed local files and read failures before opening restore', async () => {
+    const documentPicker = require('expo-document-picker');
+    const fileSystem = require('expo-file-system');
+    documentPicker.getDocumentAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///backup.json', name: 'backup.json', size: 128 }],
+    });
+    fileSystem.readAsStringAsync.mockResolvedValue('{not-json');
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Load from File')).toBeTruthy());
+    fireEvent.press(screen.getByText('Load from File'));
+    await waitFor(() => expect(fileSystem.readAsStringAsync).toHaveBeenCalled());
+    expect(screen.queryByText('cloudBackup.enterBackupPassword')).toBeNull();
   });
 });

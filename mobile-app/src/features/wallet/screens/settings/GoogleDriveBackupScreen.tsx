@@ -805,8 +805,14 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
 
   // File-based restore flow state
   const [fileBackupData, setFileBackupData] = useState<unknown>(null);
+  // Native document pickers can emit more than one press before React has
+  // rendered the disabled state. Keep a synchronous lock so a second picker
+  // or restore cannot race the first and mutate restore state.
+  const localFileOperationInFlight = useRef(false);
 
   const handleRestoreFromFile = async (): Promise<void> => {
+    if (localFileOperationInFlight.current || isProcessing) return;
+    localFileOperationInFlight.current = true;
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: 'application/json',
@@ -854,12 +860,15 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     } catch (error) {
       console.error('❌ [RestoreFromFile] Failed:', error);
       Alert.alert(t('common.error'), 'Failed to read backup file.');
+    } finally {
+      localFileOperationInFlight.current = false;
     }
   };
 
   const handleConfirmFileRestore = async (): Promise<void> => {
-    if (!fileBackupData) return;
+    if (!fileBackupData || localFileOperationInFlight.current || isProcessing) return;
 
+    localFileOperationInFlight.current = true;
     setIsProcessing(true);
     try {
       const mnemonic = await decryptMnemonic(fileBackupData as any, password);
@@ -904,6 +913,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
       );
     } finally {
       setIsProcessing(false);
+      localFileOperationInFlight.current = false;
     }
   };
 
@@ -1439,6 +1449,19 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
               >
                 Save Encrypted Backup
               </Button>
+              <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>
+                Load an encrypted backup file saved on your device.
+              </Text>
+              <Button
+                mode="outlined"
+                onPress={handleRestoreFromFile}
+                icon="file-upload"
+                disabled={isProcessing}
+                style={[styles.actionButton, { borderColor: BRAND_COLOR }]}
+                textColor={BRAND_COLOR}
+              >
+                Load from File
+              </Button>
             </View>
 
             {/* Your Wallets */}
@@ -1570,25 +1593,6 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                 })()}
               </>
             )}
-
-            {/* Restore from File */}
-            <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: primaryText }]}>
-                Restore from File
-              </Text>
-              <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>
-                Restore a wallet from a backup file saved on your device
-              </Text>
-              <Button
-                mode="outlined"
-                onPress={handleRestoreFromFile}
-                icon="file-upload"
-                style={[styles.actionButton, { borderColor: BRAND_COLOR }]}
-                textColor={BRAND_COLOR}
-              >
-                Choose Backup File
-              </Button>
-            </View>
 
             {/* Security Tips */}
             <View style={styles.tipsSection}>
