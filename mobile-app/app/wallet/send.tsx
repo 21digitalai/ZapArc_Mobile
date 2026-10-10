@@ -23,7 +23,7 @@ import {
 } from '../../src/services/breezSparkService';
 import { SWAP_FEATURE_ENABLED, MULTI_ASSET_UI_ENABLED } from '../../src/config/features';
 import { useCurrency } from '../../src/hooks/useCurrency';
-import { formatFiat, satsToFiat, fiatToUsdb } from '../../src/utils/currency';
+import { formatFiat, getBtcSpotPrice, satsToFiat, fiatToUsdb } from '../../src/utils/currency';
 import { cycleDisplayCurrency, type DisplayCurrency } from '../../src/services/displayCurrencyService';
 import { useLightningAddress } from '../../src/hooks/useLightningAddress';
 import { useKeyboardAwareScroll } from '../../src/hooks/useKeyboardAwareScroll';
@@ -416,6 +416,10 @@ export default function SendScreen() {
   const spendableBalance = isUsdbAsset
     ? convertUsdbDisplayToBaseUnits(usdbBalance)
     : balance;
+  const sendSpotPrice = useMemo(
+    () => getBtcSpotPrice(effectiveInputCurrency, secondaryFiatCurrency, rates, isLoadingRates),
+    [effectiveInputCurrency, secondaryFiatCurrency, rates, isLoadingRates],
+  );
 
   const inputBalanceSummary = useMemo(() => {
     const paymentAmount = isUsdbAsset
@@ -1449,38 +1453,42 @@ export default function SendScreen() {
     </View>
   ) : null;
 
-  const renderAvailableBalance = (summary: { paymentAmount: number; knownFee: number | null; total: number | null; remaining: number | null; isSufficient: boolean | null } | null) => {
+  const renderAvailableBalance = () => {
     const formatValue = (value: number) => isUsdbAsset
       ? `${formatUsdbFromBaseUnits(value)} USDB`
       : `${value.toLocaleString()} sats`;
     const visibilityLabel = isBalanceVisible ? 'Hide balance values' : 'Show balance values';
     const hidden = '••••••';
     const displayed = (value: number) => isBalanceVisible ? formatValue(value) : hidden;
-    const sufficient = summary?.isSufficient;
-    const projectedValue = summary && typeof summary.remaining === 'number'
-      ? Math.abs(summary.remaining)
-      : null;
-    const projectedFiat = projectedValue === null ? null : formatPreviewFiat(projectedValue);
-
     return (
-      <View testID="send-available-balance" style={[styles.balanceContainer, sufficient === false && styles.balanceContainerInsufficient]} accessibilityLiveRegion="polite">
+      <View testID="send-available-balance" style={styles.balanceContainer} accessibilityLiveRegion="polite">
         <View style={styles.balanceHeader}>
           <Text style={[styles.balanceLabel, { color: secondaryTextColor }]}>{t('send.availableBalance')}</Text>
           <IconButton icon={isBalanceVisible ? 'eye-off' : 'eye'} size={20} iconColor={secondaryTextColor} onPress={() => setIsBalanceVisible((visible) => !visible)} accessibilityLabel={visibilityLabel} testID="toggle-send-balance-privacy" />
         </View>
         <Text style={styles.balanceAmount}>{displayed(spendableBalance)}</Text>
-        {summary && projectedValue !== null && (
-          <View testID="send-balance-projection" style={styles.balanceProjection}>
-            <Text style={[styles.balanceProjectionLabel, { color: secondaryTextColor }]}>{sufficient === false ? 'Short by' : 'Remaining after send'}</Text>
-            <View style={styles.balanceProjectionValueStack}>
-              <Text style={[styles.balanceProjectionValue, { color: sufficient === false ? '#ff8a80' : BRAND_COLOR }]}>{displayed(projectedValue)}</Text>
-              {projectedFiat && <Text style={[styles.balanceProjectionFiat, { color: sufficient === false ? '#ff8a80' : secondaryTextColor }]}>{isBalanceVisible ? projectedFiat : hidden}</Text>}
-            </View>
-            <Text testID="send-balance-projection-status" style={[styles.balanceProjectionStatus, { color: sufficient === false ? '#ff8a80' : secondaryTextColor }]}>
-              {sufficient === false ? 'Insufficient balance' : summary.knownFee === null ? 'Before fees — not final' : 'Enough balance to send'}
-            </Text>
-          </View>
-        )}
+      </View>
+    );
+  };
+
+  const renderBalanceSummary = (summary: { paymentAmount: number; knownFee: number | null; total: number | null; remaining: number | null; isSufficient: boolean | null } | null) => {
+    if (!summary) return null;
+    const formatValue = (value: number) => isUsdbAsset ? `${formatUsdbFromBaseUnits(value)} USDB` : `${value.toLocaleString()} sats`;
+    const displayed = (value: number) => isBalanceVisible ? formatValue(value) : '••••••';
+    const sufficient = summary.isSufficient;
+    const requiredAmount = summary.total === null ? summary.paymentAmount : summary.total;
+    const outcome = Math.abs(summary.remaining ?? 0);
+    const paymentFiat = formatPreviewFiat(summary.paymentAmount);
+    const outcomeFiat = formatPreviewFiat(outcome);
+    return (
+      <View testID="send-balance-summary-input" style={[styles.balanceSummary, sufficient === false && styles.balanceSummaryInsufficient]} accessibilityLiveRegion="polite">
+        <Text style={[styles.balanceSummaryTitle, { color: primaryTextColor }]}>Payment estimate</Text>
+        <View style={styles.balanceSummaryRow}><Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Payment</Text><View style={styles.balanceSummaryValueStack}><Text style={[styles.balanceSummaryValue, { color: primaryTextColor }]}>{displayed(summary.paymentAmount)}</Text>{paymentFiat && <Text style={[styles.balanceSummaryFiat, { color: secondaryTextColor }]}>{isBalanceVisible ? paymentFiat : '••••••'}</Text>}</View></View>
+        <View style={styles.balanceSummaryRow}><Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Fees</Text><Text style={[styles.balanceSummaryValue, { color: secondaryTextColor }]}>{summary.knownFee === null ? 'Calculated at preview' : displayed(summary.knownFee)}</Text></View>
+        {typeof summary.total === 'number' && <View style={styles.balanceSummaryRow}><Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Total</Text><Text style={[styles.balanceSummaryValue, { color: primaryTextColor }]}>{displayed(summary.total)}</Text></View>}
+        {sendSpotPrice && <Text style={[styles.balanceSummarySpotPrice, { color: secondaryTextColor }]}>{isBalanceVisible ? sendSpotPrice : '••••••'}</Text>}
+        <View style={styles.balanceSummaryRow}><Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>{sufficient === false ? 'Short by' : 'Remaining after send'}</Text><View style={styles.balanceSummaryValueStack}><Text style={[styles.balanceSummaryValue, { color: sufficient === false ? '#ff8a80' : BRAND_COLOR }]}>{displayed(outcome)}</Text>{outcomeFiat && <Text style={[styles.balanceSummaryFiat, { color: sufficient === false ? '#ff8a80' : secondaryTextColor }]}>{isBalanceVisible ? outcomeFiat : '••••••'}</Text>}</View></View>
+        <Text testID="send-balance-summary-status" style={[styles.balanceSummaryStatus, { color: sufficient === false ? '#ff8a80' : secondaryTextColor }]}>{sufficient === false ? 'Insufficient balance' : summary.total === null ? 'Before fees — not final' : 'Enough balance to send'}</Text>
       </View>
     );
   };
@@ -1785,7 +1793,7 @@ export default function SendScreen() {
           scrollEventThrottle={16}
           onScroll={onFormScroll}
         >
-          {renderAvailableBalance(inputBalanceSummary)}
+          {renderAvailableBalance()}
 
           {!isLightningTab && (
             <View style={styles.onchainInfoCard}>
@@ -2042,6 +2050,8 @@ export default function SendScreen() {
 
           {paymentErrorBanner}
 
+          {renderBalanceSummary(inputBalanceSummary)}
+
           <Button
             mode="contained"
             onPress={handlePreviewPayment}
@@ -2223,6 +2233,26 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: BRAND_COLOR,
   },
+  balanceSummary: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 193, 7, 0.35)',
+    backgroundColor: 'rgba(255, 193, 7, 0.08)',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  balanceSummaryInsufficient: {
+    borderColor: 'rgba(255, 138, 128, 0.65)',
+    backgroundColor: 'rgba(244, 67, 54, 0.1)',
+  },
+  balanceSummaryTitle: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
+  balanceSummaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
+  balanceSummaryLabel: { fontSize: 13 },
+  balanceSummaryValue: { fontSize: 14, fontWeight: '600', textAlign: 'right' },
+  balanceSummaryValueStack: { alignItems: 'flex-end' },
+  balanceSummaryFiat: { marginTop: 2, fontSize: 12 },
+  balanceSummaryStatus: { marginTop: 6, fontSize: 13, fontWeight: '700' },
+  balanceSummarySpotPrice: { marginTop: 2, fontSize: 12, textAlign: 'right' },
   balanceProjection: {
     width: '100%',
     borderTopWidth: 1,

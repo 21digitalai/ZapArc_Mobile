@@ -252,22 +252,22 @@ describe('SendScreen on-chain flow', () => {
     cleanup();
   });
 
-  it('shows the authoritative current balance and amount-only projection at the top of Send', () => {
+  it('keeps current balance at the top and shows the amount-only estimate above Preview Payment', () => {
     renderScreen();
     fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
 
     expect(screen.getByTestId('send-available-balance')).toBeTruthy();
-    expect(screen.getByTestId('send-balance-projection')).toBeTruthy();
+    expect(screen.getByTestId('send-balance-summary-input')).toBeTruthy();
     expect(screen.getByText('499,000 sats')).toBeTruthy();
     expect(screen.getByText('Before fees — not final')).toBeTruthy();
   });
 
-  it('uses the existing top balance card without a separate input estimate card', () => {
+  it('keeps the top balance card separate from one input estimate card', () => {
     renderScreen();
     fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
 
     expect(screen.getAllByTestId('send-available-balance')).toHaveLength(1);
-    expect(screen.queryByTestId('send-balance-summary-input')).toBeNull();
+    expect(screen.getAllByTestId('send-balance-summary-input')).toHaveLength(1);
     expect(screen.getByText('500,000 sats')).toBeTruthy();
   });
 
@@ -287,7 +287,7 @@ describe('SendScreen on-chain flow', () => {
     renderScreen();
     fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
 
-    expect(screen.getByTestId('send-balance-projection')).toBeTruthy();
+    expect(screen.getByTestId('send-balance-summary-input')).toBeTruthy();
     expect(screen.getByText('Remaining after send')).toBeTruthy();
     expect(screen.getByText('Before fees — not final')).toBeTruthy();
   });
@@ -296,7 +296,7 @@ describe('SendScreen on-chain flow', () => {
     renderScreen();
     fireEvent.changeText(screen.getByTestId('amount-input'), '500001');
 
-    expect(screen.getByTestId('send-balance-projection-status')).toHaveTextContent('Insufficient balance');
+    expect(screen.getByTestId('send-balance-summary-status')).toHaveTextContent('Insufficient balance');
     expect(screen.getByText('Short by')).toBeTruthy();
     expect(screen.getAllByText('1 sats').length).toBeGreaterThan(0);
     fireEvent.press(screen.getByTestId('preview-payment-button'));
@@ -362,25 +362,25 @@ describe('SendScreen on-chain flow', () => {
     expect(screen.queryByText('≈ $500.00')).toBeNull();
   });
 
-  it('keeps the top balance projection when the Send currency picker switches to EUR', () => {
+  it('keeps the lower balance estimate when the Send currency picker switches to EUR', () => {
     renderScreen();
     fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
     fireEvent.press(screen.getByText('sats'));
     fireEvent.press(screen.getByLabelText('Select eur'));
 
-    expect(screen.getByTestId('send-balance-projection')).toBeTruthy();
+    expect(screen.getByTestId('send-balance-summary-input')).toBeTruthy();
     expect(screen.getByText('499,000 sats')).toBeTruthy();
   });
 
-  it('does not render the removed standalone conversion or estimate card', () => {
+  it('renders the approved standalone conversion and estimate card', () => {
     renderScreen();
     fireEvent.changeText(screen.getByTestId('amount-input'), '2500');
 
-    expect(screen.queryByText('1 BTC ≈ $100,000')).toBeNull();
-    expect(screen.queryByTestId('send-balance-summary-input')).toBeNull();
+    expect(screen.getByText('1 BTC ≈ $100,000')).toBeTruthy();
+    expect(screen.getByTestId('send-balance-summary-input')).toBeTruthy();
   });
 
-  it('keeps the top balance projection visible for a fixed Lightning invoice', async () => {
+  it('keeps the lower balance estimate visible for a fixed Lightning invoice', async () => {
     mockLaunchImageLibraryAsync.mockResolvedValue({
       canceled: false,
       assets: [{ uri: 'file:///fixed-invoice-spot-price.png' }],
@@ -393,11 +393,11 @@ describe('SendScreen on-chain flow', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('amount-input').props.editable).toBe(false);
-      expect(screen.getByTestId('send-balance-projection')).toBeTruthy();
+      expect(screen.getByTestId('send-balance-summary-input')).toBeTruthy();
     });
   });
 
-  it('keeps the top balance projection visible for a fixed Bitcoin URI', async () => {
+  it('keeps the lower balance estimate visible for a fixed Bitcoin URI', async () => {
     mockUseLocalSearchParams.mockReturnValue({
       paymentInput: 'bitcoin:bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh?amount=0.000025',
     });
@@ -411,7 +411,7 @@ describe('SendScreen on-chain flow', () => {
       expect(screen.getByText('₿ On-chain')).toBeTruthy();
       expect(screen.getByTestId('amount-input').props.value).toBe('2500');
       expect(screen.getByTestId('amount-input').props.editable).toBe(false);
-      expect(screen.getByTestId('send-balance-projection')).toBeTruthy();
+      expect(screen.getByTestId('send-balance-summary-input')).toBeTruthy();
     });
   });
 
