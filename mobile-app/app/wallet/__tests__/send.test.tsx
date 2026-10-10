@@ -289,9 +289,21 @@ describe('SendScreen on-chain flow', () => {
 
     fireEvent.press(screen.getByTestId('toggle-send-balance-privacy'));
 
-    expect(screen.getByLabelText('Show balance values')).toBeTruthy();
+    expect(screen.getAllByLabelText('Show balance values')).toHaveLength(2);
     expect(screen.queryByText('1,000 sats')).toBeNull();
     expect(screen.queryByText('≈ $1.00')).toBeNull();
+    expect(screen.getAllByText('••••••').length).toBeGreaterThan(0);
+  });
+
+  it('keeps the payment-estimate privacy control synchronized with the top balance card', () => {
+    renderScreen();
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
+
+    fireEvent.press(screen.getByTestId('toggle-send-balance-summary-privacy'));
+
+    expect(screen.getByTestId('toggle-send-balance-privacy')).toHaveProp('accessibilityLabel', 'Show balance values');
+    expect(screen.getByTestId('toggle-send-balance-summary-privacy')).toHaveProp('accessibilityLabel', 'Show balance values');
+    expect(screen.queryByText('1,000 sats')).toBeNull();
     expect(screen.getAllByText('••••••').length).toBeGreaterThan(0);
   });
 

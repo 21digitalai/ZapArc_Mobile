@@ -1480,9 +1480,20 @@ export default function SendScreen() {
     const outcome = Math.abs(summary.remaining ?? 0);
     const paymentFiat = formatPreviewFiat(summary.paymentAmount);
     const outcomeFiat = formatPreviewFiat(outcome);
+    const visibilityLabel = isBalanceVisible ? 'Hide balance values' : 'Show balance values';
     return (
       <View testID="send-balance-summary-input" style={[styles.balanceSummary, sufficient === false && styles.balanceSummaryInsufficient]} accessibilityLiveRegion="polite">
-        <Text style={[styles.balanceSummaryTitle, { color: primaryTextColor }]}>Payment estimate</Text>
+        <View style={styles.balanceSummaryHeader}>
+          <Text style={[styles.balanceSummaryTitle, { color: primaryTextColor }]}>Payment estimate</Text>
+          <IconButton
+            icon={isBalanceVisible ? 'eye-off' : 'eye'}
+            size={20}
+            iconColor={secondaryTextColor}
+            onPress={() => setIsBalanceVisible((visible) => !visible)}
+            accessibilityLabel={visibilityLabel}
+            testID="toggle-send-balance-summary-privacy"
+          />
+        </View>
         <View style={styles.balanceSummaryRow}><Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Payment</Text><View style={styles.balanceSummaryValueStack}><Text style={[styles.balanceSummaryValue, { color: primaryTextColor }]}>{displayed(summary.paymentAmount)}</Text>{paymentFiat && <Text style={[styles.balanceSummaryFiat, { color: secondaryTextColor }]}>{isBalanceVisible ? paymentFiat : '••••••'}</Text>}</View></View>
         <View style={styles.balanceSummaryRow}><Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Fees</Text><Text style={[styles.balanceSummaryValue, { color: secondaryTextColor }]}>{summary.knownFee === null ? 'Calculated at preview' : displayed(summary.knownFee)}</Text></View>
         {typeof summary.total === 'number' && <View style={styles.balanceSummaryRow}><Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Total</Text><Text style={[styles.balanceSummaryValue, { color: primaryTextColor }]}>{displayed(summary.total)}</Text></View>}
@@ -2250,7 +2261,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 138, 128, 0.65)',
     backgroundColor: 'rgba(244, 67, 54, 0.1)',
   },
-  balanceSummaryTitle: { fontSize: 16, fontWeight: '700', marginBottom: 8 },
+  balanceSummaryHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  balanceSummaryTitle: { flex: 1, fontSize: 16, fontWeight: '700' },
   balanceSummaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 5 },
   balanceSummaryLabel: { flex: 1, flexShrink: 1, fontSize: 13, lineHeight: 18 },
   balanceSummaryValue: { fontSize: 14, fontWeight: '600', textAlign: 'right' },
