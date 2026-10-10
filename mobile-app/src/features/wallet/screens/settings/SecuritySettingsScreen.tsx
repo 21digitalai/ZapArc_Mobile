@@ -1,7 +1,7 @@
 // Security Settings Screen
 // Configure biometric authentication (fingerprint/Face ID)
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -9,14 +9,11 @@ import {
   Alert,
   Platform,
   BackHandler,
-  Modal,
 } from 'react-native';
 import {
   Text,
   Switch,
   IconButton,
-  Button,
-  TextInput,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
@@ -62,11 +59,6 @@ export function SecuritySettingsScreen(): React.JSX.Element {
   const {
     enableBiometric,
     disableBiometric,
-    changePin,
-    currentMasterKeyId,
-    activeWalletInfo,
-    isLoading,
-    error,
   } = useWalletAuth();
   const { t } = useLanguage();
   const { themeMode } = useAppTheme();
@@ -75,69 +67,11 @@ export function SecuritySettingsScreen(): React.JSX.Element {
   const gradientColors = getGradientColors(themeMode);
   const primaryText = getPrimaryTextColor(themeMode);
   const secondaryText = getSecondaryTextColor(themeMode);
-  const activeWalletName =
-    activeWalletInfo?.masterKeyNickname || 'the current wallet';
 
   // State
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricType, setBiometricType] = useState<string>('Biometric');
-  const [isChangePinVisible, setIsChangePinVisible] = useState(false);
-  const [changePinMasterKeyId, setChangePinMasterKeyId] = useState<string | null>(null);
-  const [newPin, setNewPin] = useState('');
-  const [confirmPin, setConfirmPin] = useState('');
-  const [pinFormError, setPinFormError] = useState<string | null>(null);
-  const isPinChangeSubmitting = useRef(false);
-
-  const closeChangePin = (): void => {
-    if (isLoading) return;
-    setNewPin('');
-    setConfirmPin('');
-    setPinFormError(null);
-    setChangePinMasterKeyId(null);
-    setIsChangePinVisible(false);
-  };
-
-  const openChangePin = (): void => {
-    if (!currentMasterKeyId) {
-      setPinFormError('No active wallet is available.');
-      return;
-    }
-    setChangePinMasterKeyId(currentMasterKeyId);
-    setPinFormError(null);
-    setIsChangePinVisible(true);
-  };
-
-  const submitPinChange = async (): Promise<void> => {
-    if (isPinChangeSubmitting.current) return;
-    if (!changePinMasterKeyId || currentMasterKeyId !== changePinMasterKeyId) {
-      closeChangePin();
-      Alert.alert(
-        'Wallet changed',
-        'Your active wallet changed. Reopen Change PIN for the wallet you want to update.'
-      );
-      return;
-    }
-    if (newPin.length !== 6 || !/^\d+$/.test(newPin)) {
-      setPinFormError('Your new PIN must contain 6 digits.');
-      return;
-    }
-    if (newPin !== confirmPin) {
-      setPinFormError('New PINs do not match.');
-      return;
-    }
-    setPinFormError(null);
-    isPinChangeSubmitting.current = true;
-    try {
-      const changed = await changePin(newPin, changePinMasterKeyId);
-      if (!changed) return;
-      closeChangePin();
-      Alert.alert('PIN changed', 'Your current wallet now uses the new PIN.');
-    } finally {
-      isPinChangeSubmitting.current = false;
-    }
-  };
-
   // Check biometric availability
   useEffect(() => {
     const checkBiometric = async (): Promise<void> => {
@@ -273,36 +207,6 @@ export function SecuritySettingsScreen(): React.JSX.Element {
                 don't think the biometric toggle is just "broken". */}
             <PinLockoutBanner />
 
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <IconButton
-                  icon="lock-reset"
-                  iconColor={BRAND_COLOR}
-                  size={28}
-                  style={styles.sectionIcon}
-                />
-                <Text style={[styles.sectionTitle, { color: primaryText }]}>
-                  Change PIN
-                </Text>
-              </View>
-              <Text
-                style={[styles.switchDescription, { color: secondaryText }]}
-              >
-                Change the PIN for {activeWalletName}.
-              </Text>
-              <Button
-                mode="contained"
-                style={styles.changePinButton}
-                buttonColor={BRAND_COLOR}
-                textColor="#1a1a2e"
-                onPress={openChangePin}
-                accessibilityLabel={`Change PIN for ${activeWalletName}`}
-                testID="change-pin-open"
-              >
-                Change PIN
-              </Button>
-            </View>
-
             {/* Biometric Authentication */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
@@ -365,87 +269,6 @@ export function SecuritySettingsScreen(): React.JSX.Element {
         {/* Footer spacer */}
         <View style={styles.bottomSpacer} />
 
-        <Modal
-          visible={isChangePinVisible}
-          transparent
-          animationType="slide"
-          onRequestClose={closeChangePin}
-          accessibilityViewIsModal
-        >
-          <View style={styles.modalOverlay}>
-            <View
-              style={[
-                styles.modalCard,
-                { backgroundColor: getGradientColors(themeMode)[0] },
-              ]}
-            >
-              <Text style={[styles.modalTitle, { color: primaryText }]}>
-                Change PIN
-              </Text>
-              <Text
-                style={[styles.modalDescription, { color: secondaryText }]}
-                accessibilityLabel={`Choose a new PIN for ${activeWalletName}`}
-              >
-                Choose a new PIN for {activeWalletName}.
-              </Text>
-              <TextInput
-                label="New PIN"
-                value={newPin}
-                onChangeText={setNewPin}
-                secureTextEntry
-                keyboardType="number-pad"
-                maxLength={6}
-                disabled={isLoading}
-                style={styles.pinInput}
-                accessibilityLabel="New PIN"
-                testID="change-pin-new"
-              />
-              <TextInput
-                label="Confirm new PIN"
-                value={confirmPin}
-                onChangeText={setConfirmPin}
-                secureTextEntry
-                keyboardType="number-pad"
-                maxLength={6}
-                disabled={isLoading}
-                style={styles.pinInput}
-                accessibilityLabel="Confirm new PIN"
-                testID="change-pin-confirm"
-              />
-              {(pinFormError || error) && (
-                <Text
-                  style={styles.pinError}
-                  accessibilityRole="alert"
-                  accessibilityLiveRegion="polite"
-                >
-                  {pinFormError || error}
-                </Text>
-              )}
-              <View style={styles.modalActions}>
-                <Button
-                  onPress={closeChangePin}
-                  disabled={isLoading}
-                  accessibilityLabel="Cancel PIN change"
-                  testID="change-pin-cancel"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  mode="contained"
-                  buttonColor={BRAND_COLOR}
-                  textColor="#1a1a2e"
-                  onPress={submitPinChange}
-                  loading={isLoading}
-                  disabled={isLoading}
-                  accessibilityLabel="Save new PIN"
-                  testID="change-pin-save"
-                >
-                  Save PIN
-                </Button>
-              </View>
-            </View>
-          </View>
-        </Modal>
       </SafeAreaView>
     </LinearGradient>
   );
@@ -580,42 +403,5 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 32,
-  },
-  changePinButton: {
-    alignSelf: 'flex-start',
-    marginTop: 14,
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
-  },
-  modalCard: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-  },
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-  },
-  modalDescription: {
-    marginTop: 8,
-    marginBottom: 18,
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  pinInput: {
-    marginBottom: 12,
-  },
-  pinError: {
-    color: '#F44336',
-    marginBottom: 8,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 8,
-    marginTop: 8,
   },
 });

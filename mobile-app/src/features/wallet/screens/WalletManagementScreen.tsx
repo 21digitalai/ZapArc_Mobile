@@ -1,7 +1,7 @@
 // Wallet Management Screen
 // Manage master keys and sub-wallets with add, rename, archive, and delete actions
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -11,6 +11,7 @@ import {
   Alert,
   Keyboard,
   BackHandler,
+  Modal,
 } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Clipboard from 'expo-clipboard';
@@ -24,9 +25,10 @@ import {
   Portal,
   Dialog,
   ActivityIndicator,
+  TextInput,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, getIconColor, BRAND_COLOR } from '../../../utils/theme-helpers';
@@ -41,13 +43,14 @@ import { createSafeBackHandler } from '../utils/safeBack';
 // Types
 // =============================================================================
 
-type ModalType = 'rename' | 'addSubWallet' | 'confirmDelete' | 'revealPhrase' | 'revealPinPrompt' | null;
+type ModalType = 'rename' | 'addSubWallet' | 'confirmDelete' | 'revealPhrase' | 'revealPinPrompt' | 'changePin' | null;
 
 // =============================================================================
 // Component
 // =============================================================================
 
 export function WalletManagementScreen(): React.JSX.Element {
+  const params = useLocalSearchParams<{ changePinMasterKeyId?: string }>();
   const safeBack = useMemo(() => createSafeBackHandler({
     canGoBack: () => router.canGoBack(),
     back: () => router.back(),
@@ -71,7 +74,7 @@ export function WalletManagementScreen(): React.JSX.Element {
     syncSubWalletActivity,
     getMnemonic,
   } = useWallet();
-  const { selectSubWallet, getSessionPin } = useWalletAuth();
+  const { selectSubWallet, getSessionPin, changePin, currentMasterKeyId, isLoading: isAuthLoading, error: authError } = useWalletAuth();
 
   const { themeMode } = useAppTheme();
   const gradientColors = getGradientColors(themeMode);
@@ -94,6 +97,12 @@ export function WalletManagementScreen(): React.JSX.Element {
   const [menuVisible, setMenuVisible] = useState<string | null>(null);
   const [renameSubWalletIndex, setRenameSubWalletIndex] = useState<number | null>(null);
   const [syncingMasterKeys, setSyncingMasterKeys] = useState<Set<string>>(new Set());
+  const [changePinMasterKeyId, setChangePinMasterKeyId] = useState<string | null>(null);
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [pinFormError, setPinFormError] = useState<string | null>(null);
+  const isPinChangeSubmitting = useRef(false);
+  const consumedChangePinRequest = useRef<string | null>(null);
 
   // Reveal Phrase State
   const [revealMnemonic, setRevealMnemonic] = useState<string | null>(null);
@@ -126,6 +135,71 @@ export function WalletManagementScreen(): React.JSX.Element {
       });
     }
   }, [activeMasterKey?.id]);
+
+  useEffect(() => {
+    const requestedMasterKeyId = params.changePinMasterKeyId;
+    if (!requestedMasterKeyId || requestedMasterKeyId === consumedChangePinRequest.current) return;
+    if (requestedMasterKeyId !== currentMasterKeyId) return;
+
+    consumedChangePinRequest.current = requestedMasterKeyId;
+    setChangePinMasterKeyId(requestedMasterKeyId);
+    setPinFormError(null);
+    setModalType('changePin');
+    router.setParams({ changePinMasterKeyId: undefined });
+  }, [params.changePinMasterKeyId, currentMasterKeyId]);
+
+  const closeChangePin = useCallback((): void => {
+    if (isAuthLoading) return;
+    setNewPin('');
+    setConfirmPin('');
+    setPinFormError(null);
+    setChangePinMasterKeyId(null);
+    setModalType(null);
+  }, [isAuthLoading]);
+
+  const openChangePin = useCallback((masterKeyId: string): void => {
+    if (masterKeyId !== currentMasterKeyId) {
+      BreezSparkService.beginDisconnectSDK();
+      router.push({
+        pathname: '/wallet/unlock',
+        params: { masterKeyId, subWalletIndex: '0', changePinAfterUnlock: 'true' },
+      });
+      return;
+    }
+
+    setChangePinMasterKeyId(masterKeyId);
+    setPinFormError(null);
+    setMenuVisible(null);
+    setModalType('changePin');
+  }, [currentMasterKeyId]);
+
+  const submitPinChange = useCallback(async (): Promise<void> => {
+    if (isPinChangeSubmitting.current) return;
+    if (!changePinMasterKeyId || currentMasterKeyId !== changePinMasterKeyId) {
+      closeChangePin();
+      Alert.alert('Wallet changed', 'Your active wallet changed. Reopen Change PIN for the wallet you want to update.');
+      return;
+    }
+    if (newPin.length !== 6 || !/^\d+$/.test(newPin)) {
+      setPinFormError('Your new PIN must contain 6 digits.');
+      return;
+    }
+    if (newPin !== confirmPin) {
+      setPinFormError('New PINs do not match.');
+      return;
+    }
+
+    setPinFormError(null);
+    isPinChangeSubmitting.current = true;
+    try {
+      const changed = await changePin(newPin, changePinMasterKeyId);
+      if (!changed) return;
+      closeChangePin();
+      Alert.alert('PIN changed', 'Your current wallet now uses the new PIN.');
+    } finally {
+      isPinChangeSubmitting.current = false;
+    }
+  }, [changePin, changePinMasterKeyId, closeChangePin, currentMasterKeyId, newPin, confirmPin]);
 
   // ========================================
   // Toggle Expansion
@@ -543,6 +617,15 @@ export function WalletManagementScreen(): React.JSX.Element {
             }
             contentStyle={styles.menuContent}
           >
+            <Menu.Item
+              onPress={() => {
+                setMenuVisible(null);
+                openChangePin(masterKey.id);
+              }}
+              title="Change PIN"
+              leadingIcon="lock-reset"
+              testID={`change-pin-${masterKey.id}`}
+            />
             <Menu.Item
               onPress={() => {
                 setMenuVisible(null);
@@ -1102,6 +1185,30 @@ export function WalletManagementScreen(): React.JSX.Element {
           {renderRenameModal()}
           {renderRevealPhraseModal()}
 
+          <Modal
+            visible={modalType === 'changePin'}
+            transparent
+            animationType="slide"
+            onRequestClose={closeChangePin}
+            accessibilityViewIsModal
+          >
+            <View style={styles.changePinModalOverlay}>
+              <View style={[styles.changePinModalCard, { backgroundColor: gradientColors[0] }]}>
+                <Text style={[styles.changePinModalTitle, { color: primaryTextColor }]}>Change PIN</Text>
+                <Text style={[styles.changePinModalDescription, { color: secondaryTextColor }]}>
+                  Choose a new PIN for {activeMasterKey?.nickname || 'this wallet'}.
+                </Text>
+                <TextInput label="New PIN" value={newPin} onChangeText={setNewPin} secureTextEntry keyboardType="number-pad" maxLength={6} disabled={isAuthLoading} style={styles.changePinInput} accessibilityLabel="New PIN" testID="change-pin-new" />
+                <TextInput label="Confirm new PIN" value={confirmPin} onChangeText={setConfirmPin} secureTextEntry keyboardType="number-pad" maxLength={6} disabled={isAuthLoading} style={styles.changePinInput} accessibilityLabel="Confirm new PIN" testID="change-pin-confirm" />
+                {(pinFormError || authError) && <Text style={styles.changePinError} accessibilityRole="alert" accessibilityLiveRegion="polite">{pinFormError || authError}</Text>}
+                <View style={styles.changePinModalActions}>
+                  <Button onPress={closeChangePin} disabled={isAuthLoading} accessibilityLabel="Cancel PIN change" testID="change-pin-cancel">Cancel</Button>
+                  <Button mode="contained" buttonColor={BRAND_COLOR} textColor="#1a1a2e" onPress={submitPinChange} loading={isAuthLoading} disabled={isAuthLoading} accessibilityLabel="Save new PIN" testID="change-pin-save">Save PIN</Button>
+                </View>
+              </View>
+            </View>
+          </Modal>
+
           {/* PIN prompt for reveal when biometric is disabled */}
           {modalType === 'revealPinPrompt' && (
             <Portal>
@@ -1241,6 +1348,39 @@ const styles = StyleSheet.create({
   },
   menuContent: {
     backgroundColor: '#1a1a2e',
+  },
+  changePinModalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+  },
+  changePinModalCard: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+  },
+  changePinModalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  changePinModalDescription: {
+    marginTop: 8,
+    marginBottom: 18,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  changePinInput: {
+    marginBottom: 12,
+  },
+  changePinError: {
+    color: '#F44336',
+    marginBottom: 8,
+  },
+  changePinModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+    marginTop: 8,
   },
   deleteMenuItem: {
     color: '#F44336',

@@ -52,9 +52,18 @@ export function PinEntryScreen(): React.JSX.Element {
   const secondaryText = getSecondaryTextColor(themeMode);
   
   // Get route params for wallet switching
-  const params = useLocalSearchParams<{ masterKeyId?: string; subWalletIndex?: string }>();
+  const params = useLocalSearchParams<{ masterKeyId?: string; subWalletIndex?: string; changePinAfterUnlock?: string }>();
   const targetMasterKeyId = params.masterKeyId;
   const targetSubWalletIndex = params.subWalletIndex ? parseInt(params.subWalletIndex, 10) : 0;
+  const shouldOpenChangePinAfterUnlock = params.changePinAfterUnlock === 'true';
+
+  const completeTargetWalletUnlock = useCallback((): void => {
+    if (shouldOpenChangePinAfterUnlock && targetMasterKeyId) {
+      router.replace({ pathname: '/wallet/manage', params: { changePinMasterKeyId: targetMasterKeyId } });
+      return;
+    }
+    router.replace('/wallet/home');
+  }, [shouldOpenChangePinAfterUnlock, targetMasterKeyId]);
   
   const {
     unlock,
@@ -199,7 +208,7 @@ export function PinEntryScreen(): React.JSX.Element {
       if (targetMasterKeyId) {
         const success = await selectWallet(targetMasterKeyId, targetSubWalletIndex, pin);
         if (success) {
-          router.replace('/wallet/home');
+          completeTargetWalletUnlock();
         } else {
           setIsUnlocking(false);
           const authStatus = await applyPinAuthStatus();
@@ -231,7 +240,7 @@ export function PinEntryScreen(): React.JSX.Element {
       shake();
       setPin('');
     }
-  }, [pin, unlock, selectWallet, targetMasterKeyId, targetSubWalletIndex, shake, applyPinAuthStatus, t]);
+  }, [pin, unlock, selectWallet, targetMasterKeyId, targetSubWalletIndex, completeTargetWalletUnlock, shake, applyPinAuthStatus, t]);
 
   const handleBiometricUnlock = useCallback(async () => {
     if (biometricAttemptInFlightRef.current) return;
@@ -242,7 +251,7 @@ export function PinEntryScreen(): React.JSX.Element {
         const success = await selectWalletWithBiometric(targetMasterKeyId, targetSubWalletIndex);
         setIsUnlocking(false);
         if (success) {
-          router.replace('/wallet/home');
+          completeTargetWalletUnlock();
         }
         return;
       }
@@ -258,7 +267,7 @@ export function PinEntryScreen(): React.JSX.Element {
     } finally {
       biometricAttemptInFlightRef.current = false;
     }
-  }, [unlockWithBiometric, selectWalletWithBiometric, targetMasterKeyId, targetSubWalletIndex]);
+  }, [unlockWithBiometric, selectWalletWithBiometric, targetMasterKeyId, targetSubWalletIndex, completeTargetWalletUnlock]);
 
   useEffect(() => {
     // Auto-prompt once per lock-screen presentation. React effects can re-run as
