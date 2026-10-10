@@ -41,10 +41,10 @@ jest.mock('../services/walletCacheService', () => ({
 import { settingsService, storageService } from '../services';
 import { primeSessionPin, useWalletAuth } from '../hooks/useWalletAuth';
 
-describe('useWalletAuth changePin biometric recovery', () => {
+describe('useWalletAuth prompt-free biometric PIN rotation', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('rebinds an enabled wallet credential when biometric availability is unavailable', async () => {
+  it('clears an enabled wallet credential without a biometric rebind prompt', async () => {
     (LocalAuthentication.hasHardwareAsync as jest.Mock).mockResolvedValueOnce(false);
     const { result } = renderHook(() => useWalletAuth());
     await waitFor(() => expect(result.current.biometricEnabled).toBe(true));
@@ -56,11 +56,11 @@ describe('useWalletAuth changePin biometric recovery', () => {
     await expect(result.current.changePin('222222', 'wallet-a')).resolves.toBe(true);
     });
 
-    expect(storageService.storeBiometricPin).toHaveBeenCalledWith('wallet-a', '222222');
+    expect(storageService.deleteBiometricPin).toHaveBeenCalledWith('wallet-a');
+    expect(storageService.storeBiometricPin).not.toHaveBeenCalled();
   });
 
-  it('disables biometric unlock when a post-rotation rebind and verified clear both fail', async () => {
-    (storageService.storeBiometricPin as jest.Mock).mockRejectedValue(new Error('keystore write failed'));
+  it('fails closed when the old biometric credential cannot be deleted', async () => {
     (storageService.deleteBiometricPin as jest.Mock).mockRejectedValue(new Error('keystore delete failed'));
     (settingsService.updateUserSettings as jest.Mock).mockResolvedValue({ biometricEnabled: false });
 
@@ -76,7 +76,7 @@ describe('useWalletAuth changePin biometric recovery', () => {
     expect(storageService.deleteBiometricPin).toHaveBeenCalledWith('wallet-a');
     expect(settingsService.updateUserSettings).toHaveBeenCalledWith({ biometricEnabled: false });
     expect(result.current.biometricEnabled).toBe(false);
-    expect(result.current.error).toMatch(/biometric unlock was disabled/i);
+    expect(storageService.storeBiometricPin).not.toHaveBeenCalled();
   });
 
   it('rejects PIN rotation after the unlocked session credential is cleared', async () => {

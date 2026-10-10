@@ -628,38 +628,22 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
           return false;
         }
 
-        // Rotate durable wallet data before replacing the biometric secret.
-        // A SecureStore write is not transactional with encrypted storage, so
-        // a failed rebind must clear the old entry instead of leaving a PIN
-        // that can no longer unlock this master wallet.
-        // `biometricAvailable` is an asynchronous UI capability probe. It is
-        // not authoritative for an existing per-wallet SecureStore binding:
-        // rotating while that probe is pending must never retain an old PIN.
+        // PIN changes must not trigger Android's SecureStore authentication
+        // prompt. Remove the old per-wallet credential instead; the user can
+        // explicitly opt in to biometric unlock again after the rotation.
         if (biometricEnabled) {
           try {
-            await storageService.storeBiometricPin(masterKeyId, newPin);
+            await storageService.deleteBiometricPin(masterKeyId);
           } catch {
             try {
-              await storageService.deleteBiometricPin(masterKeyId);
-              if (await storageService.hasBiometricPin(masterKeyId)) {
-                throw new Error('Biometric PIN is still present');
-              }
-            } catch {
-              // SecureStore cannot confirm removal, so retaining the global
-              // preference would let a future launch attempt an unknown
-              // (possibly old) wallet credential. Disable biometric unlock
-              // durably rather than treating the rotation as unchanged.
               await settingsService.updateUserSettings({ biometricEnabled: false });
               setBiometricEnabled(false);
-              setModuleSessionPin(newPin);
-              setError(
-                'PIN changed, but biometric unlock was disabled because its secure credential could not be safely reset. Use your new PIN and enable biometrics again.'
-              );
-              return true;
+            } catch {
+              // The old credential cannot unlock the rotated PIN, but do not
+              // claim biometric state is safe when its disable flag failed.
+              setError('PIN changed, but biometric unlock could not be safely disabled. Lock this wallet and use your new PIN.');
+              return false;
             }
-            setError(
-              'PIN changed. Biometric unlock was disabled for this wallet; enable it again to continue using it.'
-            );
           }
         }
 

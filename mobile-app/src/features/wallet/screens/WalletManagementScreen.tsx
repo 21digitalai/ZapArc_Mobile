@@ -74,7 +74,7 @@ export function WalletManagementScreen(): React.JSX.Element {
     syncSubWalletActivity,
     getMnemonic,
   } = useWallet();
-  const { selectSubWallet, getSessionPin, changePin, currentMasterKeyId, isLoading: isAuthLoading, error: authError } = useWalletAuth();
+  const { selectSubWallet, getSessionPin, changePin, currentMasterKeyId, biometricEnabled, isLoading: isAuthLoading, error: authError } = useWalletAuth();
 
   const { themeMode } = useAppTheme();
   const gradientColors = getGradientColors(themeMode);
@@ -195,11 +195,16 @@ export function WalletManagementScreen(): React.JSX.Element {
       const changed = await changePin(newPin, changePinMasterKeyId);
       if (!changed) return;
       closeChangePin();
-      Alert.alert('PIN changed', 'Your current wallet now uses the new PIN.');
+      Alert.alert(
+        'PIN changed',
+        biometricEnabled
+          ? 'Your current wallet now uses the new PIN. Biometric unlock was disabled for this wallet; enable it again when you are ready.'
+          : 'Your current wallet now uses the new PIN.'
+      );
     } finally {
       isPinChangeSubmitting.current = false;
     }
-  }, [changePin, changePinMasterKeyId, closeChangePin, currentMasterKeyId, newPin, confirmPin]);
+  }, [biometricEnabled, changePin, changePinMasterKeyId, closeChangePin, currentMasterKeyId, newPin, confirmPin]);
 
   // ========================================
   // Toggle Expansion

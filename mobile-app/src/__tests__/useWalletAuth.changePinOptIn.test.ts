@@ -25,6 +25,7 @@ jest.mock('../services', () => ({
     updateActivity: jest.fn(),
     rotateActiveMasterKeyPin: jest.fn().mockResolvedValue(true),
     storeBiometricPin: jest.fn(),
+    deleteBiometricPin: jest.fn(),
   },
   settingsService: {
     getUserSettings: jest
@@ -49,7 +50,7 @@ import { settingsService, storageService } from '../services';
 import { primeSessionPin, useWalletAuth } from '../hooks/useWalletAuth';
 
 describe('useWalletAuth changePin after biometric opt-in', () => {
-  it('rebinds the biometric credential after opt-in changes within a mounted hook', async () => {
+  it('clears the biometric credential after a PIN change without prompting', async () => {
     const { result } = renderHook(() => useWalletAuth());
     await waitFor(() => {
       expect(result.current.currentMasterKeyId).toBe('wallet-a');
@@ -70,9 +71,7 @@ describe('useWalletAuth changePin after biometric opt-in', () => {
     expect(settingsService.updateUserSettings).toHaveBeenCalledWith({
       biometricEnabled: true,
     });
-    expect(storageService.storeBiometricPin).toHaveBeenCalledWith(
-      'wallet-a',
-      '222222'
-    );
+    expect(storageService.deleteBiometricPin).toHaveBeenCalledWith('wallet-a');
+    expect(storageService.storeBiometricPin).not.toHaveBeenCalled();
   });
 });
