@@ -109,10 +109,9 @@ android {
         }
         release {
             storeFile file('../../keystores/release.keystore')
-            storePassword 'zaparc2026release'
+            storePassword System.getenv("ZAPARC_UPLOAD_STORE_PASSWORD")
             keyAlias 'zaparc-release'
-            keyPassword 'zaparc2026release'
-        }
+            keyPassword System.getenv("ZAPARC_UPLOAD_KEY_PASSWORD")}
     }
     buildTypes {
         debug {
