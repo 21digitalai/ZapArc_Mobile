@@ -256,10 +256,22 @@ describe('SendScreen on-chain flow', () => {
     renderScreen();
     fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
 
+    const balanceSummary = screen.getByTestId('send-balance-summary-input');
+    const paymentEstimateArea = screen.getByTestId('send-payment-estimate-area');
+
     expect(screen.getByTestId('send-available-balance')).toBeTruthy();
-    expect(screen.getByTestId('send-balance-summary-input')).toBeTruthy();
+    expect(balanceSummary).toHaveStyle({ marginTop: 20 });
+    expect(paymentEstimateArea).toBeTruthy();
     expect(screen.getByText('499,000 sats')).toBeTruthy();
     expect(screen.getByText('Before fees — not final')).toBeTruthy();
+  });
+
+  it('separates the BTC spot rate as secondary estimate context', () => {
+    renderScreen();
+    fireEvent.changeText(screen.getByTestId('amount-input'), '1000');
+
+    expect(screen.getByText('BTC spot rate')).toBeTruthy();
+    expect(screen.getByText('1 BTC ≈ $100,000')).toBeTruthy();
   });
 
   it('keeps the top balance card separate from one input estimate card', () => {

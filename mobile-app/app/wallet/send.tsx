@@ -1486,7 +1486,7 @@ export default function SendScreen() {
         <View style={styles.balanceSummaryRow}><Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Payment</Text><View style={styles.balanceSummaryValueStack}><Text style={[styles.balanceSummaryValue, { color: primaryTextColor }]}>{displayed(summary.paymentAmount)}</Text>{paymentFiat && <Text style={[styles.balanceSummaryFiat, { color: secondaryTextColor }]}>{isBalanceVisible ? paymentFiat : '••••••'}</Text>}</View></View>
         <View style={styles.balanceSummaryRow}><Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Fees</Text><Text style={[styles.balanceSummaryValue, { color: secondaryTextColor }]}>{summary.knownFee === null ? 'Calculated at preview' : displayed(summary.knownFee)}</Text></View>
         {typeof summary.total === 'number' && <View style={styles.balanceSummaryRow}><Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>Total</Text><Text style={[styles.balanceSummaryValue, { color: primaryTextColor }]}>{displayed(summary.total)}</Text></View>}
-        {sendSpotPrice && <Text style={[styles.balanceSummarySpotPrice, { color: secondaryTextColor }]}>{isBalanceVisible ? sendSpotPrice : '••••••'}</Text>}
+        {sendSpotPrice && <View style={styles.balanceSummarySpotPriceRow}><Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>BTC spot rate</Text><Text style={[styles.balanceSummarySpotPrice, { color: secondaryTextColor }]}>{isBalanceVisible ? sendSpotPrice : '••••••'}</Text></View>}
         <View style={styles.balanceSummaryRow}><Text style={[styles.balanceSummaryLabel, { color: secondaryTextColor }]}>{sufficient === false ? 'Short by' : 'Remaining after send'}</Text><View style={styles.balanceSummaryValueStack}><Text style={[styles.balanceSummaryValue, { color: sufficient === false ? '#ff8a80' : BRAND_COLOR }]}>{displayed(outcome)}</Text>{outcomeFiat && <Text style={[styles.balanceSummaryFiat, { color: sufficient === false ? '#ff8a80' : secondaryTextColor }]}>{isBalanceVisible ? outcomeFiat : '••••••'}</Text>}</View></View>
         <Text testID="send-balance-summary-status" style={[styles.balanceSummaryStatus, { color: sufficient === false ? '#ff8a80' : secondaryTextColor }]}>{sufficient === false ? 'Insufficient balance' : summary.total === null ? 'Before fees — not final' : 'Enough balance to send'}</Text>
       </View>
@@ -2050,28 +2050,32 @@ export default function SendScreen() {
 
           {paymentErrorBanner}
 
-          {renderBalanceSummary(inputBalanceSummary)}
+          <View testID="send-payment-estimate-area">
+            {renderBalanceSummary(inputBalanceSummary)}
 
-          <Button
-            mode="contained"
-            onPress={handlePreviewPayment}
-            loading={isPreparing}
-            testID="preview-payment-button"
-            disabled={
-              isPreparing ||
-              !paymentInput.trim() ||
-              (!isLightningTab && !amount.trim()) ||
-              (!isLightningTab && !!addressError) ||
-              (!isLightningTab && Number(amount) > 0 && Number(amount) < 1000) ||
-              (isLightningTab && inputCurrency !== 'sats' && isLoadingRates && amount !== '')
-              || inputBalanceSummary?.isSufficient === false
-            }
-            style={styles.previewButton}
-            buttonColor={BRAND_COLOR}
-            textColor="#1a1a2e"
-          >
-            {isLightningTab ? t('send.previewPayment') : t('send.previewOnchainCta')}
-          </Button>
+            <View testID="send-preview-payment-action">
+              <Button
+                mode="contained"
+                onPress={handlePreviewPayment}
+                loading={isPreparing}
+                testID="preview-payment-button"
+                disabled={
+                  isPreparing ||
+                  !paymentInput.trim() ||
+                  (!isLightningTab && !amount.trim()) ||
+                  (!isLightningTab && !!addressError) ||
+                  (!isLightningTab && Number(amount) > 0 && Number(amount) < 1000) ||
+                  (isLightningTab && inputCurrency !== 'sats' && isLoadingRates && amount !== '')
+                  || inputBalanceSummary?.isSufficient === false
+                }
+                style={styles.previewButton}
+                buttonColor={BRAND_COLOR}
+                textColor="#1a1a2e"
+              >
+                {isLightningTab ? t('send.previewPayment') : t('send.previewOnchainCta')}
+              </Button>
+            </View>
+          </View>
         </ScrollView>
 
         {/* Shared bottom-sheet currency picker. Same UX as the Receive
@@ -2238,21 +2242,23 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 193, 7, 0.35)',
     backgroundColor: 'rgba(255, 193, 7, 0.08)',
     borderRadius: 12,
-    padding: 12,
+    padding: 16,
+    marginTop: 20,
     marginBottom: 16,
   },
   balanceSummaryInsufficient: {
     borderColor: 'rgba(255, 138, 128, 0.65)',
     backgroundColor: 'rgba(244, 67, 54, 0.1)',
   },
-  balanceSummaryTitle: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
-  balanceSummaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
-  balanceSummaryLabel: { fontSize: 13 },
+  balanceSummaryTitle: { fontSize: 16, fontWeight: '700', marginBottom: 8 },
+  balanceSummaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 5 },
+  balanceSummaryLabel: { flex: 1, flexShrink: 1, fontSize: 13, lineHeight: 18 },
   balanceSummaryValue: { fontSize: 14, fontWeight: '600', textAlign: 'right' },
-  balanceSummaryValueStack: { alignItems: 'flex-end' },
+  balanceSummaryValueStack: { alignItems: 'flex-end', flexShrink: 1, marginLeft: 16 },
   balanceSummaryFiat: { marginTop: 2, fontSize: 12 },
-  balanceSummaryStatus: { marginTop: 6, fontSize: 13, fontWeight: '700' },
-  balanceSummarySpotPrice: { marginTop: 2, fontSize: 12, textAlign: 'right' },
+  balanceSummaryStatus: { marginTop: 10, fontSize: 13, fontWeight: '700', lineHeight: 18 },
+  balanceSummarySpotPriceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.12)' },
+  balanceSummarySpotPrice: { flexShrink: 1, marginLeft: 16, fontSize: 12, textAlign: 'right' },
   balanceProjection: {
     width: '100%',
     borderTopWidth: 1,

@@ -72,7 +72,7 @@
 
 `app/wallet/send.tsx`
 - The top Available Balance container shows only the authoritative current spendable balance and retains its privacy eye; never add projected balance or shortfall there.
-- Place one cohesive Payment estimate card immediately above the Lightning and on-chain Preview Payment actions. It shows payment, selected-fiat conversion, available spot price, fee/fee-pending wording, total when known, and remaining balance or error-styled `Short by` outcome. Unknown fees must be labeled `Before fees — not final`.
+- Place one cohesive Payment estimate card immediately above the Lightning and on-chain Preview Payment actions, separated from the preceding entry field by the standard 20pt vertical gap. Use aligned label/value rows with prominent sats values, muted directly associated fiat values, a separated secondary BTC spot-rate row, and a legible fee-pending/finality status. It shows payment, selected-fiat conversion, available spot price, fee/fee-pending wording, total when known, and remaining balance or error-styled `Short by` outcome. Unknown fees must be labeled `Before fees — not final`.
 - The decoded payment preview keeps its canonical primary breakdown for recipient, amount, selected fiat, actual fee, total, and fee-inclusive remaining/shortfall; do not add a redundant second preview card.
 - The send-flow privacy eye masks current balance, projected remaining balance, shortfall, and the preview balance outcome. Insufficient balance uses explicit text plus error treatment, disables Preview/Send where coverage is known, and retains handler-level protection.
 
