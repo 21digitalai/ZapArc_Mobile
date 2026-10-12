@@ -51,6 +51,40 @@ class ZapArcMediaStoreModule(private val context: ReactApplicationContext) : Rea
       promise.reject("E_MEDIASTORE_SAVE", "Unable to save QR to ZapArc gallery", error)
     }
   }
+
+  @ReactMethod
+  fun saveJsonToZapArcDownloads(sourceUri: String, fileName: String, promise: Promise) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+      promise.reject("E_MEDIASTORE_UNAVAILABLE", "Direct Downloads saving requires Android 10 or later")
+      return
+    }
+    val resolver = context.contentResolver
+    val values = ContentValues().apply {
+      put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+      put(MediaStore.Downloads.MIME_TYPE, "application/json")
+      put(MediaStore.Downloads.RELATIVE_PATH, "\${Environment.DIRECTORY_DOWNLOADS}/ZapArc")
+      put(MediaStore.Downloads.IS_PENDING, 1)
+    }
+    var destination: Uri? = null
+    try {
+      destination = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+        ?: throw IllegalStateException("Unable to create Downloads backup")
+      resolver.openInputStream(Uri.parse(sourceUri)).use { input ->
+        requireNotNull(input) { "Unable to read encrypted backup" }
+        resolver.openOutputStream(destination).use { output ->
+          requireNotNull(output) { "Unable to write Downloads backup" }
+          input.copyTo(output)
+        }
+      }
+      values.clear()
+      values.put(MediaStore.Downloads.IS_PENDING, 0)
+      resolver.update(destination, values, null, null)
+      promise.resolve(destination.toString())
+    } catch (error: Exception) {
+      destination?.let { resolver.delete(it, null, null) }
+      promise.reject("E_MEDIASTORE_SAVE", "Unable to save encrypted backup to Downloads", error)
+    }
+  }
 }
 `;
 

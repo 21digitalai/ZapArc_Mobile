@@ -2,6 +2,7 @@ import { NativeModules, Platform } from 'react-native';
 
 export const QR_PNG_MIME_TYPE = 'image/png';
 export const QR_GALLERY_ALBUM_NAME = 'ZapArc';
+export const ENCRYPTED_BACKUP_MIME_TYPE = 'application/json';
 
 export type AndroidQrSaveResult = {
   status: 'saved';
@@ -11,6 +12,7 @@ export type AndroidQrSaveResult = {
 
 type ZapArcMediaStoreModule = {
   savePngToZapArcAlbum(sourceUri: string, fileName: string): Promise<string>;
+  saveJsonToZapArcDownloads(sourceUri: string, fileName: string): Promise<string>;
 };
 
 const mediaStoreModule = NativeModules.ZapArcMediaStore as ZapArcMediaStoreModule | undefined;
@@ -33,5 +35,20 @@ export async function saveQrToAndroidGallery(
   }
 
   const uri = await mediaStoreModule.savePngToZapArcAlbum(sourceUri, fileName);
+  return { status: 'saved', fileName, uri };
+}
+
+/** Publishes an already-encrypted backup into Downloads/ZapArc on Android 10+. */
+export async function saveEncryptedBackupToAndroidDownloads(
+  sourceUri: string,
+  fileName: string,
+): Promise<AndroidQrSaveResult> {
+  if (Platform.OS !== 'android') {
+    throw new Error('Downloads saving is only available on Android');
+  }
+  if (!mediaStoreModule) {
+    throw new Error('Downloads saving is unavailable in this app build');
+  }
+  const uri = await mediaStoreModule.saveJsonToZapArcDownloads(sourceUri, fileName);
   return { status: 'saved', fileName, uri };
 }

@@ -71,6 +71,7 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import { saveEncryptedBackupToAndroidDownloads } from '../../utils/saveQrToDevice';
 
 type BackupDestination = 'googleDrive' | 'localFile';
 const MAX_LOCAL_BACKUP_BYTES = 1024 * 1024;
@@ -612,13 +613,17 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                 JSON.stringify(encryptedBackup),
                 { encoding: FileSystem.EncodingType.UTF8 }
               );
-              if (!(await Sharing.isAvailableAsync())) {
-                throw new Error('Local file sharing is not available on this device.');
+              if (Platform.OS === 'android') {
+                await saveEncryptedBackupToAndroidDownloads(fileUri, filename);
+              } else {
+                if (!(await Sharing.isAvailableAsync())) {
+                  throw new Error('Local file sharing is not available on this device.');
+                }
+                await Sharing.shareAsync(fileUri, {
+                  mimeType: 'application/json',
+                  dialogTitle: 'Save encrypted ZapArc backup',
+                });
               }
-              await Sharing.shareAsync(fileUri, {
-                mimeType: 'application/json',
-                dialogTitle: 'Save encrypted ZapArc backup',
-              });
             } finally {
               await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(
                 () => undefined
@@ -629,7 +634,9 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
           }
           Alert.alert(
             t('common.success'),
-            'The encrypted backup is in the share sheet. Choose a save location to finish.'
+            Platform.OS === 'android'
+              ? 'Encrypted backup saved to Downloads/ZapArc.'
+              : 'The encrypted backup is in the share sheet. Choose a save location to finish.'
           );
           setShowPasswordModal(false);
           setPassword('');
