@@ -10,6 +10,9 @@ const mockSessionPin = jest.fn();
 const mockGetAllContacts = jest.fn();
 const mockGetBiometricPin = jest.fn();
 const mockAuthenticateAsync = jest.fn();
+const mockDecryptMnemonic = jest.fn();
+const mockPinSetupKeypad = jest.fn();
+let mockActiveMasterKey = { id: 'wallet-1', nickname: 'Primary' };
 const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
 
 jest.mock('expo-router', () => ({
@@ -39,7 +42,7 @@ jest.mock('expo-sharing', () => ({
   isAvailableAsync: jest.fn(),
   shareAsync: jest.fn(),
 }));
-jest.mock('../../../../../hooks/useWallet', () => ({ useWallet: () => ({ getMnemonic: mockGetMnemonic, activeMasterKey: { id: 'wallet-1', nickname: 'Primary' }, importMasterKey: jest.fn(), masterKeys: [{ id: 'wallet-1', nickname: 'Primary' }] }) }));
+jest.mock('../../../../../hooks/useWallet', () => ({ useWallet: () => ({ getMnemonic: mockGetMnemonic, activeMasterKey: mockActiveMasterKey, importMasterKey: jest.fn(), masterKeys: [mockActiveMasterKey] }) }));
 jest.mock('../../../../../hooks/useWalletAuth', () => ({ useWalletAuth: () => ({ selectWallet: jest.fn(), getSessionPin: mockSessionPin }) }));
 jest.mock('../../../../../contexts/ThemeContext', () => ({ useAppTheme: () => ({ themeMode: 'dark' }) }));
 jest.mock('../../../../../hooks/useLanguage', () => ({ useLanguage: () => ({ t: (key: string) => key }) }));
@@ -57,11 +60,18 @@ jest.mock('../../../../addressBook', () => ({
   refreshContactsStore: (...args: unknown[]) => mockRefreshContactsStore(...args),
 }));
 jest.mock('../../../../addressBook/services/contactService', () => ({ sanitizeImportedContact: jest.fn() }));
+jest.mock('../../../../../services/backupEncryption', () => ({
+  ...jest.requireActual('../../../../../services/backupEncryption'),
+  decryptMnemonic: (...args: unknown[]) => mockDecryptMnemonic(...args),
+}));
 jest.mock('../../../../../components/StyledTextInput', () => {
   const React = require('react'); const { TextInput } = require('react-native');
   return { StyledTextInput: (props: object) => React.createElement(TextInput, props) };
 });
-jest.mock('../../../../../components/PinSetupKeypad', () => ({ PinSetupKeypad: () => null }));
+jest.mock('../../../../../components/PinSetupKeypad', () => {
+  const React = require('react'); const { Text } = require('react-native');
+  return { PinSetupKeypad: (props: object) => { mockPinSetupKeypad(props); return React.createElement(Text, null, 'Pin setup ready'); } };
+});
 
 import {
   getContactSyncErrorMessage,
@@ -210,6 +220,9 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     mockGetAllContacts.mockResolvedValue([]);
     mockGetBiometricPin.mockReset();
     mockAuthenticateAsync.mockReset();
+    mockDecryptMnemonic.mockReset();
+    mockPinSetupKeypad.mockReset();
+    mockActiveMasterKey = { id: 'wallet-1', nickname: 'Primary' };
     require('../../../../../services').settingsService.getUserSettings.mockResolvedValue({ biometricEnabled: false });
   });
 
@@ -413,5 +426,88 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     fireEvent.press(screen.getByText('Load from File'));
     await waitFor(() => expect(fileSystem.readAsStringAsync).toHaveBeenCalled());
     expect(screen.queryByText('cloudBackup.enterBackupPassword')).toBeNull();
+  });
+
+  async function openLocalRestore(backup = {
+    version: 3,
+    format: 'aes-256-gcm',
+    salt: 'salt',
+    iv: 'iv',
+    ciphertext: 'ciphertext',
+    authTag: 'tag',
+    timestamp: 1,
+  }): Promise<void> {
+    const documentPicker = require('expo-document-picker');
+    const fileSystem = require('expo-file-system');
+    documentPicker.getDocumentAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///backup.json', name: 'backup.json', size: 128 }],
+    });
+    fileSystem.readAsStringAsync.mockResolvedValue(JSON.stringify(backup));
+
+    fireEvent.press(screen.getByText('Load from File'));
+    await waitFor(() => expect(screen.getByText('cloudBackup.enterRestorePassword')).toBeTruthy());
+    fireEvent.changeText(screen.UNSAFE_getAllByType(TextInput)[0], 'backup-password');
+  }
+
+  it('opens PIN setup after decrypting a local backup for the matching active master', async () => {
+    mockDecryptMnemonic.mockResolvedValue('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Load from File')).toBeTruthy());
+    await openLocalRestore();
+    fireEvent.press(screen.getByText('cloudBackup.restore'));
+
+    await waitFor(() => expect(mockDecryptMnemonic).toHaveBeenCalledWith(expect.objectContaining({ version: 3 }), 'backup-password'));
+    await waitFor(() => expect(screen.getByText('Pin setup ready')).toBeTruthy());
+    expect(mockPinSetupKeypad).toHaveBeenCalled();
+  });
+
+  it('keeps restore state closed when the local backup password is wrong', async () => {
+    mockDecryptMnemonic.mockRejectedValue(new Error('Failed to decrypt backup. Please check your password.'));
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Load from File')).toBeTruthy());
+    await openLocalRestore();
+    fireEvent.press(screen.getByText('cloudBackup.restore'));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('common.error', 'Incorrect password. Please try again.'));
+    expect(mockPinSetupKeypad).not.toHaveBeenCalled();
+  });
+
+  it('blocks duplicate local restore submissions while decryption is pending', async () => {
+    let finishDecryption: ((mnemonic: string) => void) | undefined;
+    mockDecryptMnemonic.mockImplementation(() => new Promise((resolve) => { finishDecryption = resolve; }));
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Load from File')).toBeTruthy());
+    await openLocalRestore();
+    fireEvent.press(screen.getByText('cloudBackup.restore'));
+    fireEvent.press(screen.getByText('cloudBackup.restore'));
+
+    expect(mockDecryptMnemonic).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      finishDecryption?.('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+    });
+    await waitFor(() => expect(screen.getByText('Pin setup ready')).toBeTruthy());
+  });
+
+  it('fails closed if the selected master changes during local restore decryption', async () => {
+    let finishDecryption: ((mnemonic: string) => void) | undefined;
+    mockDecryptMnemonic.mockImplementation(() => new Promise((resolve) => { finishDecryption = resolve; }));
+
+    const view = render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Load from File')).toBeTruthy());
+    await openLocalRestore();
+    fireEvent.press(screen.getByText('cloudBackup.restore'));
+
+    mockActiveMasterKey = { id: 'wallet-2', nickname: 'Secondary' };
+    view.rerender(React.createElement(GoogleDriveBackupScreen));
+    await act(async () => {
+      finishDecryption?.('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+    });
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('common.error', 'The selected wallet changed. Please choose the backup file again.'));
+    expect(mockPinSetupKeypad).not.toHaveBeenCalled();
   });
 });

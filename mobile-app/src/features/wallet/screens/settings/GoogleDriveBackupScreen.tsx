@@ -821,6 +821,12 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
   // rendered the disabled state. Keep a synchronous lock so a second picker
   // or restore cannot race the first and mutate restore state.
   const localFileOperationInFlight = useRef(false);
+  const activeMasterKeyIdRef = useRef<string | null>(activeMasterKey?.id ?? null);
+  const localRestoreOwnerMasterKeyId = useRef<string | null>(null);
+
+  useEffect(() => {
+    activeMasterKeyIdRef.current = activeMasterKey?.id ?? null;
+  }, [activeMasterKey?.id]);
 
   const handleRestoreFromFile = async (): Promise<void> => {
     if (localFileOperationInFlight.current || isProcessing) return;
@@ -864,6 +870,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
       }
 
       // Store backup data and show password modal
+      localRestoreOwnerMasterKeyId.current = activeMasterKey?.id ?? null;
       setFileBackupData(parsed);
       setModalMode('restore');
       setSelectedBackup(null);
@@ -905,6 +912,18 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
           console.warn('⚠️ [Restore] Could not decrypt contacts from file:', contactsErr);
           Alert.alert(t('cloudBackup.partialRestoreTitle'), t('cloudBackup.partialRestoreBody'));
         }
+      }
+
+      // A restore is initiated in the context of the currently selected
+      // wallet. If that selection changed while the file was being read or
+      // decrypted, discard the prepared restore rather than continuing under
+      // an ambiguous wallet context.
+      if (localRestoreOwnerMasterKeyId.current !== activeMasterKeyIdRef.current) {
+        setFileBackupData(null);
+        setPassword('');
+        setShowPasswordModal(false);
+        Alert.alert(t('common.error'), 'The selected wallet changed. Please choose the backup file again.');
+        return;
       }
 
       setShowPasswordModal(false);
