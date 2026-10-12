@@ -7,6 +7,10 @@ const mockMergeImportedContacts = jest.fn();
 const mockRefreshContactsStore = jest.fn();
 const mockGetMnemonic = jest.fn();
 const mockSessionPin = jest.fn();
+const mockGetAllContacts = jest.fn();
+const mockGetBiometricPin = jest.fn();
+const mockAuthenticateAsync = jest.fn();
+const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
 
 jest.mock('expo-router', () => ({
   router: { canGoBack: jest.fn(() => false), back: jest.fn(), replace: jest.fn() },
@@ -18,7 +22,11 @@ jest.mock('react-native-safe-area-context', () => {
   return { SafeAreaView: ({ children }: { children: React.ReactNode }) => React.createElement(View, null, children), useSafeAreaInsets: () => ({ bottom: 0 }) };
 });
 jest.mock('expo-linear-gradient', () => ({ LinearGradient: ({ children }: { children: React.ReactNode }) => children }));
-jest.mock('expo-local-authentication', () => ({ hasHardwareAsync: jest.fn(), isEnrolledAsync: jest.fn() }));
+jest.mock('expo-local-authentication', () => ({
+  hasHardwareAsync: jest.fn(),
+  isEnrolledAsync: jest.fn(),
+  authenticateAsync: (...args: unknown[]) => mockAuthenticateAsync(...args),
+}));
 jest.mock('expo-document-picker', () => ({ getDocumentAsync: jest.fn() }));
 jest.mock('expo-file-system', () => ({
   cacheDirectory: 'file:///cache/',
@@ -35,7 +43,7 @@ jest.mock('../../../../../hooks/useWallet', () => ({ useWallet: () => ({ getMnem
 jest.mock('../../../../../hooks/useWalletAuth', () => ({ useWalletAuth: () => ({ selectWallet: jest.fn(), getSessionPin: mockSessionPin }) }));
 jest.mock('../../../../../contexts/ThemeContext', () => ({ useAppTheme: () => ({ themeMode: 'dark' }) }));
 jest.mock('../../../../../hooks/useLanguage', () => ({ useLanguage: () => ({ t: (key: string) => key }) }));
-jest.mock('../../../../../services', () => ({ storageService: { loadMultiWalletStorage: jest.fn().mockResolvedValue({ masterKeys: [{ id: 'wallet-1' }] }) }, settingsService: { getUserSettings: jest.fn().mockResolvedValue({ biometricEnabled: false }) } }));
+jest.mock('../../../../../services', () => ({ storageService: { loadMultiWalletStorage: jest.fn().mockResolvedValue({ masterKeys: [{ id: 'wallet-1' }] }), getBiometricPin: (...args: unknown[]) => mockGetBiometricPin(...args) }, settingsService: { getUserSettings: jest.fn().mockResolvedValue({ biometricEnabled: false }) } }));
 jest.mock('../../../../../services/googleDriveBackupService', () => ({
   googleDriveBackupService: {
     initialize: jest.fn().mockResolvedValue(undefined), restoreSession: jest.fn().mockResolvedValue(true),
@@ -45,7 +53,7 @@ jest.mock('../../../../../services/googleDriveBackupService', () => ({
   },
 }));
 jest.mock('../../../../addressBook', () => ({
-  contactService: { mergeImportedContacts: (...args: unknown[]) => mockMergeImportedContacts(...args) },
+  contactService: { mergeImportedContacts: (...args: unknown[]) => mockMergeImportedContacts(...args), getAllContacts: (...args: unknown[]) => mockGetAllContacts(...args) },
   refreshContactsStore: (...args: unknown[]) => mockRefreshContactsStore(...args),
 }));
 jest.mock('../../../../addressBook/services/contactService', () => ({ sanitizeImportedContact: jest.fn() }));
@@ -109,15 +117,11 @@ describe('GoogleDriveBackupScreen Restore Contacts feedback', () => {
 });
 
 describe('GoogleDriveBackupScreen Restore Contacts flow', () => {
-  const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
-
   beforeEach(() => {
     jest.clearAllMocks();
     mockMergeImportedContacts.mockResolvedValue({ added: 1, skipped: 1 });
     mockRestoreContacts.mockResolvedValue({ success: true, contacts: [{ id: 'contact-1' }] });
   });
-
-  afterAll(() => alertSpy.mockRestore());
 
   async function startRestoreContacts(): Promise<void> {
     render(React.createElement(GoogleDriveBackupScreen));
@@ -199,8 +203,14 @@ describe('GoogleDriveBackupScreen backup management layout', () => {
 
 describe('GoogleDriveBackupScreen local backup entry', () => {
   beforeEach(() => {
+    jest.clearAllMocks();
     mockGetMnemonic.mockReset();
     mockSessionPin.mockReset();
+    mockGetAllContacts.mockReset();
+    mockGetAllContacts.mockResolvedValue([]);
+    mockGetBiometricPin.mockReset();
+    mockAuthenticateAsync.mockReset();
+    require('../../../../../services').settingsService.getUserSettings.mockResolvedValue({ biometricEnabled: false });
   });
 
   it('offers a local encrypted backup without requiring Google connection', async () => {
@@ -212,6 +222,19 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     fireEvent.press(screen.getByText('Save Encrypted Backup'));
 
     await waitFor(() => expect(screen.getByText('cloudBackup.enterBackupPassword')).toBeTruthy());
+  });
+
+  it('opens local save without either biometric confirmation gate', async () => {
+    const services = require('../../../../../services');
+    services.settingsService.getUserSettings.mockResolvedValue({ biometricEnabled: true });
+    mockAuthenticateAsync.mockResolvedValue({ success: false });
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Save Encrypted Backup')).toBeTruthy());
+    fireEvent.press(screen.getByText('Save Encrypted Backup'));
+
+    await waitFor(() => expect(screen.getByText('cloudBackup.enterBackupPassword')).toBeTruthy());
+    expect(mockAuthenticateAsync).not.toHaveBeenCalled();
   });
 
   it('keeps save and load actions together in the Local Backup section', async () => {
@@ -251,6 +274,99 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
       expect.objectContaining({ mimeType: 'application/json' })
     );
     expect(fileSystem.deleteAsync).toHaveBeenCalled();
+  });
+
+  it('includes contacts by default in a local encrypted backup', async () => {
+    const fileSystem = require('expo-file-system');
+    const sharing = require('expo-sharing');
+    fileSystem.writeAsStringAsync.mockResolvedValue(undefined);
+    fileSystem.deleteAsync.mockResolvedValue(undefined);
+    sharing.isAvailableAsync.mockResolvedValue(true);
+    sharing.shareAsync.mockResolvedValue(undefined);
+    mockSessionPin.mockReturnValue('123456');
+    mockGetMnemonic.mockResolvedValue('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+    mockGetAllContacts.mockResolvedValue([{ id: 'contact-1', name: 'Alice' }]);
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Save Encrypted Backup')).toBeTruthy());
+    fireEvent.press(screen.getByText('Save Encrypted Backup'));
+    const inputs = screen.UNSAFE_getAllByType(TextInput);
+    fireEvent.changeText(inputs[0], 'Backup passphrase 123!');
+    fireEvent.changeText(inputs[1], 'Backup passphrase 123!');
+    fireEvent.press(screen.getByText('cloudBackup.createBackup'));
+
+    await waitFor(() => expect(fileSystem.writeAsStringAsync).toHaveBeenCalled());
+    expect(mockGetAllContacts).toHaveBeenCalledTimes(1);
+    const lastWrite = fileSystem.writeAsStringAsync.mock.calls.at(-1);
+    expect(JSON.parse(lastWrite[1]).contacts).toBeTruthy();
+  });
+
+  it('allows the user to turn off contacts for a local backup', async () => {
+    const fileSystem = require('expo-file-system');
+    const sharing = require('expo-sharing');
+    fileSystem.writeAsStringAsync.mockResolvedValue(undefined);
+    fileSystem.deleteAsync.mockResolvedValue(undefined);
+    sharing.isAvailableAsync.mockResolvedValue(true);
+    sharing.shareAsync.mockResolvedValue(undefined);
+    mockSessionPin.mockReturnValue('123456');
+    mockGetMnemonic.mockResolvedValue('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Save Encrypted Backup')).toBeTruthy());
+    fireEvent.press(screen.getByText('Save Encrypted Backup'));
+    fireEvent.press(screen.getByText('cloudBackup.includeContacts'));
+    const inputs = screen.UNSAFE_getAllByType(TextInput);
+    fireEvent.changeText(inputs[0], 'Backup passphrase 123!');
+    fireEvent.changeText(inputs[1], 'Backup passphrase 123!');
+    fireEvent.press(screen.getByText('cloudBackup.createBackup'));
+
+    await waitFor(() => expect(fileSystem.writeAsStringAsync).toHaveBeenCalled());
+    expect(mockGetAllContacts).not.toHaveBeenCalled();
+    const lastWrite = fileSystem.writeAsStringAsync.mock.calls.at(-1);
+    expect(JSON.parse(lastWrite[1]).contacts).toBeUndefined();
+  });
+
+  it('does not save a local backup when requested contacts cannot be loaded', async () => {
+    const fileSystem = require('expo-file-system');
+    const sharing = require('expo-sharing');
+    fileSystem.writeAsStringAsync.mockResolvedValue(undefined);
+    sharing.isAvailableAsync.mockResolvedValue(true);
+    mockSessionPin.mockReturnValue('123456');
+    mockGetMnemonic.mockResolvedValue('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+    mockGetAllContacts.mockRejectedValue(new Error('address book unavailable'));
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Save Encrypted Backup')).toBeTruthy());
+    fireEvent.press(screen.getByText('Save Encrypted Backup'));
+    const inputs = screen.UNSAFE_getAllByType(TextInput);
+    fireEvent.changeText(inputs[0], 'Backup passphrase 123!');
+    fireEvent.changeText(inputs[1], 'Backup passphrase 123!');
+    fireEvent.press(screen.getByText('cloudBackup.createBackup'));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('common.error', 'Could not load contacts for backup. Your backup was not created.'));
+    expect(fileSystem.writeAsStringAsync).not.toHaveBeenCalled();
+    expect(sharing.shareAsync).not.toHaveBeenCalled();
+  });
+
+  it('uses the manual PIN fallback for local save and reports an incorrect PIN', async () => {
+    mockGetBiometricPin.mockResolvedValue('biometric-pin');
+    mockGetMnemonic.mockRejectedValue(new Error('wrong pin'));
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Save Encrypted Backup')).toBeTruthy());
+    fireEvent.press(screen.getByText('Save Encrypted Backup'));
+    const passwordInputs = screen.UNSAFE_getAllByType(TextInput);
+    fireEvent.changeText(passwordInputs[0], 'Backup passphrase 123!');
+    fireEvent.changeText(passwordInputs[1], 'Backup passphrase 123!');
+    fireEvent.press(screen.getByText('cloudBackup.createBackup'));
+
+    await waitFor(() => expect(screen.getByText('Enter your wallet PIN')).toBeTruthy());
+    expect(mockGetBiometricPin).not.toHaveBeenCalled();
+    fireEvent.changeText(screen.UNSAFE_getAllByType(TextInput)[2], '654321');
+    fireEvent.press(screen.getByText('common.confirm'));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('common.error', 'Incorrect PIN'));
+    expect(mockGetMnemonic).toHaveBeenCalledWith('wallet-1', '654321');
   });
 
   it('leaves wallet state untouched when local-file selection is cancelled', async () => {

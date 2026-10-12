@@ -233,9 +233,9 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
   const [passwordStrength, setPasswordStrength] = useState<PasswordStrength | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   // Whether to include the address book in this backup, and the contacts
-  // pulled out of a restored backup awaiting a merge decision.
-  // Contacts are sensitive optional data. Uploading them requires an explicit
-  // affirmative choice for each backup rather than inheriting an opt-in.
+  // pulled out of a restored backup awaiting a merge decision. Local encrypted
+  // exports start with contacts selected; Google Drive retains its opt-in
+  // default.
   const [includeContacts, setIncludeContacts] = useState(false);
   const [restoredContacts, setRestoredContacts] = useState<Contact[] | null>(null);
 
@@ -475,10 +475,16 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
     setSelectedMasterKeyId(targetId);
     setBackupDestination(destination);
 
-    // Authenticate first
-    const authenticated = await authenticateUser();
-    if (!authenticated) {
-      return;
+    setIncludeContacts(destination === 'localFile');
+
+    // A local export is already protected by its encryption password and the
+    // wallet PIN used to decrypt the seed. Keep the existing cloud gate, but
+    // do not summon an OS biometric prompt for the local-file flow.
+    if (destination === 'googleDrive') {
+      const authenticated = await authenticateUser();
+      if (!authenticated) {
+        return;
+      }
     }
 
     // Show password modal
@@ -520,15 +526,16 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
   //      hit and skips the prompt entirely. If the wrong PIN is returned,
   //      performBackup's decrypt attempt surfaces the mismatch and we fall
   //      back to the manual prompt.
-  //   2. Biometric-stored PIN — only populated if the user opted into
-  //      biometric unlock for this specific master key.
+  //   2. Biometric-stored PIN — only for cloud backups, since accessing it can
+  //      itself trigger an OS authentication prompt.
   //   3. null → caller should prompt the user to enter their PIN manually.
   const resolveBackupPin = useCallback(
-    async (_targetKeyId: string): Promise<string | null> => {
+    async (targetKeyId: string, allowBiometricPin: boolean): Promise<string | null> => {
       const sessionPin = getSessionPin();
       if (sessionPin) return sessionPin;
+      if (!allowBiometricPin) return null;
       try {
-        const biometricPin = await storageService.getBiometricPin(_targetKeyId);
+        const biometricPin = await storageService.getBiometricPin(targetKeyId);
         if (biometricPin) return biometricPin;
       } catch {
         // Ignore — fall through to manual entry.
@@ -569,14 +576,16 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
           return;
         }
 
-        // Optionally bundle the address book (encrypted with the same password).
-        // Gated off for now — the feature stays in code but ships disabled.
+        // Bundle requested contacts with the same password. Do not claim that
+        // contacts were included if they cannot be read from the address book.
         let contactsToBackup: Contact[] | undefined;
         if (CONTACTS_BACKUP_ENABLED && includeContacts) {
           try {
             contactsToBackup = await contactService.getAllContacts();
           } catch (contactsErr) {
             console.warn('⚠️ [GoogleDriveBackupScreen] Could not load contacts for backup:', contactsErr);
+            Alert.alert(t('common.error'), 'Could not load contacts for backup. Your backup was not created.');
+            return;
           }
         }
 
@@ -674,17 +683,20 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
       return;
     }
 
-    // Gate sensitive seed access on biometric (only if user enabled it).
-    const sensitiveAuthOk = await authenticateSensitiveSeedAccess();
-    if (!sensitiveAuthOk) {
-      Alert.alert(t('common.error'), t('cloudBackup.authenticateToBackup'));
-      return;
+    // Cloud backups retain the sensitive biometric gate. Local encrypted
+    // exports deliberately avoid a second OS prompt.
+    if (backupDestination === 'googleDrive') {
+      const sensitiveAuthOk = await authenticateSensitiveSeedAccess();
+      if (!sensitiveAuthOk) {
+        Alert.alert(t('common.error'), t('cloudBackup.authenticateToBackup'));
+        return;
+      }
     }
 
     // Try to resolve the PIN silently. If neither the session nor biometric
     // storage has it (common right after an import, before biometric is
     // enabled), fall back to asking the user to enter their PIN.
-    const pin = await resolveBackupPin(targetKey.id);
+    const pin = await resolveBackupPin(targetKey.id, backupDestination === 'googleDrive');
     if (!pin) {
       setPendingBackupContext({ targetKeyId: targetKey.id, password, existingBackupPassword: modalMode === 'replace' ? password : modalMode === 'changePassword' ? currentBackupPassword : undefined });
       setBackupManualPin('');
