@@ -593,6 +593,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
         if (backupDestination === 'localFile') {
           const savesDirectlyToAndroidDownloads =
             Platform.OS === 'android' && Number(Platform.Version) >= 29;
+          let savedFilename: string | null = null;
           try {
             const encryptedBackup = await encryptMnemonic(
               mnemonic,
@@ -608,6 +609,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
             const filename = `zaparc-backup-${new Date()
               .toISOString()
               .replace(/[:.]/g, '-')}.json`;
+            savedFilename = filename;
             const fileUri = `${FileSystem.cacheDirectory}${filename}`;
             try {
               await FileSystem.writeAsStringAsync(
@@ -637,7 +639,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
           Alert.alert(
             t('common.success'),
             savesDirectlyToAndroidDownloads
-              ? 'Encrypted backup saved to Downloads/ZapArc.'
+              ? `Encrypted backup saved to Downloads/ZapArc/${savedFilename}.`
               : 'The encrypted backup is in the share sheet. Choose a save location to finish.'
           );
           setShowPasswordModal(false);
@@ -1477,7 +1479,9 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: primaryText }]}>Local Backup</Text>
               <Text style={[styles.sectionSubtitle, { color: secondaryText }]}>
-                Save an encrypted backup through your device's Files or share sheet.
+                {Platform.OS === 'android' && Number(Platform.Version) >= 29
+                  ? 'Save an encrypted backup directly to Downloads/ZapArc.'
+                  : 'Save an encrypted backup through your device\'s Files or share sheet.'}
               </Text>
               <Button
                 mode="outlined"

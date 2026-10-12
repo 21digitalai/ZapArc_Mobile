@@ -274,6 +274,18 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     expect(screen.queryByText('Restore from File')).toBeNull();
   });
 
+  it('describes the Android 10+ Downloads destination truthfully', async () => {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    Object.defineProperty(Platform, 'Version', { configurable: true, value: 29 });
+
+    render(React.createElement(GoogleDriveBackupScreen));
+
+    await waitFor(() =>
+      expect(screen.getByText('Save an encrypted backup directly to Downloads/ZapArc.')).toBeTruthy()
+    );
+    expect(screen.queryByText("Save an encrypted backup through your device's Files or share sheet.")).toBeNull();
+  });
+
   it('uses the iOS share fallback for an encrypted temporary file without Google auth', async () => {
     const fileSystem = require('expo-file-system');
     const sharing = require('expo-sharing');
@@ -333,7 +345,10 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     expect(filename).toMatch(/^zaparc-backup-.*\.json$/);
     expect(sharing.shareAsync).not.toHaveBeenCalled();
     expect(fileSystem.deleteAsync).toHaveBeenCalledWith(sourceUri, { idempotent: true });
-    expect(alertSpy).toHaveBeenCalledWith('common.success', 'Encrypted backup saved to Downloads/ZapArc.');
+    expect(alertSpy).toHaveBeenCalledWith(
+      'common.success',
+      expect.stringMatching(/^Encrypted backup saved to Downloads\/ZapArc\/zaparc-backup-.*\.json\.$/)
+    );
   });
 
   it('does not report Android backup success when the Downloads adapter rejects', async () => {
@@ -357,7 +372,10 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
 
     await waitFor(() => expect(mockSaveEncryptedBackupToAndroidDownloads).toHaveBeenCalled());
     await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('common.error', 'Failed to create backup'));
-    expect(alertSpy).not.toHaveBeenCalledWith('common.success', 'Encrypted backup saved to Downloads/ZapArc.');
+    expect(alertSpy).not.toHaveBeenCalledWith(
+      'common.success',
+      expect.stringMatching(/^Encrypted backup saved to Downloads\/ZapArc\//)
+    );
     expect(sharing.shareAsync).not.toHaveBeenCalled();
     expect(fileSystem.deleteAsync).toHaveBeenCalled();
   });
