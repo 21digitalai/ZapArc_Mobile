@@ -55,4 +55,11 @@ describe('saveQrToAndroidGallery', () => {
       .toHaveBeenCalledWith('file:///tmp/backup.json', 'zaparc-backup.json');
     expect(ENCRYPTED_BACKUP_MIME_TYPE).toBe('application/json');
   });
+
+  it('surfaces encrypted Downloads write failures without reporting success', async () => {
+    mediaStore.saveJsonToZapArcDownloads.mockRejectedValue(new Error('Downloads write was not committed'));
+
+    await expect(saveEncryptedBackupToAndroidDownloads('file:///tmp/backup.json', 'zaparc-backup.json'))
+      .rejects.toThrow('Downloads write was not committed');
+  });
 });

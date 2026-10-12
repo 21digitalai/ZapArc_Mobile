@@ -78,7 +78,10 @@ class ZapArcMediaStoreModule(private val context: ReactApplicationContext) : Rea
       }
       values.clear()
       values.put(MediaStore.Downloads.IS_PENDING, 0)
-      resolver.update(destination, values, null, null)
+      val committedRows = resolver.update(destination, values, null, null)
+      if (committedRows != 1) {
+        throw IllegalStateException("Unable to confirm Downloads backup write")
+      }
       promise.resolve(destination.toString())
     } catch (error: Exception) {
       destination?.let { resolver.delete(it, null, null) }

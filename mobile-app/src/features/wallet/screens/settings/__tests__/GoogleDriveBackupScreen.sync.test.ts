@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, TextInput } from 'react-native';
+import { Alert, Platform, TextInput } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 const mockRestoreContacts = jest.fn();
@@ -12,6 +12,7 @@ const mockGetBiometricPin = jest.fn();
 const mockAuthenticateAsync = jest.fn();
 const mockDecryptMnemonic = jest.fn();
 const mockPinSetupKeypad = jest.fn();
+const mockSaveEncryptedBackupToAndroidDownloads = jest.fn();
 let mockActiveMasterKey = { id: 'wallet-1', nickname: 'Primary' };
 const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
 
@@ -41,6 +42,9 @@ jest.mock('expo-file-system', () => ({
 jest.mock('expo-sharing', () => ({
   isAvailableAsync: jest.fn(),
   shareAsync: jest.fn(),
+}));
+jest.mock('../../../utils/saveQrToDevice', () => ({
+  saveEncryptedBackupToAndroidDownloads: (...args: unknown[]) => mockSaveEncryptedBackupToAndroidDownloads(...args),
 }));
 jest.mock('../../../../../hooks/useWallet', () => ({ useWallet: () => ({ getMnemonic: mockGetMnemonic, activeMasterKey: mockActiveMasterKey, importMasterKey: jest.fn(), masterKeys: [mockActiveMasterKey] }) }));
 jest.mock('../../../../../hooks/useWalletAuth', () => ({ useWalletAuth: () => ({ selectWallet: jest.fn(), getSessionPin: mockSessionPin }) }));
@@ -212,6 +216,8 @@ describe('GoogleDriveBackupScreen backup management layout', () => {
 });
 
 describe('GoogleDriveBackupScreen local backup entry', () => {
+  const originalPlatform = Platform.OS;
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetMnemonic.mockReset();
@@ -222,8 +228,14 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     mockAuthenticateAsync.mockReset();
     mockDecryptMnemonic.mockReset();
     mockPinSetupKeypad.mockReset();
+    mockSaveEncryptedBackupToAndroidDownloads.mockReset();
     mockActiveMasterKey = { id: 'wallet-1', nickname: 'Primary' };
     require('../../../../../services').settingsService.getUserSettings.mockResolvedValue({ biometricEnabled: false });
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform });
+  });
+
+  afterAll(() => {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform });
   });
 
   it('offers a local encrypted backup without requiring Google connection', async () => {
@@ -259,7 +271,7 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     expect(screen.queryByText('Restore from File')).toBeNull();
   });
 
-  it('exports the active wallet as an encrypted temporary file without Google auth', async () => {
+  it('uses the iOS share fallback for an encrypted temporary file without Google auth', async () => {
     const fileSystem = require('expo-file-system');
     const sharing = require('expo-sharing');
     fileSystem.writeAsStringAsync.mockResolvedValue(undefined);
@@ -286,6 +298,62 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
       expect.stringContaining('zaparc-backup-'),
       expect.objectContaining({ mimeType: 'application/json' })
     );
+    expect(fileSystem.deleteAsync).toHaveBeenCalled();
+  });
+
+  it('saves an encrypted Android backup directly to Downloads without opening the share sheet', async () => {
+    const fileSystem = require('expo-file-system');
+    const sharing = require('expo-sharing');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    fileSystem.writeAsStringAsync.mockResolvedValue(undefined);
+    fileSystem.deleteAsync.mockResolvedValue(undefined);
+    mockSaveEncryptedBackupToAndroidDownloads.mockResolvedValue({
+      status: 'saved',
+      fileName: 'ignored.json',
+      uri: 'content://media/external/downloads/1',
+    });
+    mockSessionPin.mockReturnValue('123456');
+    mockGetMnemonic.mockResolvedValue('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Save Encrypted Backup')).toBeTruthy());
+    fireEvent.press(screen.getByText('Save Encrypted Backup'));
+    const inputs = screen.UNSAFE_getAllByType(TextInput);
+    fireEvent.changeText(inputs[0], 'Backup passphrase 123!');
+    fireEvent.changeText(inputs[1], 'Backup passphrase 123!');
+    fireEvent.press(screen.getByText('cloudBackup.createBackup'));
+
+    await waitFor(() => expect(mockSaveEncryptedBackupToAndroidDownloads).toHaveBeenCalled());
+    const [sourceUri, filename] = mockSaveEncryptedBackupToAndroidDownloads.mock.calls[0];
+    expect(sourceUri).toContain('zaparc-backup-');
+    expect(filename).toMatch(/^zaparc-backup-.*\.json$/);
+    expect(sharing.shareAsync).not.toHaveBeenCalled();
+    expect(fileSystem.deleteAsync).toHaveBeenCalledWith(sourceUri, { idempotent: true });
+    expect(alertSpy).toHaveBeenCalledWith('common.success', 'Encrypted backup saved to Downloads/ZapArc.');
+  });
+
+  it('does not report Android backup success when the Downloads adapter rejects', async () => {
+    const fileSystem = require('expo-file-system');
+    const sharing = require('expo-sharing');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    fileSystem.writeAsStringAsync.mockResolvedValue(undefined);
+    fileSystem.deleteAsync.mockResolvedValue(undefined);
+    mockSaveEncryptedBackupToAndroidDownloads.mockRejectedValue(new Error('Downloads write was not committed'));
+    mockSessionPin.mockReturnValue('123456');
+    mockGetMnemonic.mockResolvedValue('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Save Encrypted Backup')).toBeTruthy());
+    fireEvent.press(screen.getByText('Save Encrypted Backup'));
+    const inputs = screen.UNSAFE_getAllByType(TextInput);
+    fireEvent.changeText(inputs[0], 'Backup passphrase 123!');
+    fireEvent.changeText(inputs[1], 'Backup passphrase 123!');
+    fireEvent.press(screen.getByText('cloudBackup.createBackup'));
+
+    await waitFor(() => expect(mockSaveEncryptedBackupToAndroidDownloads).toHaveBeenCalled());
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('common.error', 'Failed to create backup'));
+    expect(alertSpy).not.toHaveBeenCalledWith('common.success', 'Encrypted backup saved to Downloads/ZapArc.');
+    expect(sharing.shareAsync).not.toHaveBeenCalled();
     expect(fileSystem.deleteAsync).toHaveBeenCalled();
   });
 
