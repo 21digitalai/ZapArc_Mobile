@@ -217,6 +217,7 @@ describe('GoogleDriveBackupScreen backup management layout', () => {
 
 describe('GoogleDriveBackupScreen local backup entry', () => {
   const originalPlatform = Platform.OS;
+  const originalPlatformVersion = Platform.Version;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -232,10 +233,12 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     mockActiveMasterKey = { id: 'wallet-1', nickname: 'Primary' };
     require('../../../../../services').settingsService.getUserSettings.mockResolvedValue({ biometricEnabled: false });
     Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform });
+    Object.defineProperty(Platform, 'Version', { configurable: true, value: originalPlatformVersion });
   });
 
   afterAll(() => {
     Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform });
+    Object.defineProperty(Platform, 'Version', { configurable: true, value: originalPlatformVersion });
   });
 
   it('offers a local encrypted backup without requiring Google connection', async () => {
@@ -305,6 +308,7 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     const fileSystem = require('expo-file-system');
     const sharing = require('expo-sharing');
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    Object.defineProperty(Platform, 'Version', { configurable: true, value: 29 });
     fileSystem.writeAsStringAsync.mockResolvedValue(undefined);
     fileSystem.deleteAsync.mockResolvedValue(undefined);
     mockSaveEncryptedBackupToAndroidDownloads.mockResolvedValue({
@@ -336,6 +340,7 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     const fileSystem = require('expo-file-system');
     const sharing = require('expo-sharing');
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    Object.defineProperty(Platform, 'Version', { configurable: true, value: 29 });
     fileSystem.writeAsStringAsync.mockResolvedValue(undefined);
     fileSystem.deleteAsync.mockResolvedValue(undefined);
     mockSaveEncryptedBackupToAndroidDownloads.mockRejectedValue(new Error('Downloads write was not committed'));
@@ -354,6 +359,39 @@ describe('GoogleDriveBackupScreen local backup entry', () => {
     await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('common.error', 'Failed to create backup'));
     expect(alertSpy).not.toHaveBeenCalledWith('common.success', 'Encrypted backup saved to Downloads/ZapArc.');
     expect(sharing.shareAsync).not.toHaveBeenCalled();
+    expect(fileSystem.deleteAsync).toHaveBeenCalled();
+  });
+
+  it('uses the existing Android share flow below Android 10 without claiming a Downloads save', async () => {
+    const fileSystem = require('expo-file-system');
+    const sharing = require('expo-sharing');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    Object.defineProperty(Platform, 'Version', { configurable: true, value: 28 });
+    fileSystem.writeAsStringAsync.mockResolvedValue(undefined);
+    fileSystem.deleteAsync.mockResolvedValue(undefined);
+    sharing.isAvailableAsync.mockResolvedValue(true);
+    sharing.shareAsync.mockResolvedValue(undefined);
+    mockSessionPin.mockReturnValue('123456');
+    mockGetMnemonic.mockResolvedValue('abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about');
+
+    render(React.createElement(GoogleDriveBackupScreen));
+    await waitFor(() => expect(screen.getByText('Save Encrypted Backup')).toBeTruthy());
+    fireEvent.press(screen.getByText('Save Encrypted Backup'));
+    const inputs = screen.UNSAFE_getAllByType(TextInput);
+    fireEvent.changeText(inputs[0], 'Backup passphrase 123!');
+    fireEvent.changeText(inputs[1], 'Backup passphrase 123!');
+    fireEvent.press(screen.getByText('cloudBackup.createBackup'));
+
+    await waitFor(() => expect(sharing.shareAsync).toHaveBeenCalled());
+    expect(mockSaveEncryptedBackupToAndroidDownloads).not.toHaveBeenCalled();
+    expect(sharing.shareAsync).toHaveBeenCalledWith(
+      expect.stringContaining('zaparc-backup-'),
+      expect.objectContaining({ mimeType: 'application/json' })
+    );
+    expect(alertSpy).toHaveBeenCalledWith(
+      'common.success',
+      'The encrypted backup is in the share sheet. Choose a save location to finish.'
+    );
     expect(fileSystem.deleteAsync).toHaveBeenCalled();
   });
 

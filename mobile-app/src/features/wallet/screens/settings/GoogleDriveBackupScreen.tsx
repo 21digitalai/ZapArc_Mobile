@@ -591,6 +591,8 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
         }
 
         if (backupDestination === 'localFile') {
+          const savesDirectlyToAndroidDownloads =
+            Platform.OS === 'android' && Number(Platform.Version) >= 29;
           try {
             const encryptedBackup = await encryptMnemonic(
               mnemonic,
@@ -613,7 +615,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
                 JSON.stringify(encryptedBackup),
                 { encoding: FileSystem.EncodingType.UTF8 }
               );
-              if (Platform.OS === 'android') {
+              if (savesDirectlyToAndroidDownloads) {
                 await saveEncryptedBackupToAndroidDownloads(fileUri, filename);
               } else {
                 if (!(await Sharing.isAvailableAsync())) {
@@ -634,7 +636,7 @@ export function GoogleDriveBackupScreen(): React.JSX.Element {
           }
           Alert.alert(
             t('common.success'),
-            Platform.OS === 'android'
+            savesDirectlyToAndroidDownloads
               ? 'Encrypted backup saved to Downloads/ZapArc.'
               : 'The encrypted backup is in the share sheet. Choose a save location to finish.'
           );
