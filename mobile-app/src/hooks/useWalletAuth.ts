@@ -362,28 +362,15 @@ export function useWalletAuth(): WalletAuthState & WalletAuthActions {
         return false;
       }
 
-      // Fall back to cached session PIN if biometric record missing (edge case:
-      // biometric enabled but stored PIN was wiped). Without a PIN we can't
-      // init the SDK, so refuse to unlock and let the user enter their PIN.
-      if (!pin && getModuleSessionPin()) {
-        pin = getModuleSessionPin();
-        console.log(
-          '🔍 [useWalletAuth] Using cached session PIN for SDK initialization'
-        );
-      }
-
       if (!pin) {
-        // The preference is global, but secure entries are intentionally per
-        // master wallet. A missing entry is normal for a wallet created before
-        // this feature (or after OS credentials were invalidated): keep the
-        // global preference and let the normal PIN path enroll this wallet.
-        // Authentication cancellation/failure is handled above and never
-        // reaches this branch.
+        // Never substitute a cached session PIN for a missing authenticated
+        // SecureStore read. PIN unlock is safe; a new biometric binding needs
+        // a separate, explicit opt-in from authenticated Security Settings.
         console.log(
-          'ℹ️ [useWalletAuth] No biometric key bound for this wallet; PIN is required once to enroll it'
+          'ℹ️ [useWalletAuth] No biometric key bound for this wallet; PIN and explicit re-enable required'
         );
         setError(
-          'Biometric unlock is not set up for this wallet yet. Enter your PIN once to enable it for future unlocks.'
+          'Biometric unlock is not set up for this wallet. Unlock with your PIN, then turn biometric unlock off and on again in Security Settings.'
         );
         return false;
       }

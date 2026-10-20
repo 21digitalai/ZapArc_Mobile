@@ -44,7 +44,26 @@ import * as WalletCache from '../services/walletCacheService';
 import { primeSessionPin, useWalletAuth } from '../hooks/useWalletAuth';
 
 describe('useWalletAuth biometric master-wallet switching', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    primeSessionPin(null);
+  });
+
+  it('does not unlock from a cached PIN when the authenticated biometric entry is missing', async () => {
+    primeSessionPin('111111');
+    (storageService.getBiometricPin as jest.Mock).mockResolvedValue(null);
+    const { result } = renderHook(() => useWalletAuth());
+    await waitFor(() => expect(result.current.biometricAvailable).toBe(true));
+
+    await act(async () => {
+      await expect(result.current.unlockWithBiometric()).resolves.toBe(false);
+    });
+
+    expect(storageService.getBiometricPin).toHaveBeenCalledTimes(1);
+    expect(storageService.unlockWallet).not.toHaveBeenCalled();
+    expect(storageService.storeBiometricPin).not.toHaveBeenCalled();
+    expect(result.current.error).toContain('Security Settings');
+  });
 
   it('uses each target wallet protected PIN without re-enrolling it', async () => {
     (storageService.getBiometricPin as jest.Mock)
