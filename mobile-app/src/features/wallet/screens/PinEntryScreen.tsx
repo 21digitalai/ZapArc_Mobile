@@ -242,7 +242,7 @@ export function PinEntryScreen(): React.JSX.Element {
     }
   }, [pin, unlock, selectWallet, targetMasterKeyId, targetSubWalletIndex, completeTargetWalletUnlock, shake, applyPinAuthStatus, t]);
 
-  const handleBiometricUnlock = useCallback(async () => {
+  const handleBiometricUnlock = useCallback(async (isExplicitRetry = false) => {
     if (biometricAttemptInFlightRef.current) return;
     biometricAttemptInFlightRef.current = true;
     try {
@@ -252,6 +252,8 @@ export function PinEntryScreen(): React.JSX.Element {
         setIsUnlocking(false);
         if (success) {
           completeTargetWalletUnlock();
+        } else if (isExplicitRetry) {
+          setError(t('auth.biometricUnlockUnavailable'));
         }
         return;
       }
@@ -260,14 +262,19 @@ export function PinEntryScreen(): React.JSX.Element {
 
       if (success) {
         router.replace('/wallet/home');
+      } else if (isExplicitRetry) {
+        setError(t('auth.biometricUnlockUnavailable'));
       }
     } catch (err) {
       // User cancelled or biometric failed - they can use PIN
       console.log('Biometric unlock failed:', err);
+      if (isExplicitRetry) {
+        setError(t('auth.biometricUnlockUnavailable'));
+      }
     } finally {
       biometricAttemptInFlightRef.current = false;
     }
-  }, [unlockWithBiometric, selectWalletWithBiometric, targetMasterKeyId, targetSubWalletIndex, completeTargetWalletUnlock]);
+  }, [unlockWithBiometric, selectWalletWithBiometric, targetMasterKeyId, targetSubWalletIndex, completeTargetWalletUnlock, t]);
 
   useEffect(() => {
     // Auto-prompt once per lock-screen presentation. React effects can re-run as
@@ -386,7 +393,7 @@ export function PinEntryScreen(): React.JSX.Element {
                     <TouchableOpacity
                       key={keyIndex}
                       style={styles.keypadKey}
-                      onPress={handleBiometricUnlock}
+                      onPress={() => void handleBiometricUnlock(true)}
                     >
                       <IconButton
                         icon={getBiometricIcon()}
@@ -438,7 +445,7 @@ export function PinEntryScreen(): React.JSX.Element {
         {biometricAvailable && biometricEnabled && (
           <TouchableOpacity
             style={styles.biometricLabel}
-            onPress={handleBiometricUnlock}
+            onPress={() => void handleBiometricUnlock(true)}
           >
             <Text style={[styles.biometricLabelText, { color: BRAND_COLOR }]}>{getBiometricLabel()}</Text>
           </TouchableOpacity>
