@@ -74,6 +74,7 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
     if (!claim || submitting) return;
     const sats = Number(amount);
     if (!Number.isSafeInteger(sats)) { setError(t('receiveClaim.wholeAmount')); return; }
+    let submittedPaymentId: string | null = null;
     setSubmitting(true); setError(null);
     try {
       const result = await claimLnurlWithdraw(claim, sats);
@@ -81,10 +82,14 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
         setOutcome('pending');
         return;
       }
+      submittedPaymentId = result.paymentId;
       await AsyncStorage.setItem(PENDING_RECEIVE_CLAIM_KEY, JSON.stringify({ paymentId: result.paymentId, walletKey }));
       await reconcilePendingClaim(result.paymentId);
     } catch {
-      setError(t('receiveClaim.unavailable'));
+      // A claim with a payment ID was accepted by the provider. A failed
+      // follow-up lookup must stay pending so the QR cannot be submitted again.
+      if (submittedPaymentId) setOutcome('pending');
+      else setError(t('receiveClaim.unavailable'));
     } finally { setSubmitting(false); }
   }, [amount, claim, reconcilePendingClaim, submitting, walletKey]);
 
