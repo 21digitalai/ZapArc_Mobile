@@ -49,6 +49,7 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
     if (walletKeyRef.current !== expectedWalletKey) return;
     if (payment?.type === 'receive' && payment.status === 'completed') {
       await AsyncStorage.removeItem(pendingClaimStorageKey(expectedWalletKey));
+      if (walletKeyRef.current !== expectedWalletKey) return;
       await Promise.all([refreshBalance(), refreshTransactions()]);
       if (walletKeyRef.current !== expectedWalletKey) return;
       setOutcome('received');
@@ -56,6 +57,7 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
     }
     if (payment?.type === 'receive' && payment.status === 'failed') {
       await AsyncStorage.removeItem(pendingClaimStorageKey(expectedWalletKey));
+      if (walletKeyRef.current !== expectedWalletKey) return;
       setError(t('receiveClaim.unavailable'));
       return;
     }
@@ -76,6 +78,13 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [reconcilePendingClaim, walletKey]);
+
+  useEffect(() => {
+    // A claim result is scoped to the destination wallet. Never let a screen
+    // retained by navigation show wallet A's terminal state after a switch.
+    setOutcome(null);
+    setError(null);
+  }, [walletKey]);
 
   useEffect(() => {
     if (!lnurl) { setError(t('receiveClaim.missing')); setLoading(false); return; }
