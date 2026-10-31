@@ -41,7 +41,9 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
   // Controlled fixtures intentionally avoid creating or loading a real wallet.
   // They still need a stable destination identity to exercise the same pending
   // reconciliation state machine that production uses for an active wallet.
-  const walletKey = pendingClaimWalletKey(activeWalletInfo) ?? (receiveClaimFixture ? 'development-fixture:0' : null);
+  const walletKey = pendingClaimWalletKey(activeWalletInfo) ?? (receiveClaimFixture
+    ? `development-fixture:${receiveClaimFixture.claimResult.paymentId}`
+    : null);
   const walletKeyRef = useRef(walletKey);
   const fixtureRef = useRef<ReceiveClaimFixture | null>(null);
 

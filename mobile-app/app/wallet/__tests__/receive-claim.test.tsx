@@ -135,7 +135,7 @@ describe('receive claim post-submit reconciliation', () => {
 
     await waitFor(() => expect(screen.getByText('receiveClaim.unavailable')).toBeTruthy());
     expect(mockSetItem).toHaveBeenCalledWith(
-      '@zap_arc/pending_receive_claim_v1_development-fixture%3A0',
+      '@zap_arc/pending_receive_claim_v1_development-fixture%3Adev-fixture-expired',
       expect.any(String),
     );
     expect(mockRefreshA).not.toHaveBeenCalled();
