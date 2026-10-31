@@ -97,7 +97,11 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
       <Button mode="contained" onPress={() => router.replace('/wallet/home')} buttonColor={BRAND_COLOR}>{t('common.done')}</Button>
     </> : claim ? <>
       <Text style={{ color: textColor }}>{claim.description}</Text>
-      <Text style={{ color: textColor }}>{t('receiveClaim.destination')} {claim.minSats === claim.maxSats ? `${claim.minSats} sats` : `${claim.minSats}–${claim.maxSats} sats`}.</Text>
+      <Text style={{ color: textColor }}>{t('receiveClaim.destinationAmount', {
+        amount: claim.minSats === claim.maxSats
+          ? String(claim.minSats)
+          : `${claim.minSats}–${claim.maxSats}`,
+      })}</Text>
       <TextInput label={t('receiveClaim.amount')} value={amount} onChangeText={setAmount} keyboardType="number-pad" disabled={submitting} />
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       <Button mode="contained" onPress={confirmClaim} loading={submitting} disabled={submitting} buttonColor={BRAND_COLOR}>{t('receiveClaim.claim')}</Button>

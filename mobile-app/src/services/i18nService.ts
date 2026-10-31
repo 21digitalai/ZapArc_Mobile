@@ -175,7 +175,7 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
     },
 
     receiveClaim: {
-      title: 'Receive sats', loading: 'Checking receive claim…', missing: 'This receive claim is missing its QR data. Scan it again.', invalid: 'This QR cannot be used to receive sats.', amount: 'Amount (sats)', wholeAmount: 'Enter a whole number of sats.', claim: 'Claim sats', cancel: 'Cancel', scanAnother: 'Scan another QR', pending: 'Claim submitted. Settlement is pending; do not scan this QR again.', received: 'Sats received. Your wallet is refreshing.', unavailable: 'This claim may be expired, already taken, or temporarily unavailable.', destination: 'This QR can receive into your current wallet:',
+      title: 'Receive sats', loading: 'Checking receive claim…', missing: 'This receive claim is missing its QR data. Scan it again.', invalid: 'This QR cannot be used to receive sats.', amount: 'Amount (sats)', wholeAmount: 'Enter a whole number of sats.', claim: 'Claim sats', cancel: 'Cancel', scanAnother: 'Scan another QR', pending: 'Claim submitted. Settlement is pending; do not scan this QR again.', received: 'Sats received. Your wallet is refreshing.', unavailable: 'This claim may be expired, already taken, or temporarily unavailable.', destination: 'This QR can receive into your current wallet:', destinationAmount: 'This QR can receive {{amount}} sats into your current wallet.',
     },
 
     send: {
@@ -871,7 +871,7 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
     },
 
     receiveClaim: {
-      title: 'Получи сатошита', loading: 'Проверяваме заявката…', missing: 'В заявката липсват QR данни. Сканирайте отново.', invalid: 'Този QR код не може да се използва за получаване на сатошита.', amount: 'Сума (сатошита)', wholeAmount: 'Въведете цяло число сатошита.', claim: 'Получете сатошита', cancel: 'Отказ', scanAnother: 'Сканирайте друг QR код', pending: 'Заявката е изпратена. Изплащането изчаква; не сканирайте този QR код отново.', received: 'Сатошитата са получени. Портфейлът се обновява.', unavailable: 'Заявката може да е изтекла, вече използвана или временно недостъпна.', destination: 'Този QR код може да получи в текущия ви портфейл:',
+      title: 'Получи сатошита', loading: 'Проверяваме заявката…', missing: 'В заявката липсват QR данни. Сканирайте отново.', invalid: 'Този QR код не може да се използва за получаване на сатошита.', amount: 'Сума (сатошита)', wholeAmount: 'Въведете цяло число сатошита.', claim: 'Получете сатошита', cancel: 'Отказ', scanAnother: 'Сканирайте друг QR код', pending: 'Заявката е изпратена. Изплащането изчаква; не сканирайте този QR код отново.', received: 'Сатошитата са получени. Портфейлът се обновява.', unavailable: 'Заявката може да е изтекла, вече използвана или временно недостъпна.', destination: 'Този QR код може да получи в текущия ви портфейл:', destinationAmount: 'Този QR код може да получи {{amount}} сатошита в текущия ви портфейл.',
     },
 
     send: {

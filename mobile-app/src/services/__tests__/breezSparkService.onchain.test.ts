@@ -22,6 +22,7 @@ const mockParse = jest.fn();
 const mockPrepareSendPayment = jest.fn();
 const mockPrepareLnurlPay = jest.fn();
 const mockLnurlPay = jest.fn();
+const mockLnurlWithdraw = jest.fn();
 const mockAddEventListener = jest.fn().mockResolvedValue('listener-id');
 const mockRemoveEventListener = jest.fn().mockResolvedValue(undefined);
 const mockGetPayment = jest.fn();
@@ -44,6 +45,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
   ListPaymentsRequest: { new: jest.fn((params) => params) },
   PrepareSendPaymentRequest: { new: jest.fn((params) => params) },
   PrepareLnurlPayRequest: { new: jest.fn((params) => params) },
+  LnurlWithdrawRequest: { new: jest.fn((params) => params) },
   ReceivePaymentRequest: { new: jest.fn((params) => params) },
   SendPaymentRequest: { new: jest.fn((params) => params) },
   PaymentRequest: {
@@ -94,6 +96,7 @@ jest.mock('@breeztech/breez-sdk-spark-react-native', () => ({
     prepareSendPayment: (...args: unknown[]) => mockPrepareSendPayment(...args),
     prepareLnurlPay: (...args: unknown[]) => mockPrepareLnurlPay(...args),
     lnurlPay: (...args: unknown[]) => mockLnurlPay(...args),
+    lnurlWithdraw: (...args: unknown[]) => mockLnurlWithdraw(...args),
     addEventListener: (...args: unknown[]) => mockAddEventListener(...args),
     removeEventListener: (...args: unknown[]) => mockRemoveEventListener(...args),
     getPayment: (...args: unknown[]) => mockGetPayment(...args),
@@ -133,6 +136,57 @@ describe('LNURL withdraw amount limits', () => {
     const { normalizeLnurlWithdrawLimits } = require('../breezSparkService');
     expect(normalizeLnurlWithdrawLimits(21000n, 21000n)).toEqual({ minSats: 21, maxSats: 21 });
     expect(() => normalizeLnurlWithdrawLimits(1500n, 1999n)).toThrow('invalid withdrawal limits');
+  });
+});
+
+describe('LNURL withdraw claims', () => {
+  const request = {
+    minWithdrawable: 2_000n,
+    maxWithdrawable: 5_000n,
+    defaultDescription: 'Fixture claim',
+  };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+  });
+
+  it('resolves only SDK LNURL-withdraw input and preserves safe sat limits', async () => {
+    const svc = require('../breezSparkService');
+    mockParse.mockResolvedValueOnce({ tag: 'LnurlWithdraw', inner: [request] });
+    await expect(svc.resolveLnurlWithdraw(' lnurl1fixture ')).resolves.toMatchObject({
+      request, minSats: 2, maxSats: 5, description: 'Fixture claim',
+    });
+    mockParse.mockResolvedValueOnce({ tag: 'Bolt11Invoice', inner: {} });
+    await expect(svc.resolveLnurlWithdraw('lnbcfixture')).rejects.toThrow('not a receive claim');
+  });
+
+  it('rejects out-of-range claim amounts without submitting', async () => {
+    const svc = require('../breezSparkService');
+    await expect(svc.claimLnurlWithdraw({ request, minSats: 2, maxSats: 5, description: '' }, 1))
+      .rejects.toThrow('Choose an amount between 2 and 5 sats.');
+    expect(mockLnurlWithdraw).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [0, 'completed', 'payment-completed'],
+    [1, 'pending', 'payment-pending'],
+  ])('maps SDK claim status %s to %s', async (sdkStatus, expected, paymentId) => {
+    const svc = require('../breezSparkService');
+    mockLnurlWithdraw.mockResolvedValueOnce({ payment: { id: paymentId, status: sdkStatus } });
+    await expect(svc.claimLnurlWithdraw({ request, minSats: 2, maxSats: 5, description: '' }, 2))
+      .resolves.toEqual({ status: expected, paymentId });
+  });
+
+  it('keeps no-payment responses pending and rejects failed claims', async () => {
+    const svc = require('../breezSparkService');
+    mockLnurlWithdraw.mockResolvedValueOnce({});
+    await expect(svc.claimLnurlWithdraw({ request, minSats: 2, maxSats: 5, description: '' }, 2))
+      .resolves.toEqual({ status: 'pending', paymentId: undefined });
+    mockLnurlWithdraw.mockResolvedValueOnce({ payment: { id: 'payment-failed', status: 2 } });
+    await expect(svc.claimLnurlWithdraw({ request, minSats: 2, maxSats: 5, description: '' }, 2))
+      .rejects.toThrow('provider rejected');
   });
 });
 
