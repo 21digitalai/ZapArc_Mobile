@@ -3463,6 +3463,16 @@ export interface LnurlWithdrawResult {
   paymentId?: string;
 }
 
+export type LnurlWithdrawResolveErrorCode = 'invalid' | 'unavailable';
+
+/** A safe, user-facing classification for LNURL-withdraw resolution failures. */
+export class LnurlWithdrawResolveError extends Error {
+  constructor(public readonly code: LnurlWithdrawResolveErrorCode) {
+    super(code === 'invalid' ? 'not a receive claim' : 'receive claim unavailable');
+    this.name = 'LnurlWithdrawResolveError';
+  }
+}
+
 export function normalizeLnurlWithdrawLimits(minMsat: bigint, maxMsat: bigint): { minSats: number; maxSats: number } {
   // Claims accept whole sats. Round the lower bound up so we never submit below
   // the provider's advertised minimum; round the upper bound down for the same reason.
@@ -3476,14 +3486,21 @@ export function normalizeLnurlWithdrawLimits(minMsat: bigint, maxMsat: bigint): 
 
 /** Resolve a receive-only LNURL-withdraw request through the native SDK. */
 export async function resolveLnurlWithdraw(input: string): Promise<LnurlWithdrawClaim> {
-  if (!_isNativeAvailable || !sdkInstance) throw new Error('Wallet SDK unavailable');
-  const parsed = await sdkInstance.parse(input.trim());
-  if (parsed.tag !== 'LnurlWithdraw' || !parsed.inner) {
-    throw new Error('This QR code is not a receive claim. Scan an LNURL-withdraw QR code.');
+  if (!_isNativeAvailable || !sdkInstance) throw new LnurlWithdrawResolveError('unavailable');
+  try {
+    const parsed = await sdkInstance.parse(input.trim());
+    if (parsed.tag !== 'LnurlWithdraw' || !parsed.inner) {
+      throw new LnurlWithdrawResolveError('invalid');
+    }
+    const request = unwrapParsedInner(parsed.inner);
+    const { minSats, maxSats } = normalizeLnurlWithdrawLimits(request.minWithdrawable, request.maxWithdrawable);
+    return { request, minSats, maxSats, description: request.defaultDescription || 'Lightning receive claim' };
+  } catch (error) {
+    if (error instanceof LnurlWithdrawResolveError) throw error;
+    // SDK and provider details can contain claim tokens. Keep them out of UI
+    // and logs while preserving a retry-safe unavailable outcome.
+    throw new LnurlWithdrawResolveError('unavailable');
   }
-  const request = unwrapParsedInner(parsed.inner);
-  const { minSats, maxSats } = normalizeLnurlWithdrawLimits(request.minWithdrawable, request.maxWithdrawable);
-  return { request, minSats, maxSats, description: request.defaultDescription || 'Lightning receive claim' };
 }
 
 /** Submit one confirmed claim. Never retry automatically: timeouts are ambiguous. */

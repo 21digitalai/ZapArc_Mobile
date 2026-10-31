@@ -1,5 +1,4 @@
 import React from 'react';
-import { Alert } from 'react-native';
 import { render, fireEvent, screen, waitFor } from '@testing-library/react-native';
 
 import { QRScannerScreen } from '../QRScannerScreen';
@@ -10,6 +9,7 @@ const mockUseLocalSearchParams = jest.fn(() => ({}));
 const mockLaunchImageLibraryAsync = jest.fn();
 const mockScanFromURLAsync = jest.fn();
 const mockUseCameraPermissions = jest.fn(() => [{ granted: true }, jest.fn()]);
+const mockShowError = jest.fn();
 const mockReact = jest.requireActual<typeof import('react')>('react');
 const mockReactNative = jest.requireActual<typeof import('react-native')>('react-native');
 
@@ -48,11 +48,16 @@ jest.mock('../../../../components', () => {
   };
 });
 
+jest.mock('../../components/FeedbackComponents', () => ({
+  useFeedback: () => ({ showError: (...args: unknown[]) => mockShowError(...args) }),
+}));
+
 describe('QRScannerScreen scan routing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUseLocalSearchParams.mockReturnValue({});
     mockUseCameraPermissions.mockReturnValue([{ granted: true }, jest.fn()]);
+    mockShowError.mockClear();
     mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: true, assets: [] });
   });
 
@@ -97,35 +102,26 @@ describe('QRScannerScreen scan routing', () => {
   it('keeps outgoing invoices out of the receive-only scanner flow', async () => {
     mockUseLocalSearchParams.mockReturnValue({ mode: 'receive' });
     mockParsePaymentRequest.mockResolvedValue({ isValid: true, type: 'bolt11' });
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
-
     render(<QRScannerScreen />);
     fireEvent.press(screen.getByText('Enter Manually'));
     fireEvent.changeText(screen.getByPlaceholderText('lnbc... or LNURL... or user@domain.com'), 'lnbc1payment');
     fireEvent.press(screen.getByText('Continue'));
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('This QR requests a payment. Scan an LNURL-withdraw QR code to receive sats.'));
     expect(mockPush).not.toHaveBeenCalled();
-    alertSpy.mockRestore();
   });
 
   it('rejects a USDB Spark invoice while the multi-asset UI is disabled', async () => {
     mockUseLocalSearchParams.mockReturnValue({ asset: 'USDB' });
     mockParsePaymentRequest.mockResolvedValue({ isValid: false });
 
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
     render(<QRScannerScreen />);
     fireEvent.press(screen.getByText('Enter Manually'));
     fireEvent.changeText(screen.getByPlaceholderText('lnbc... or LNURL... or user@domain.com'), 'spark:abc123?tokenIdentifier=usdb-mainnet');
     fireEvent.press(screen.getByText('Continue'));
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(
-      'USDB not supported',
-      expect.stringContaining('not available in this version'),
-      expect.any(Array)
-    ));
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('USDB transfers are not available in this version. Scan a Bitcoin or Lightning QR code instead.'));
     expect(mockPush).not.toHaveBeenCalled();
-    alertSpy.mockRestore();
   });
 
   it('routes bitcoin address to BTC onchain send flow', async () => {
@@ -161,34 +157,29 @@ describe('QRScannerScreen scan routing', () => {
   });
 
   it('keeps cancellation quiet and reports ambiguous or empty gallery scans', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
     render(<QRScannerScreen />);
     fireEvent.press(screen.getByText('Scan from Gallery'));
     await waitFor(() => expect(mockLaunchImageLibraryAsync).toHaveBeenCalled());
-    expect(alertSpy).not.toHaveBeenCalled();
+    expect(mockShowError).not.toHaveBeenCalled();
 
     mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///ambiguous.png' }] });
     mockScanFromURLAsync.mockResolvedValue([{ data: 'one' }, { data: 'two' }]);
     fireEvent.press(screen.getByText('Scan from Gallery'));
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Multiple QR codes found', expect.any(String)));
-    alertSpy.mockRestore();
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('More than one QR code was found. Choose an image with only one QR code.'));
   });
 
   it('reports when a selected image has no QR code', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
     mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///no-qr.png' }] });
     mockScanFromURLAsync.mockResolvedValue([]);
 
     render(<QRScannerScreen />);
     fireEvent.press(screen.getByText('Scan from Gallery'));
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('No QR code found', expect.any(String)));
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('No QR code was found. Choose an image with one QR code.'));
     expect(mockPush).not.toHaveBeenCalled();
-    alertSpy.mockRestore();
   });
 
   it('reports unsupported gallery content without routing or submitting a payment', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
     mockParsePaymentRequest.mockResolvedValue({ isValid: false });
     mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///unsupported.png' }] });
     mockScanFromURLAsync.mockResolvedValue([{ data: 'not-a-payment-request', type: 'qr' }]);
@@ -196,22 +187,19 @@ describe('QRScannerScreen scan routing', () => {
     render(<QRScannerScreen />);
     fireEvent.press(screen.getByText('Scan from Gallery'));
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Unknown QR Code', expect.any(String), expect.any(Array)));
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('This QR code is not a supported Lightning, LNURL, Spark, or Bitcoin payment request.'));
     expect(mockPush).not.toHaveBeenCalled();
-    alertSpy.mockRestore();
   });
 
   it('reports image scan failures without routing', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
     mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///corrupt.png' }] });
     mockScanFromURLAsync.mockRejectedValue(new Error('decode failed'));
 
     render(<QRScannerScreen />);
     fireEvent.press(screen.getByText('Scan from Gallery'));
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Could not scan image', expect.any(String)));
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('This image could not be scanned. Try a clearer image with one QR code.'));
     expect(mockPush).not.toHaveBeenCalled();
-    alertSpy.mockRestore();
   });
 
   it('ignores rapid duplicate gallery taps while a picker is pending', async () => {

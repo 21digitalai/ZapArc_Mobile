@@ -18,6 +18,13 @@ type PendingReceiveClaim = {
   walletKey: string;
 };
 
+function isInvalidResolveError(error: unknown): boolean {
+  return !!error
+    && typeof error === 'object'
+    && (error as { name?: unknown }).name === 'LnurlWithdrawResolveError'
+    && (error as { code?: unknown }).code === 'invalid';
+}
+
 function pendingClaimWalletKey(wallet: { masterKeyId: string; subWalletIndex: number } | null): string | null {
   return wallet ? `${wallet.masterKeyId}:${wallet.subWalletIndex}` : null;
 }
@@ -104,7 +111,12 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
     (fixture ? Promise.resolve(fixture.claim) : resolveLnurlWithdraw(lnurl)).then((resolved) => {
       setClaim(resolved);
       setAmount(resolved.minSats === resolved.maxSats ? String(resolved.minSats) : String(resolved.maxSats));
-    }).catch(() => setError(t('receiveClaim.invalid')))
+    }).catch((resolveError: unknown) => {
+      const errorKey = isInvalidResolveError(resolveError)
+        ? 'receiveClaim.invalid'
+        : 'receiveClaim.unavailable';
+      setError(t(errorKey));
+    })
       .finally(() => setLoading(false));
   }, [lnurl, receiveClaimFixture]);
 

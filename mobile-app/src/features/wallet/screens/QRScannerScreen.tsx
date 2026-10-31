@@ -8,7 +8,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Keyboard,
-  Alert,
   BackHandler,
 } from 'react-native';
 import { StyledTextInput } from '../../../components';
@@ -24,6 +23,7 @@ import { createSafeBackHandler } from '../utils/safeBack';
 import { pickSingleGalleryQr } from '../utils/galleryQr';
 import { t } from '../../../services/i18nService';
 import { getReceiveClaimFixture } from '../../../services/receiveClaimFixture';
+import { useFeedback } from '../components/FeedbackComponents';
 
 
 // =============================================================================
@@ -43,6 +43,7 @@ interface ParsedQRData {
 // =============================================================================
 
 export function QRScannerScreen(): React.JSX.Element {
+  const { showError } = useFeedback();
   const safeBack = useMemo(() => createSafeBackHandler({
     canGoBack: () => router.canGoBack(),
     back: () => router.back(),
@@ -155,10 +156,9 @@ export function QRScannerScreen(): React.JSX.Element {
       try {
         const parsed = await parseQRData(data);
         if (isReceiveMode && parsed.type !== 'lnurlWithdraw') {
-          Alert.alert(t('receive.unsupportedTitle'), t('receive.unsupportedReceiveQr'), [{
-            text: t('common.done'),
-            onPress: (): void => { setScanned(false); setIsProcessing(false); },
-          }]);
+          showError(t('receive.unsupportedReceiveQr'));
+          setScanned(false);
+          setIsProcessing(false);
           return;
         }
         const requestedAssetRaw = Array.isArray(params.asset) ? params.asset[0] : params.asset;
@@ -169,11 +169,9 @@ export function QRScannerScreen(): React.JSX.Element {
         // silently fail or land the user on a hidden tab. Better to show a
         // clear "not supported in this version" message.
         if (!MULTI_ASSET_UI_ENABLED && tokenLooksUsdb) {
-          Alert.alert(
-            'USDB not supported',
-            'USDB transfers are not available in this version. Please scan a Bitcoin or Lightning invoice instead.',
-            [{ text: 'OK', onPress: (): void => { setScanned(false); setIsProcessing(false); } }]
-          );
+          showError(t('receive.usdbUnsupported'));
+          setScanned(false);
+          setIsProcessing(false);
           return;
         }
         const sparkAsset = tokenLooksUsdb || requestedAsset === 'USDB' ? 'USDB' : 'BTC';
@@ -225,30 +223,19 @@ export function QRScannerScreen(): React.JSX.Element {
             break;
 
           case 'unknown':
-            Alert.alert(
-              'Unknown QR Code',
-              'This QR code is not a valid Lightning invoice, LNURL, Spark payload, or Lightning address.',
-              [
-                {
-                  text: 'OK',
-                  onPress: (): void => {
-                    setScanned(false);
-                    setIsProcessing(false);
-                  },
-                },
-              ]
-            );
+            showError(t('receive.unknownQr'));
+            setScanned(false);
+            setIsProcessing(false);
             break;
         }
-      } catch (error) {
-        console.error('Error processing QR code:', error);
-        Alert.alert('Error', 'Failed to process QR code');
+      } catch {
+        showError(t('receive.processQrFailed'));
         setScanned(false);
       } finally {
         setIsProcessing(false);
       }
     },
-    [isProcessing, scanned, parseQRData, params.asset, isReceiveMode]
+    [isProcessing, scanned, parseQRData, params.asset, isReceiveMode, showError]
   );
 
   const openReceiveQaFixture = useCallback(() => {
@@ -290,17 +277,17 @@ export function QRScannerScreen(): React.JSX.Element {
       const result = await pickSingleGalleryQr();
       if (result.kind === 'cancelled') return;
       if (result.kind === 'missing') {
-        Alert.alert('Could not read image', 'Choose a different image and try again.');
+        showError(t('receive.galleryUnreadable'));
         return;
       }
 
       if (result.kind === 'empty') {
-        Alert.alert('No QR code found', 'Choose an image with one payment QR code.');
+        showError(t('receive.galleryEmpty'));
         return;
       }
 
       if (result.kind === 'multiple') {
-        Alert.alert('Multiple QR codes found', 'Choose an image with only one payment QR code.');
+        showError(t('receive.galleryMultiple'));
         return;
       }
 
@@ -308,12 +295,12 @@ export function QRScannerScreen(): React.JSX.Element {
         await handleScannedData(result.payload, true);
       }
     } catch {
-      Alert.alert('Could not scan image', 'Try a clearer image with a payment QR code.');
+      showError(t('receive.galleryScanFailed'));
     } finally {
       isGalleryScanningRef.current = false;
       setIsProcessing(false);
     }
-  }, [handleScannedData, isProcessing, scanned]);
+  }, [handleScannedData, isProcessing, scanned, showError]);
 
   // ========================================
   // Permission Request

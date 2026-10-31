@@ -10,6 +10,12 @@ const mockGetItem = jest.fn();
 const mockRemoveItem = jest.fn();
 const mockRefreshA = jest.fn();
 const mockRefreshB = jest.fn();
+class MockLnurlWithdrawResolveError extends Error {
+  constructor(public readonly code: 'invalid' | 'unavailable') {
+    super(code);
+    this.name = 'LnurlWithdrawResolveError';
+  }
+}
 let mockActiveWallet: { masterKeyId: string; subWalletIndex: number } | null = { masterKeyId: 'wallet', subWalletIndex: 0 };
 let mockLnurl = 'lnurl1controlledfixture';
 
@@ -44,6 +50,7 @@ jest.mock('../../../src/services/breezSparkService', () => ({
   resolveLnurlWithdraw: (...args: unknown[]) => mockResolve(...args),
   claimLnurlWithdraw: (...args: unknown[]) => mockClaim(...args),
   getPayment: (...args: unknown[]) => mockGetPayment(...args),
+  LnurlWithdrawResolveError: MockLnurlWithdrawResolveError,
 }));
 jest.mock('../../../src/contexts/ThemeContext', () => ({ useAppTheme: () => ({ themeMode: 'light' }) }));
 jest.mock('../../../src/hooks/useWallet', () => ({ useWallet: () => ({
@@ -141,4 +148,22 @@ describe('receive claim post-submit reconciliation', () => {
     expect(mockRefreshA).not.toHaveBeenCalled();
     expect(mockRefreshB).not.toHaveBeenCalled();
   });
+
+  it('shows invalid only for a typed invalid resolve error', async () => {
+    mockResolve.mockRejectedValue(new MockLnurlWithdrawResolveError('invalid'));
+    render(<ReceiveClaimScreen />);
+
+    await waitFor(() => expect(screen.getByText('receiveClaim.invalid')).toBeTruthy());
+  });
+
+  it.each([new MockLnurlWithdrawResolveError('unavailable'), new Error('provider text must not surface')])(
+    'shows retry-safe unavailable feedback for resolve failures',
+    async (resolveError) => {
+      mockResolve.mockRejectedValue(resolveError);
+      render(<ReceiveClaimScreen />);
+
+      await waitFor(() => expect(screen.getByText('receiveClaim.unavailable')).toBeTruthy());
+      expect(screen.queryByText('provider text must not surface')).toBeNull();
+    },
+  );
 });
