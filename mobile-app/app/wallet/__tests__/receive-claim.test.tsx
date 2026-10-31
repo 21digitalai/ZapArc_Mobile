@@ -103,4 +103,23 @@ describe('receive claim post-submit reconciliation', () => {
     expect(mockRefreshB).not.toHaveBeenCalled();
     expect(screen.getByText('receiveClaim.claim')).toBeTruthy();
   });
+
+  it('does not render wallet A pending state after its submitted lookup rejects on wallet B', async () => {
+    let rejectLookup: ((error: Error) => void) | undefined;
+    mockGetPayment.mockImplementation(() => new Promise((_, reject) => { rejectLookup = reject; }));
+    const view = render(<ReceiveClaimScreen />);
+    await waitFor(() => expect(screen.getByText('receiveClaim.claim')).toBeTruthy());
+
+    fireEvent.press(screen.getByText('receiveClaim.claim'));
+    await waitFor(() => expect(mockGetPayment).toHaveBeenCalled());
+
+    mockActiveWallet = { masterKeyId: 'wallet-b', subWalletIndex: 0 };
+    view.rerender(<ReceiveClaimScreen />);
+    await waitFor(() => expect(screen.getByText('receiveClaim.claim')).toBeTruthy());
+    rejectLookup?.(new Error('temporary lookup failure'));
+    await Promise.resolve();
+
+    expect(screen.queryByText('receiveClaim.pending')).toBeNull();
+    expect(screen.getByText('receiveClaim.claim')).toBeTruthy();
+  });
 });

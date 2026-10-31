@@ -88,6 +88,7 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
     // retained by navigation show wallet A's terminal state after a switch.
     setOutcome(null);
     setError(null);
+    setSubmitting(false);
   }, [walletKey]);
 
   useEffect(() => {
@@ -105,6 +106,7 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
     if (!claim || submitting) return;
     const sats = Number(amount);
     if (!Number.isSafeInteger(sats)) { setError(t('receiveClaim.wholeAmount')); return; }
+    const expectedWalletKey = walletKey;
     let submittedPaymentId: string | null = null;
     setSubmitting(true); setError(null);
     try {
@@ -112,19 +114,23 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
       const result = fixture
         ? fixture.claimResult
         : await claimLnurlWithdraw(claim, sats);
-      if (!result.paymentId || !walletKey) {
-        setOutcome('pending');
+      if (!result.paymentId || !expectedWalletKey) {
+        if (walletKeyRef.current === expectedWalletKey) setOutcome('pending');
         return;
       }
       submittedPaymentId = result.paymentId;
-      await AsyncStorage.setItem(pendingClaimStorageKey(walletKey), JSON.stringify({ paymentId: result.paymentId, walletKey }));
-      await reconcilePendingClaim(result.paymentId, walletKey);
+      await AsyncStorage.setItem(pendingClaimStorageKey(expectedWalletKey), JSON.stringify({ paymentId: result.paymentId, walletKey: expectedWalletKey }));
+      if (walletKeyRef.current !== expectedWalletKey) return;
+      await reconcilePendingClaim(result.paymentId, expectedWalletKey);
     } catch {
       // A claim with a payment ID was accepted by the provider. A failed
       // follow-up lookup must stay pending so the QR cannot be submitted again.
+      if (walletKeyRef.current !== expectedWalletKey) return;
       if (submittedPaymentId) setOutcome('pending');
       else setError(t('receiveClaim.unavailable'));
-    } finally { setSubmitting(false); }
+    } finally {
+      if (walletKeyRef.current === expectedWalletKey) setSubmitting(false);
+    }
   }, [amount, claim, reconcilePendingClaim, submitting, walletKey]);
 
   return <SafeAreaView style={[styles.page, { backgroundColor: getAppBackgroundColor(themeMode) }]}>
