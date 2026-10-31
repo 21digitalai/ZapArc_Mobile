@@ -123,6 +123,19 @@ describe('Breez production readiness', () => {
   });
 });
 
+describe('LNURL withdraw amount limits', () => {
+  it('rounds a non-whole-sat minimum up and maximum down without permitting an invalid provider amount', () => {
+    const { normalizeLnurlWithdrawLimits } = require('../breezSparkService');
+    expect(normalizeLnurlWithdrawLimits(1500n, 2999n)).toEqual({ minSats: 2, maxSats: 2 });
+  });
+
+  it('preserves fixed whole-sat limits and rejects ranges with no whole sat', () => {
+    const { normalizeLnurlWithdrawLimits } = require('../breezSparkService');
+    expect(normalizeLnurlWithdrawLimits(21000n, 21000n)).toEqual({ minSats: 21, maxSats: 21 });
+    expect(() => normalizeLnurlWithdrawLimits(1500n, 1999n)).toThrow('invalid withdrawal limits');
+  });
+});
+
 describe('Breez payment detail adapters', () => {
   it('preserves the Breez payment response shape while redacting sensitive Lightning fields', () => {
     const { sanitizeBreezPaymentSnapshot } = require('../breezSparkService');

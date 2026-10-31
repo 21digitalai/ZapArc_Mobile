@@ -3463,6 +3463,17 @@ export interface LnurlWithdrawResult {
   paymentId?: string;
 }
 
+export function normalizeLnurlWithdrawLimits(minMsat: bigint, maxMsat: bigint): { minSats: number; maxSats: number } {
+  // Claims accept whole sats. Round the lower bound up so we never submit below
+  // the provider's advertised minimum; round the upper bound down for the same reason.
+  const minSats = Number((minMsat + 999n) / 1000n);
+  const maxSats = Number(maxMsat / 1000n);
+  if (!Number.isSafeInteger(minSats) || !Number.isSafeInteger(maxSats) || minSats <= 0 || maxSats < minSats) {
+    throw new Error('This receive claim has invalid withdrawal limits.');
+  }
+  return { minSats, maxSats };
+}
+
 /** Resolve a receive-only LNURL-withdraw request through the native SDK. */
 export async function resolveLnurlWithdraw(input: string): Promise<LnurlWithdrawClaim> {
   if (!_isNativeAvailable || !sdkInstance) throw new Error('Wallet SDK unavailable');
@@ -3471,11 +3482,7 @@ export async function resolveLnurlWithdraw(input: string): Promise<LnurlWithdraw
     throw new Error('This QR code is not a receive claim. Scan an LNURL-withdraw QR code.');
   }
   const request = unwrapParsedInner(parsed.inner);
-  const minSats = Number(request.minWithdrawable / 1000n);
-  const maxSats = Number(request.maxWithdrawable / 1000n);
-  if (!Number.isSafeInteger(minSats) || !Number.isSafeInteger(maxSats) || minSats <= 0 || maxSats < minSats) {
-    throw new Error('This receive claim has invalid withdrawal limits.');
-  }
+  const { minSats, maxSats } = normalizeLnurlWithdrawLimits(request.minWithdrawable, request.maxWithdrawable);
   return { request, minSats, maxSats, description: request.defaultDescription || 'Lightning receive claim' };
 }
 
