@@ -23,6 +23,7 @@ import { MULTI_ASSET_UI_ENABLED } from '../../../config/features';
 import { createSafeBackHandler } from '../utils/safeBack';
 import { pickSingleGalleryQr } from '../utils/galleryQr';
 import { t } from '../../../services/i18nService';
+import { getReceiveClaimFixture } from '../../../services/receiveClaimFixture';
 
 
 // =============================================================================
@@ -51,9 +52,11 @@ export function QRScannerScreen(): React.JSX.Element {
     const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
     return () => subscription.remove();
   }, [safeBack]));
-  const params = useLocalSearchParams<{ asset?: string | string[]; mode?: string | string[] }>();
+  const params = useLocalSearchParams<{ asset?: string | string[]; mode?: string | string[]; fixture?: string | string[] }>();
   const receiveModeRaw = Array.isArray(params.mode) ? params.mode[0] : params.mode;
   const isReceiveMode = receiveModeRaw === 'receive';
+  const fixtureRaw = Array.isArray(params.fixture) ? params.fixture[0] : params.fixture;
+  const receiveQaFixture = fixtureRaw && getReceiveClaimFixture(fixtureRaw) ? fixtureRaw : null;
   // State
   const [permission, requestPermission] = useCameraPermissions();
   // Manual keyboard avoidance for the manual-entry form (the multiline code
@@ -247,6 +250,11 @@ export function QRScannerScreen(): React.JSX.Element {
     },
     [isProcessing, scanned, parseQRData, params.asset, isReceiveMode]
   );
+
+  const openReceiveQaFixture = useCallback(() => {
+    if (!receiveQaFixture || !isReceiveMode) return;
+    router.push({ pathname: '/wallet/receive-claim', params: { lnurl: receiveQaFixture } });
+  }, [isReceiveMode, receiveQaFixture]);
 
   // ========================================
   // Camera Barcode Handler
@@ -471,6 +479,11 @@ export function QRScannerScreen(): React.JSX.Element {
       <SafeAreaView style={styles.bottomActions} edges={['bottom']}>
         {scanMode === 'camera' && (
           <View style={styles.cameraActions}>
+            {receiveQaFixture && isReceiveMode && (
+              <TouchableOpacity style={styles.qaFixtureButton} onPress={openReceiveQaFixture}>
+                <Text style={styles.qaFixtureButtonText}>Use receive QA fixture</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={styles.actionButton}
               onPress={() => setFlashEnabled(!flashEnabled)}
@@ -782,6 +795,18 @@ const styles = StyleSheet.create({
     color: BRAND_COLOR,
     fontSize: 14,
     fontWeight: '600',
+  },
+  qaFixtureButton: {
+    borderColor: BRAND_COLOR,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 12,
+    padding: 10,
+  },
+  qaFixtureButtonText: {
+    color: BRAND_COLOR,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   switchModeButton: {
     flexDirection: 'row',

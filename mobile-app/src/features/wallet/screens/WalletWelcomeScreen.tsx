@@ -52,6 +52,13 @@ export function WalletWelcomeScreen(): React.JSX.Element {
     router.push('/wallet/import');
   };
 
+  const openReceiveQaFixture = (scenario: 'completed' | 'pending' | 'expired' | 'taken' | 'rejected'): void => {
+    router.push({
+      pathname: '/wallet/scan',
+      params: { mode: 'receive', fixture: `zaparc-dev-receive-claim:${scenario}` },
+    });
+  };
+
   const handleAddSubWallet = useCallback(() => {
     if (!activeMasterKey) return;
     
@@ -142,6 +149,25 @@ export function WalletWelcomeScreen(): React.JSX.Element {
             >
               {t('onboarding.restoreFromCloud')}
             </Button>
+
+            {__DEV__ && (
+              <View style={styles.receiveQaSection}>
+                <Text style={[styles.receiveQaLabel, { color: secondaryText }]}>Receive QA fixtures (development only)</Text>
+                <View style={styles.receiveQaButtons}>
+                  {(['completed', 'pending', 'expired', 'taken', 'rejected'] as const).map((scenario) => (
+                    <Button
+                      key={scenario}
+                      mode="text"
+                      compact
+                      onPress={() => openReceiveQaFixture(scenario)}
+                      accessibilityLabel={`Open ${scenario} receive claim fixture`}
+                    >
+                      {scenario}
+                    </Button>
+                  ))}
+                </View>
+              </View>
+            )}
 
             {/* Add Sub-Wallet Button - only show if logged in */}
             {activeMasterKey && (
@@ -347,6 +373,18 @@ const styles = StyleSheet.create({
   importButtonLabel: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  receiveQaSection: {
+    gap: 4,
+  },
+  receiveQaLabel: {
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  receiveQaButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
   },
   footer: {
     alignItems: 'center',
