@@ -3,14 +3,16 @@ import { StyleSheet } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Button, Text, TextInput } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { claimLnurlWithdraw, resolveLnurlWithdraw, type LnurlWithdrawClaim } from '../../src/services/breezSparkService';
+import { claimLnurlWithdraw, getPayment, resolveLnurlWithdraw, type LnurlWithdrawClaim } from '../../src/services/breezSparkService';
 import { BRAND_COLOR, getAppBackgroundColor, getPrimaryTextColor } from '../../src/utils/theme-helpers';
 import { useAppTheme } from '../../src/contexts/ThemeContext';
 import { t } from '../../src/services/i18nService';
+import { useWallet } from '../../src/hooks/useWallet';
 
 export default function ReceiveClaimScreen(): React.JSX.Element {
   const { lnurl } = useLocalSearchParams<{ lnurl?: string }>();
   const { themeMode } = useAppTheme();
+  const { refreshBalance, refreshTransactions } = useWallet();
   const [claim, setClaim] = useState<LnurlWithdrawClaim | null>(null);
   const [amount, setAmount] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -35,11 +37,13 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
     setSubmitting(true); setError(null);
     try {
       const result = await claimLnurlWithdraw(claim, sats);
-      setOutcome(result.status === 'completed' ? 'received' : 'pending');
+      await Promise.all([refreshBalance(), refreshTransactions()]);
+      const payment = result.paymentId ? await getPayment(result.paymentId) : null;
+      setOutcome(payment?.type === 'receive' && payment.status === 'completed' ? 'received' : 'pending');
     } catch {
       setError(t('receiveClaim.unavailable'));
     } finally { setSubmitting(false); }
-  }, [amount, claim, submitting]);
+  }, [amount, claim, refreshBalance, refreshTransactions, submitting]);
 
   return <SafeAreaView style={[styles.page, { backgroundColor: getAppBackgroundColor(themeMode) }]}>
     <Text variant="headlineSmall" style={{ color: textColor }}>{t('receiveClaim.title')}</Text>
