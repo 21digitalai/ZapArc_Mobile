@@ -179,6 +179,8 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
     },
     receive: {
       scanQrToReceive: 'Scan QR to receive sats',
+      unsupportedTitle: 'Receive QR not supported',
+      unsupportedReceiveQr: 'This QR requests a payment. Scan an LNURL-withdraw QR code to receive sats.',
     },
 
     send: {
@@ -878,6 +880,8 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
     },
     receive: {
       scanQrToReceive: 'Сканирайте QR, за да получите сатошита',
+      unsupportedTitle: 'QR кодът за получаване не се поддържа',
+      unsupportedReceiveQr: 'Този QR код изисква плащане. Сканирайте LNURL-withdraw QR код, за да получите сатошита.',
     },
 
     send: {

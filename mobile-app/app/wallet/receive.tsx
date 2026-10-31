@@ -1398,7 +1398,7 @@ export default function ReceiveScreen() {
               <Button
                 mode="outlined"
                 icon="qrcode-scan"
-                onPress={() => router.push('/wallet/scan')}
+                onPress={() => router.push({ pathname: '/wallet/scan', params: { mode: 'receive' } })}
                 textColor={BRAND_COLOR}
               >
                 {t('receive.scanQrToReceive')}

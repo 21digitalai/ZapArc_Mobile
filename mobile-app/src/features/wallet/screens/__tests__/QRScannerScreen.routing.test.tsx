@@ -94,6 +94,21 @@ describe('QRScannerScreen scan routing', () => {
     });
   });
 
+  it('keeps outgoing invoices out of the receive-only scanner flow', async () => {
+    mockUseLocalSearchParams.mockReturnValue({ mode: 'receive' });
+    mockParsePaymentRequest.mockResolvedValue({ isValid: true, type: 'bolt11' });
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(jest.fn());
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Enter Manually'));
+    fireEvent.changeText(screen.getByPlaceholderText('lnbc... or LNURL... or user@domain.com'), 'lnbc1payment');
+    fireEvent.press(screen.getByText('Continue'));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    expect(mockPush).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
   it('rejects a USDB Spark invoice while the multi-asset UI is disabled', async () => {
     mockUseLocalSearchParams.mockReturnValue({ asset: 'USDB' });
     mockParsePaymentRequest.mockResolvedValue({ isValid: false });

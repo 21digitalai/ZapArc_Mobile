@@ -22,6 +22,7 @@ import { BreezSparkService } from '../../../services/breezSparkService';
 import { MULTI_ASSET_UI_ENABLED } from '../../../config/features';
 import { createSafeBackHandler } from '../utils/safeBack';
 import { pickSingleGalleryQr } from '../utils/galleryQr';
+import { t } from '../../../services/i18nService';
 
 
 // =============================================================================
@@ -50,7 +51,9 @@ export function QRScannerScreen(): React.JSX.Element {
     const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
     return () => subscription.remove();
   }, [safeBack]));
-  const params = useLocalSearchParams<{ asset?: string | string[] }>();
+  const params = useLocalSearchParams<{ asset?: string | string[]; mode?: string | string[] }>();
+  const receiveModeRaw = Array.isArray(params.mode) ? params.mode[0] : params.mode;
+  const isReceiveMode = receiveModeRaw === 'receive';
   // State
   const [permission, requestPermission] = useCameraPermissions();
   // Manual keyboard avoidance for the manual-entry form (the multiline code
@@ -148,6 +151,13 @@ export function QRScannerScreen(): React.JSX.Element {
 
       try {
         const parsed = await parseQRData(data);
+        if (isReceiveMode && parsed.type !== 'lnurlWithdraw') {
+          Alert.alert(t('receive.unsupportedTitle'), t('receive.unsupportedReceiveQr'), [{
+            text: t('common.done'),
+            onPress: (): void => { setScanned(false); setIsProcessing(false); },
+          }]);
+          return;
+        }
         const requestedAssetRaw = Array.isArray(params.asset) ? params.asset[0] : params.asset;
         const requestedAsset = (requestedAssetRaw || '').toUpperCase() === 'USDB' ? 'USDB' : 'BTC';
         const tokenLooksUsdb = !!parsed.tokenIdentifier && parsed.tokenIdentifier.toLowerCase().includes('usdb');
@@ -235,7 +245,7 @@ export function QRScannerScreen(): React.JSX.Element {
         setIsProcessing(false);
       }
     },
-    [isProcessing, scanned, parseQRData, params.asset]
+    [isProcessing, scanned, parseQRData, params.asset, isReceiveMode]
   );
 
   // ========================================
