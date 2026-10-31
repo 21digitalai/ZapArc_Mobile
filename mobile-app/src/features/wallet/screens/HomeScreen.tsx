@@ -11,7 +11,6 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
-  BackHandler,
   Platform,
   ToastAndroid,
 } from 'react-native';
@@ -471,19 +470,10 @@ export function HomeScreen(): React.JSX.Element {
     console.log('💰 [HomeScreen] Balance prop changed to:', balance);
   }, [balance]);
 
-  // Prevent Android back button from navigating back to welcome/create screens
-  // Only active when HomeScreen is focused - allows normal back nav from other screens
-  useFocusEffect(
-    useCallback((): (() => void) => {
-      const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
-        // Return true to prevent default back behavior (going back to welcome/create)
-        // The app will minimize instead
-        return true;
-      });
-
-      return (): void => backHandler.remove();
-    }, [])
-  );
+  // Do not consume Android Back at the wallet root. The completed onboarding
+  // flows replace themselves with this route, so the native default can safely
+  // background the activity when no valid wallet route remains. Native modals
+  // retain their own Android dismissal behavior before this fallback runs.
 
   const refreshSparkStatus = useCallback(async (): Promise<void> => {
     setSparkStatus(await getSparkNetworkStatus());
