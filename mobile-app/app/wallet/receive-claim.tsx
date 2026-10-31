@@ -9,6 +9,7 @@ import { BRAND_COLOR, getAppBackgroundColor, getPrimaryTextColor } from '../../s
 import { useAppTheme } from '../../src/contexts/ThemeContext';
 import { t } from '../../src/services/i18nService';
 import { useWallet } from '../../src/hooks/useWallet';
+import { getReceiveClaimFixture, type ReceiveClaimFixture } from '../../src/services/receiveClaimFixture';
 
 const PENDING_RECEIVE_CLAIM_KEY = '@zap_arc/pending_receive_claim_v1';
 
@@ -38,6 +39,7 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
   const textColor = getPrimaryTextColor(themeMode);
   const walletKey = pendingClaimWalletKey(activeWalletInfo);
   const walletKeyRef = useRef(walletKey);
+  const fixtureRef = useRef<ReceiveClaimFixture | null>(null);
 
   useEffect(() => {
     walletKeyRef.current = walletKey;
@@ -45,7 +47,9 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
 
   const reconcilePendingClaim = useCallback(async (paymentId: string, expectedWalletKey: string): Promise<void> => {
     if (walletKeyRef.current !== expectedWalletKey) return;
-    const payment = await getPayment(paymentId);
+    const payment = fixtureRef.current?.claimResult.paymentId === paymentId
+      ? { type: 'receive', status: fixtureRef.current.paymentStatus }
+      : await getPayment(paymentId);
     if (walletKeyRef.current !== expectedWalletKey) return;
     if (payment?.type === 'receive' && payment.status === 'completed') {
       await AsyncStorage.removeItem(pendingClaimStorageKey(expectedWalletKey));
@@ -88,7 +92,9 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
 
   useEffect(() => {
     if (!lnurl) { setError(t('receiveClaim.missing')); setLoading(false); return; }
-    resolveLnurlWithdraw(lnurl).then((resolved) => {
+    const fixture = getReceiveClaimFixture(lnurl);
+    fixtureRef.current = fixture;
+    (fixture ? Promise.resolve(fixture.claim) : resolveLnurlWithdraw(lnurl)).then((resolved) => {
       setClaim(resolved);
       setAmount(resolved.minSats === resolved.maxSats ? String(resolved.minSats) : String(resolved.maxSats));
     }).catch(() => setError(t('receiveClaim.invalid')))
@@ -102,7 +108,10 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
     let submittedPaymentId: string | null = null;
     setSubmitting(true); setError(null);
     try {
-      const result = await claimLnurlWithdraw(claim, sats);
+      const fixture = fixtureRef.current;
+      const result = fixture
+        ? fixture.claimResult
+        : await claimLnurlWithdraw(claim, sats);
       if (!result.paymentId || !walletKey) {
         setOutcome('pending');
         return;
