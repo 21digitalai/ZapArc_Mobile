@@ -174,6 +174,10 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
       paymentSentSuccessfully: 'Payment sent successfully!',
     },
 
+    receiveClaim: {
+      title: 'Receive sats', loading: 'Checking receive claim…', missing: 'This receive claim is missing its QR data. Scan it again.', invalid: 'This QR cannot be used to receive sats.', amount: 'Amount (sats)', wholeAmount: 'Enter a whole number of sats.', claim: 'Claim sats', cancel: 'Cancel', scanAnother: 'Scan another QR', pending: 'Claim submitted. Settlement is pending; do not scan this QR again.', received: 'Sats received. Your wallet is refreshing.', unavailable: 'This claim may be expired, already taken, or temporarily unavailable.',
+    },
+
     send: {
       onchainTitle: 'Send to Bitcoin Address',
       onchainDetected: 'On-chain',
@@ -864,6 +868,10 @@ const translations: Record<SupportedLanguage, TranslationSet> = {
       invalidInvoice: 'Невалидна фактура',
       payment: 'Плащане',
       paymentSentSuccessfully: 'Плащането е изпратено успешно!',
+    },
+
+    receiveClaim: {
+      title: 'Получи сатошита', loading: 'Проверяваме заявката…', missing: 'В заявката липсват QR данни. Сканирайте отново.', invalid: 'Този QR код не може да се използва за получаване на сатошита.', amount: 'Сума (сатошита)', wholeAmount: 'Въведете цяло число сатошита.', claim: 'Получете сатошита', cancel: 'Отказ', scanAnother: 'Сканирайте друг QR код', pending: 'Заявката е изпратена. Изплащането изчаква; не сканирайте този QR код отново.', received: 'Сатошитата са получени. Портфейлът се обновява.', unavailable: 'Заявката може да е изтекла, вече използвана или временно недостъпна.',
     },
 
     send: {
