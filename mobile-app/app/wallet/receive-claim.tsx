@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -21,6 +21,10 @@ function pendingClaimWalletKey(wallet: { masterKeyId: string; subWalletIndex: nu
   return wallet ? `${wallet.masterKeyId}:${wallet.subWalletIndex}` : null;
 }
 
+function pendingClaimStorageKey(walletKey: string): string {
+  return `${PENDING_RECEIVE_CLAIM_KEY}_${encodeURIComponent(walletKey)}`;
+}
+
 export default function ReceiveClaimScreen(): React.JSX.Element {
   const { lnurl } = useLocalSearchParams<{ lnurl?: string }>();
   const { themeMode } = useAppTheme();
@@ -33,17 +37,25 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
   const [outcome, setOutcome] = useState<'received' | 'pending' | null>(null);
   const textColor = getPrimaryTextColor(themeMode);
   const walletKey = pendingClaimWalletKey(activeWalletInfo);
+  const walletKeyRef = useRef(walletKey);
 
-  const reconcilePendingClaim = useCallback(async (paymentId: string): Promise<void> => {
+  useEffect(() => {
+    walletKeyRef.current = walletKey;
+  }, [walletKey]);
+
+  const reconcilePendingClaim = useCallback(async (paymentId: string, expectedWalletKey: string): Promise<void> => {
+    if (walletKeyRef.current !== expectedWalletKey) return;
     const payment = await getPayment(paymentId);
+    if (walletKeyRef.current !== expectedWalletKey) return;
     if (payment?.type === 'receive' && payment.status === 'completed') {
-      await AsyncStorage.removeItem(PENDING_RECEIVE_CLAIM_KEY);
+      await AsyncStorage.removeItem(pendingClaimStorageKey(expectedWalletKey));
       await Promise.all([refreshBalance(), refreshTransactions()]);
+      if (walletKeyRef.current !== expectedWalletKey) return;
       setOutcome('received');
       return;
     }
     if (payment?.type === 'receive' && payment.status === 'failed') {
-      await AsyncStorage.removeItem(PENDING_RECEIVE_CLAIM_KEY);
+      await AsyncStorage.removeItem(pendingClaimStorageKey(expectedWalletKey));
       setError(t('receiveClaim.unavailable'));
       return;
     }
@@ -52,13 +64,17 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
 
   useEffect(() => {
     if (!walletKey) return;
-    AsyncStorage.getItem(PENDING_RECEIVE_CLAIM_KEY).then((raw) => {
+    let cancelled = false;
+    AsyncStorage.getItem(pendingClaimStorageKey(walletKey)).then((raw) => {
+      if (cancelled) return;
       if (!raw) return;
       const pending = JSON.parse(raw) as PendingReceiveClaim;
       if (pending.walletKey === walletKey && pending.paymentId) {
-        return reconcilePendingClaim(pending.paymentId);
+        setOutcome('pending');
+        return reconcilePendingClaim(pending.paymentId, walletKey);
       }
     }).catch(() => undefined);
+    return () => { cancelled = true; };
   }, [reconcilePendingClaim, walletKey]);
 
   useEffect(() => {
@@ -83,8 +99,8 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
         return;
       }
       submittedPaymentId = result.paymentId;
-      await AsyncStorage.setItem(PENDING_RECEIVE_CLAIM_KEY, JSON.stringify({ paymentId: result.paymentId, walletKey }));
-      await reconcilePendingClaim(result.paymentId);
+      await AsyncStorage.setItem(pendingClaimStorageKey(walletKey), JSON.stringify({ paymentId: result.paymentId, walletKey }));
+      await reconcilePendingClaim(result.paymentId, walletKey);
     } catch {
       // A claim with a payment ID was accepted by the provider. A failed
       // follow-up lookup must stay pending so the QR cannot be submitted again.

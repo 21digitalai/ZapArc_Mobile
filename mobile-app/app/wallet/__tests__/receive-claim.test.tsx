@@ -6,6 +6,7 @@ const mockResolve = jest.fn();
 const mockClaim = jest.fn();
 const mockGetPayment = jest.fn();
 const mockSetItem = jest.fn();
+const mockGetItem = jest.fn();
 
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), replace: jest.fn() },
@@ -29,7 +30,7 @@ jest.mock('react-native-paper', () => {
 });
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
-  getItem: jest.fn().mockResolvedValue(null),
+  getItem: (...args: unknown[]) => mockGetItem(...args),
   setItem: (...args: unknown[]) => mockSetItem(...args),
   removeItem: jest.fn(),
 }));
@@ -50,6 +51,7 @@ describe('receive claim post-submit reconciliation', () => {
     mockResolve.mockResolvedValue({ minSats: 21, maxSats: 21, description: 'Fixture claim' });
     mockClaim.mockResolvedValue({ paymentId: 'accepted-payment' });
     mockSetItem.mockResolvedValue(undefined);
+    mockGetItem.mockResolvedValue(null);
     mockGetPayment.mockRejectedValue(new Error('temporary lookup failure'));
   });
 
@@ -62,5 +64,14 @@ describe('receive claim post-submit reconciliation', () => {
     await waitFor(() => expect(screen.getByText('receiveClaim.pending')).toBeTruthy());
     expect(mockClaim).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('receiveClaim.claim')).toBeNull();
+  });
+
+  it('keeps a wallet-scoped persisted claim pending when its reopen lookup fails', async () => {
+    mockGetItem.mockResolvedValue(JSON.stringify({ paymentId: 'accepted-payment', walletKey: 'wallet:0' }));
+    render(<ReceiveClaimScreen />);
+
+    await waitFor(() => expect(screen.getByText('receiveClaim.pending')).toBeTruthy());
+    expect(screen.queryByText('receiveClaim.claim')).toBeNull();
+    expect(mockGetItem).toHaveBeenCalledWith('@zap_arc/pending_receive_claim_v1_wallet%3A0');
   });
 });
