@@ -10,11 +10,12 @@ const mockGetItem = jest.fn();
 const mockRemoveItem = jest.fn();
 const mockRefreshA = jest.fn();
 const mockRefreshB = jest.fn();
-let mockActiveWallet = { masterKeyId: 'wallet', subWalletIndex: 0 };
+let mockActiveWallet: { masterKeyId: string; subWalletIndex: number } | null = { masterKeyId: 'wallet', subWalletIndex: 0 };
+let mockLnurl = 'lnurl1controlledfixture';
 
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), replace: jest.fn() },
-  useLocalSearchParams: () => ({ lnurl: 'lnurl1controlledfixture' }),
+  useLocalSearchParams: () => ({ lnurl: mockLnurl }),
 }));
 
 jest.mock('react-native-safe-area-context', () => {
@@ -47,8 +48,8 @@ jest.mock('../../../src/services/breezSparkService', () => ({
 jest.mock('../../../src/contexts/ThemeContext', () => ({ useAppTheme: () => ({ themeMode: 'light' }) }));
 jest.mock('../../../src/hooks/useWallet', () => ({ useWallet: () => ({
   activeWalletInfo: mockActiveWallet,
-  refreshBalance: mockActiveWallet.masterKeyId === 'wallet' ? mockRefreshA : mockRefreshB,
-  refreshTransactions: mockActiveWallet.masterKeyId === 'wallet' ? mockRefreshA : mockRefreshB,
+  refreshBalance: mockActiveWallet?.masterKeyId === 'wallet' ? mockRefreshA : mockRefreshB,
+  refreshTransactions: mockActiveWallet?.masterKeyId === 'wallet' ? mockRefreshA : mockRefreshB,
 }) }));
 jest.mock('../../../src/services/i18nService', () => ({ t: (key: string) => key }));
 jest.mock('../../../src/utils/theme-helpers', () => ({ BRAND_COLOR: '#000', getAppBackgroundColor: () => '#fff', getPrimaryTextColor: () => '#000' }));
@@ -62,6 +63,7 @@ describe('receive claim post-submit reconciliation', () => {
     mockGetItem.mockResolvedValue(null);
     mockRemoveItem.mockResolvedValue(undefined);
     mockActiveWallet = { masterKeyId: 'wallet', subWalletIndex: 0 };
+    mockLnurl = 'lnurl1controlledfixture';
     mockGetPayment.mockRejectedValue(new Error('temporary lookup failure'));
   });
 
@@ -121,5 +123,22 @@ describe('receive claim post-submit reconciliation', () => {
 
     expect(screen.queryByText('receiveClaim.pending')).toBeNull();
     expect(screen.getByText('receiveClaim.claim')).toBeTruthy();
+  });
+
+  it('uses a development-only destination identity so failed fixtures need no real wallet', async () => {
+    mockActiveWallet = null;
+    mockLnurl = 'zaparc-dev-receive-claim:expired';
+
+    render(<ReceiveClaimScreen />);
+    await waitFor(() => expect(screen.getByText('receiveClaim.claim')).toBeTruthy());
+    fireEvent.press(screen.getByText('receiveClaim.claim'));
+
+    await waitFor(() => expect(screen.getByText('receiveClaim.unavailable')).toBeTruthy());
+    expect(mockSetItem).toHaveBeenCalledWith(
+      '@zap_arc/pending_receive_claim_v1_development-fixture%3A0',
+      expect.any(String),
+    );
+    expect(mockRefreshA).not.toHaveBeenCalled();
+    expect(mockRefreshB).not.toHaveBeenCalled();
   });
 });

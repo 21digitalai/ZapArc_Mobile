@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -30,6 +30,7 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
   const { lnurl } = useLocalSearchParams<{ lnurl?: string }>();
   const { themeMode } = useAppTheme();
   const { activeWalletInfo, refreshBalance, refreshTransactions } = useWallet();
+  const receiveClaimFixture = useMemo(() => getReceiveClaimFixture(lnurl ?? ''), [lnurl]);
   const [claim, setClaim] = useState<LnurlWithdrawClaim | null>(null);
   const [amount, setAmount] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +38,10 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
   const [submitting, setSubmitting] = useState(false);
   const [outcome, setOutcome] = useState<'received' | 'pending' | null>(null);
   const textColor = getPrimaryTextColor(themeMode);
-  const walletKey = pendingClaimWalletKey(activeWalletInfo);
+  // Controlled fixtures intentionally avoid creating or loading a real wallet.
+  // They still need a stable destination identity to exercise the same pending
+  // reconciliation state machine that production uses for an active wallet.
+  const walletKey = pendingClaimWalletKey(activeWalletInfo) ?? (receiveClaimFixture ? 'development-fixture:0' : null);
   const walletKeyRef = useRef(walletKey);
   const fixtureRef = useRef<ReceiveClaimFixture | null>(null);
 
@@ -54,7 +58,7 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
     if (payment?.type === 'receive' && payment.status === 'completed') {
       await AsyncStorage.removeItem(pendingClaimStorageKey(expectedWalletKey));
       if (walletKeyRef.current !== expectedWalletKey) return;
-      await Promise.all([refreshBalance(), refreshTransactions()]);
+      if (!fixtureRef.current) await Promise.all([refreshBalance(), refreshTransactions()]);
       if (walletKeyRef.current !== expectedWalletKey) return;
       setOutcome('received');
       return;
@@ -93,14 +97,14 @@ export default function ReceiveClaimScreen(): React.JSX.Element {
 
   useEffect(() => {
     if (!lnurl) { setError(t('receiveClaim.missing')); setLoading(false); return; }
-    const fixture = getReceiveClaimFixture(lnurl);
+    const fixture = receiveClaimFixture;
     fixtureRef.current = fixture;
     (fixture ? Promise.resolve(fixture.claim) : resolveLnurlWithdraw(lnurl)).then((resolved) => {
       setClaim(resolved);
       setAmount(resolved.minSats === resolved.maxSats ? String(resolved.minSats) : String(resolved.maxSats));
     }).catch(() => setError(t('receiveClaim.invalid')))
       .finally(() => setLoading(false));
-  }, [lnurl]);
+  }, [lnurl, receiveClaimFixture]);
 
   const confirmClaim = useCallback(async () => {
     if (!claim || submitting) return;
