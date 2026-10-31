@@ -1,9 +1,21 @@
-import { createSafeBackHandler, type SafeBackRouter } from '../safeBack';
+import {
+  completeProtectedWalletFlow,
+  createSafeBackHandler,
+  type SafeBackRouter,
+  type WalletCompletionRouter,
+} from '../safeBack';
 
 function router(canGoBack: boolean): jest.Mocked<SafeBackRouter> {
   return {
     canGoBack: jest.fn(() => canGoBack),
     back: jest.fn(),
+    replace: jest.fn(),
+  };
+}
+
+function completionRouter(): jest.Mocked<WalletCompletionRouter> {
+  return {
+    dismissAll: jest.fn(),
     replace: jest.fn(),
   };
 }
@@ -74,5 +86,19 @@ describe('createSafeBackHandler', () => {
     expect(goBack()).toBe(false);
     expect(navigation.back).not.toHaveBeenCalled();
     expect(navigation.replace).not.toHaveBeenCalled();
+  });
+});
+
+describe('completeProtectedWalletFlow', () => {
+  it('pops the wallet stack before replacing its root with home', () => {
+    const navigation = completionRouter();
+
+    completeProtectedWalletFlow(navigation);
+
+    expect(navigation.dismissAll).toHaveBeenCalledTimes(1);
+    expect(navigation.replace).toHaveBeenCalledWith('/wallet/home');
+    expect(navigation.dismissAll.mock.invocationCallOrder[0]).toBeLessThan(
+      navigation.replace.mock.invocationCallOrder[0],
+    );
   });
 });

@@ -1,12 +1,24 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { createSafeBackHandler, type SafeBackRouter } from '../../utils/safeBack';
+import {
+  completeProtectedWalletFlow,
+  createSafeBackHandler,
+  type SafeBackRouter,
+  type WalletCompletionRouter,
+} from '../../utils/safeBack';
 
 function rootRouter(): jest.Mocked<SafeBackRouter> {
   return {
     canGoBack: jest.fn(() => false),
     back: jest.fn(),
+    replace: jest.fn(),
+  };
+}
+
+function completionRouter(): jest.Mocked<WalletCompletionRouter> {
+  return {
+    dismissAll: jest.fn(),
     replace: jest.fn(),
   };
 }
@@ -30,12 +42,23 @@ describe('wallet root Android Back contract', () => {
     expect(root.replace).not.toHaveBeenCalled();
   });
 
+  it('clears protected flow history before exposing the Android-exitable root', () => {
+    const navigation = completionRouter();
+
+    completeProtectedWalletFlow(navigation);
+
+    expect(navigation.dismissAll.mock.invocationCallOrder[0]).toBeLessThan(
+      navigation.replace.mock.invocationCallOrder[0],
+    );
+    expect(navigation.replace).toHaveBeenCalledWith('/wallet/home');
+  });
+
   it.each(['WalletCreationScreen.tsx', 'WalletImportScreen.tsx', 'PinEntryScreen.tsx'])(
-    '%s replaces its completed flow with wallet home',
+    '%s uses the protected-flow completion boundary',
     (screen) => {
       const source = readFileSync(resolve('src', 'features', 'wallet', 'screens', screen), 'utf8');
 
-      expect(source).toContain("router.replace('/wallet/home')");
+      expect(source).toContain('completeProtectedWalletFlow(router)');
     },
   );
 });

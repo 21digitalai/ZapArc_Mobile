@@ -167,6 +167,7 @@
 - Use `createSafeBackHandler` for wallet leaf-screen back controls and Android back handlers.
 - It pops usable history, otherwise replaces the typed logical parent route, and suppresses repeated transitions.
 - Wallet Home is the intentional root: pass `isRoot: true` there to preserve app-exit/minimize behavior.
+- Use `completeProtectedWalletFlow` after successful PIN/biometric unlock, wallet creation, or import. It dismisses the wallet stack before replacing its root with Home, so Android Back can leave the app at Home without reopening protected completion screens.
 
 ### Transactional toast feedback
 

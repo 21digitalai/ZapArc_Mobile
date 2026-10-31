@@ -25,6 +25,7 @@ import {
   BRAND_COLOR,
 } from '../../../utils/theme-helpers';
 import { WALLET_PIN_LENGTH } from '../constants/security';
+import { completeProtectedWalletFlow } from '../utils/safeBack';
 
 // =============================================================================
 // Constants
@@ -62,7 +63,7 @@ export function PinEntryScreen(): React.JSX.Element {
       router.replace({ pathname: '/wallet/manage', params: { changePinMasterKeyId: targetMasterKeyId } });
       return;
     }
-    router.replace('/wallet/home');
+    completeProtectedWalletFlow(router);
   }, [shouldOpenChangePinAfterUnlock, targetMasterKeyId]);
   
   const {
@@ -222,7 +223,7 @@ export function PinEntryScreen(): React.JSX.Element {
         // Normal unlock for the current wallet
         const success = await unlock(pin);
         if (success) {
-          router.replace('/wallet/home');
+          completeProtectedWalletFlow(router);
         } else {
           setIsUnlocking(false);
           const authStatus = await applyPinAuthStatus();
@@ -261,7 +262,7 @@ export function PinEntryScreen(): React.JSX.Element {
       const success = await unlockWithBiometric();
 
       if (success) {
-        router.replace('/wallet/home');
+        completeProtectedWalletFlow(router);
       } else if (isExplicitRetry) {
         setError(t('auth.biometricUnlockUnavailable'));
       }

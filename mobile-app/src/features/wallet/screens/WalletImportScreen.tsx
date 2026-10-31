@@ -27,7 +27,7 @@ import { useWallet } from '../../../hooks/useWallet';
 import { useWalletAuth } from '../../../hooks/useWalletAuth';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import { getGradientColors, getPrimaryTextColor, getSecondaryTextColor, BRAND_COLOR } from '../../../utils/theme-helpers';
-import { createSafeBackHandler } from '../utils/safeBack';
+import { completeProtectedWalletFlow, createSafeBackHandler } from '../utils/safeBack';
 
 // =============================================================================
 // Types
@@ -141,7 +141,7 @@ export function WalletImportScreen(): React.JSX.Element {
 
       // Skip success screen + onboarding prompts — navigate directly.
       // Biometric/notification setup is offered as a dismissable banner on home.
-      router.replace('/wallet/home');
+      completeProtectedWalletFlow(router);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to import wallet';
       if (message.toLowerCase().includes('already')) {

@@ -19,7 +19,7 @@ jest.mock('expo-linear-gradient', () => ({
 }));
 
 jest.mock('expo-router', () => ({
-  router: { replace: jest.fn(), push: jest.fn() },
+  router: { dismissAll: jest.fn(), replace: jest.fn(), push: jest.fn() },
   useLocalSearchParams: () => ({}),
 }));
 
@@ -136,6 +136,7 @@ describe('PinEntryScreen biometric cancellation', () => {
     await waitFor(() =>
       expect(router.replace).toHaveBeenCalledWith('/wallet/home')
     );
+    expect(router.dismissAll).toHaveBeenCalledTimes(1);
   });
 
   it('hides biometric retry when enrollment is unavailable', () => {

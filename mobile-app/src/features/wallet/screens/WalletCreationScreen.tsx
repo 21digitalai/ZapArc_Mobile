@@ -27,7 +27,7 @@ import { useKeyboardAwareScroll } from '../../../hooks/useKeyboardAwareScroll';
 import { useAppTheme } from '../../../contexts/ThemeContext';
 import { getGradientColors, BRAND_COLOR } from '../../../utils/theme-helpers';
 import { WALLET_PIN_LENGTH } from '../constants/security';
-import { createSafeBackHandler } from '../utils/safeBack';
+import { completeProtectedWalletFlow, createSafeBackHandler } from '../utils/safeBack';
 
 // =============================================================================
 // Types
@@ -355,7 +355,7 @@ export function WalletCreationScreen(): React.JSX.Element {
     // No up-front security prompt here anymore — biometric, notifications,
     // cloud-backup and lightning-address are all surfaced (and paced) by
     // the home-screen banner system. Just land the user on home.
-    router.replace('/wallet/home');
+    completeProtectedWalletFlow(router);
   }, []);
 
   // Copy mnemonic to clipboard

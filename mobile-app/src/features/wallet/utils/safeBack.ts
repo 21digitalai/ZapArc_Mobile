@@ -16,6 +16,20 @@ export interface SafeBackOptions {
   schedule?: (callback: () => void, delay: number) => unknown;
 }
 
+export interface WalletCompletionRouter {
+  dismissAll: () => void;
+  replace: (route: '/wallet/home') => void;
+}
+
+/**
+ * Lands a completed protected flow on the wallet root without retaining its
+ * unlock or onboarding predecessors in the wallet stack.
+ */
+export function completeProtectedWalletFlow(router: WalletCompletionRouter): void {
+  router.dismissAll();
+  router.replace('/wallet/home');
+}
+
 /** Builds a wallet back handler with a deterministic logical-parent fallback. */
 export function createSafeBackHandler(
   router: SafeBackRouter,
