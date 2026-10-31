@@ -1395,6 +1395,15 @@ export default function ReceiveScreen() {
                     : t('payments.generateInvoice')}
               </Button>
 
+              <Button
+                mode="outlined"
+                icon="qrcode-scan"
+                onPress={() => router.push('/wallet/scan')}
+                textColor={BRAND_COLOR}
+              >
+                Scan QR to receive sats
+              </Button>
+
               {invoice ? (
                 <View style={styles.generatedSection} onLayout={handleGeneratedSectionLayout}>
                   <Text style={[styles.amountText, { color: primaryTextColor }]}>

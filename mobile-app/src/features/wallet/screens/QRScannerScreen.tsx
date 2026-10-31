@@ -31,7 +31,7 @@ import { pickSingleGalleryQr } from '../utils/galleryQr';
 type ScanMode = 'camera' | 'manual';
 
 interface ParsedQRData {
-  type: 'invoice' | 'lnurl' | 'address' | 'sparkAddress' | 'sparkInvoice' | 'bitcoinAddress' | 'unknown';
+  type: 'invoice' | 'lnurl' | 'lnurlWithdraw' | 'address' | 'sparkAddress' | 'sparkInvoice' | 'bitcoinAddress' | 'unknown';
   value: string;
   tokenIdentifier?: string;
 }
@@ -91,6 +91,9 @@ export function QRScannerScreen(): React.JSX.Element {
         }
         if (parsed.type === 'lnurl') {
           return { type: 'lnurl', value: raw };
+        }
+        if (parsed.type === 'lnurlWithdraw') {
+          return { type: 'lnurlWithdraw', value: raw };
         }
         if (parsed.type === 'lightningAddress') {
           return { type: 'address', value: raw };
@@ -163,6 +166,9 @@ export function QRScannerScreen(): React.JSX.Element {
         const sparkAsset = tokenLooksUsdb || requestedAsset === 'USDB' ? 'USDB' : 'BTC';
 
         switch (parsed.type) {
+          case 'lnurlWithdraw':
+            router.push({ pathname: '/wallet/receive-claim', params: { lnurl: parsed.value } });
+            break;
           case 'invoice':
             router.push({
               pathname: '/wallet/send',

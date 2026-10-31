@@ -34,6 +34,10 @@ export {
   getPayment,
   payLightningAddress,
   parsePaymentRequest,
+  resolveLnurlWithdraw,
+  claimLnurlWithdraw,
+  type LnurlWithdrawClaim,
+  type LnurlWithdrawResult,
   addPaymentListener,
   // Lightning Address Registration
   checkLightningAddressAvailable,

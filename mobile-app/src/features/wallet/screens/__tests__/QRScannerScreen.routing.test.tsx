@@ -83,6 +83,17 @@ describe('QRScannerScreen scan routing', () => {
     });
   });
 
+  it('routes an LNURL-withdraw QR to the receive claim flow', async () => {
+    mockParsePaymentRequest.mockResolvedValue({ isValid: true, type: 'lnurlWithdraw' });
+
+    await submitManualInput('LNURL1WITHDRAWTEST');
+
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/wallet/receive-claim',
+      params: { lnurl: 'LNURL1WITHDRAWTEST' },
+    });
+  });
+
   it('rejects a USDB Spark invoice while the multi-asset UI is disabled', async () => {
     mockUseLocalSearchParams.mockReturnValue({ asset: 'USDB' });
     mockParsePaymentRequest.mockResolvedValue({ isValid: false });

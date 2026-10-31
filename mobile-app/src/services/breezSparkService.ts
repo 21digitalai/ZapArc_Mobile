@@ -660,6 +660,17 @@ function makePrepareLnurlPayRequest(
   });
 }
 
+function makeLnurlWithdrawRequest(
+  amountSats: bigint,
+  withdrawRequest: BreezSparkSdk.LnurlWithdrawRequestDetails,
+): BreezSparkSdk.LnurlWithdrawRequest {
+  return BreezSDK.LnurlWithdrawRequest.new({
+    amountSats,
+    withdrawRequest,
+    completionTimeoutSecs: 20,
+  });
+}
+
 function isLnurlPayRequestDetails(value: unknown): value is BreezSparkSdk.LnurlPayRequestDetails {
   if (typeof value !== 'object' || value === null) return false;
   const request = value as Record<string, unknown>;
@@ -3280,7 +3291,7 @@ function decodeBolt11AmountSats(invoice: string): number | undefined {
  * Parse and validate a payment request
  */
 export async function parsePaymentRequest(input: string): Promise<{
-  type: 'bolt11' | 'sparkInvoice' | 'lnurl' | 'lightningAddress' | 'bitcoinAddress' | 'sparkAddress' | 'unknown';
+  type: 'bolt11' | 'sparkInvoice' | 'lnurl' | 'lnurlWithdraw' | 'lightningAddress' | 'bitcoinAddress' | 'sparkAddress' | 'unknown';
   isValid: boolean;
   /** Amount in sats. Set for BTC invoices (Bolt11 or sat-denominated SparkInvoice). */
   amountSat?: number;
@@ -3429,11 +3440,58 @@ export async function parsePaymentRequest(input: string): Promise<{
       return { type: 'lnurl', isValid: true };
     }
 
+    if (parsed.tag === 'LnurlWithdraw') {
+      return { type: 'lnurlWithdraw', isValid: true };
+    }
+
     return { type: 'unknown', isValid: false };
   } catch (error) {
     logInvoiceDecodeDiagnostic('parse', trimmed, error);
     return { type: 'unknown', isValid: false };
   }
+}
+
+export interface LnurlWithdrawClaim {
+  request: BreezSparkSdk.LnurlWithdrawRequestDetails;
+  minSats: number;
+  maxSats: number;
+  description: string;
+}
+
+export interface LnurlWithdrawResult {
+  status: 'completed' | 'pending';
+  paymentId?: string;
+}
+
+/** Resolve a receive-only LNURL-withdraw request through the native SDK. */
+export async function resolveLnurlWithdraw(input: string): Promise<LnurlWithdrawClaim> {
+  if (!_isNativeAvailable || !sdkInstance) throw new Error('Wallet SDK unavailable');
+  const parsed = await sdkInstance.parse(input.trim());
+  if (parsed.tag !== 'LnurlWithdraw' || !parsed.inner) {
+    throw new Error('This QR code is not a receive claim. Scan an LNURL-withdraw QR code.');
+  }
+  const request = unwrapParsedInner(parsed.inner);
+  const minSats = Number(request.minWithdrawable / 1000n);
+  const maxSats = Number(request.maxWithdrawable / 1000n);
+  if (!Number.isSafeInteger(minSats) || !Number.isSafeInteger(maxSats) || minSats <= 0 || maxSats < minSats) {
+    throw new Error('This receive claim has invalid withdrawal limits.');
+  }
+  return { request, minSats, maxSats, description: request.defaultDescription || 'Lightning receive claim' };
+}
+
+/** Submit one confirmed claim. Never retry automatically: timeouts are ambiguous. */
+export async function claimLnurlWithdraw(
+  claim: LnurlWithdrawClaim,
+  amountSats: number,
+): Promise<LnurlWithdrawResult> {
+  if (!_isNativeAvailable || !sdkInstance) throw new Error('Wallet SDK unavailable');
+  if (!Number.isSafeInteger(amountSats) || amountSats < claim.minSats || amountSats > claim.maxSats) {
+    throw new Error(`Choose an amount between ${claim.minSats} and ${claim.maxSats} sats.`);
+  }
+  const response = await sdkInstance.lnurlWithdraw(makeLnurlWithdrawRequest(BigInt(amountSats), claim.request));
+  const status = response.payment ? mapBreezPaymentStatus(response.payment.status) : 'pending';
+  if (status === 'failed') throw new Error('The provider rejected this receive claim. It may be expired or already claimed.');
+  return { status: status === 'completed' ? 'completed' : 'pending', paymentId: response.payment?.id };
 }
 
 /**
@@ -3930,6 +3988,8 @@ export const BreezSparkService = {
   getPayment,
   payLightningAddress,
   parsePaymentRequest,
+  resolveLnurlWithdraw,
+  claimLnurlWithdraw,
   addPaymentListener,
   // Lightning Address Registration
   checkLightningAddressAvailable,
