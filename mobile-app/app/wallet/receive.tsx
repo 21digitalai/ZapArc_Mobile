@@ -1401,7 +1401,7 @@ export default function ReceiveScreen() {
                 onPress={() => router.push('/wallet/scan')}
                 textColor={BRAND_COLOR}
               >
-                Scan QR to receive sats
+                {t('receive.scanQrToReceive')}
               </Button>
 
               {invoice ? (
