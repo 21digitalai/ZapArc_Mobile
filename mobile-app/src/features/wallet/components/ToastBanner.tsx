@@ -322,7 +322,9 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   trailingChip: {
-    flexShrink: 1,
+    // The amount chip is a short, atomic value. Let the text column take the
+    // wrapping pressure so enlarged system text cannot crop this value.
+    flexShrink: 0,
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 10,
