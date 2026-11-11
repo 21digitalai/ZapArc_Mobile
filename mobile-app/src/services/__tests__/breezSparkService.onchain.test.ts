@@ -162,6 +162,14 @@ describe('LNURL withdraw claims', () => {
     await expect(svc.resolveLnurlWithdraw('lnbcfixture')).rejects.toThrow('not a receive claim');
   });
 
+  it('normalizes a lightning URI wrapper before resolving a receive claim', async () => {
+    const svc = require('../breezSparkService');
+    mockParse.mockResolvedValueOnce({ tag: 'LnurlWithdraw', inner: [request] });
+
+    await expect(svc.resolveLnurlWithdraw(' lightning:LNURL1fixture ')).resolves.toMatchObject({ request });
+    expect(mockParse).toHaveBeenCalledWith('LNURL1fixture');
+  });
+
   it('rejects out-of-range claim amounts without submitting', async () => {
     const svc = require('../breezSparkService');
     await expect(svc.claimLnurlWithdraw({ request, minSats: 2, maxSats: 5, description: '' }, 1))

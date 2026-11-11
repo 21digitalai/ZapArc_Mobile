@@ -3490,7 +3490,14 @@ export function normalizeLnurlWithdrawLimits(minMsat: bigint, maxMsat: bigint): 
 export async function resolveLnurlWithdraw(input: string): Promise<LnurlWithdrawClaim> {
   if (!_isNativeAvailable || !sdkInstance) throw new LnurlWithdrawResolveError('unavailable');
   try {
-    const parsed = await sdkInstance.parse(input.trim());
+    // Scanner classification accepts BIP-21-style `lightning:` wrappers. Keep
+    // the same canonical payload at the claim boundary: the native parser
+    // expects the LNURL itself, not its URI wrapper.
+    const trimmed = input.trim();
+    const normalizedInput = /^lightning:/i.test(trimmed)
+      ? trimmed.slice('lightning:'.length).trim()
+      : trimmed;
+    const parsed = await sdkInstance.parse(normalizedInput);
     if (parsed.tag !== 'LnurlWithdraw' || !parsed.inner) {
       throw new LnurlWithdrawResolveError('invalid');
     }
