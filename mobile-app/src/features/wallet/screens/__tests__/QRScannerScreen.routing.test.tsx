@@ -12,6 +12,7 @@ const mockLaunchImageLibraryAsync = jest.fn();
 const mockScanFromURLAsync = jest.fn();
 const mockUseCameraPermissions = jest.fn(() => [{ granted: true }, jest.fn()]);
 const mockShowError = jest.fn();
+let mockCameraPayload = 'broken-camera-qr';
 const mockReact = jest.requireActual<typeof import('react')>('react');
 const mockReactNative = jest.requireActual<typeof import('react-native')>('react-native');
 
@@ -30,7 +31,7 @@ jest.mock('expo-camera', () => ({
   CameraView: ({ onBarcodeScanned }: { onBarcodeScanned?: (result: { data: string }) => void }) => (
     mockReact.createElement(mockReactNative.Button, {
       title: 'Simulate camera scan',
-      onPress: () => onBarcodeScanned?.({ data: 'broken-camera-qr' }),
+      onPress: () => onBarcodeScanned?.({ data: mockCameraPayload }),
     })
   ),
   useCameraPermissions: () => mockUseCameraPermissions(),
@@ -81,6 +82,7 @@ describe('QRScannerScreen scan routing', () => {
     mockUseLocalSearchParams.mockReturnValue({});
     mockUseCameraPermissions.mockReturnValue([{ granted: true }, jest.fn()]);
     mockShowError.mockClear();
+    mockCameraPayload = 'broken-camera-qr';
     mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: true, assets: [] });
   });
 
@@ -250,7 +252,7 @@ describe('QRScannerScreen scan routing', () => {
     await waitFor(() => expect(screen.getByText('Scan from Gallery')).toBeTruthy());
   });
 
-  it('processes one concurrent camera payload and suppresses its immediate repeated failure', async () => {
+  it('processes one concurrent camera payload and latches its sustained repeated failure', async () => {
     let rejectParse: ((error: Error) => void) | undefined;
     mockParsePaymentRequest.mockImplementation(() => new Promise((_resolve, reject) => { rejectParse = reject; }));
 
@@ -263,6 +265,68 @@ describe('QRScannerScreen scan routing', () => {
     await waitFor(() => expect(mockShowError).toHaveBeenCalledTimes(1));
 
     fireEvent.press(screen.getByText('Simulate camera scan'));
+    expect(mockParsePaymentRequest).toHaveBeenCalledTimes(1);
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      fireEvent.press(screen.getByText('Simulate camera scan'));
+    }
+    expect(mockParsePaymentRequest).toHaveBeenCalledTimes(1);
+    expect(mockShowError).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a different camera payload after a failed camera payload is latched', async () => {
+    mockParsePaymentRequest
+      .mockResolvedValueOnce({ isValid: false, type: 'unknown' })
+      .mockResolvedValueOnce({ isValid: true, type: 'bolt11' });
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledTimes(1));
+
+    mockCameraPayload = 'lnbc1newcamerainvoice';
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
+  });
+
+  it('lets manual entry and gallery bypass a camera failure latch', async () => {
+    mockParsePaymentRequest
+      .mockResolvedValueOnce({ isValid: false, type: 'unknown' })
+      .mockResolvedValueOnce({ isValid: true, type: 'bolt11' })
+      .mockResolvedValueOnce({ isValid: false, type: 'unknown' })
+      .mockResolvedValueOnce({ isValid: true, type: 'bolt11' });
+    mockLaunchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///manual-bypass.png' }],
+    });
+    mockScanFromURLAsync.mockResolvedValue([{ data: 'lnbc1gallerybypass', type: 'qr' }]);
+
+    const firstScanner = render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledTimes(1));
+
+    fireEvent.press(screen.getByText('Enter Manually'));
+    fireEvent.changeText(screen.getByPlaceholderText('lnbc... or LNURL... or user@domain.com'), 'lnbc1manualbypass');
+    fireEvent.press(screen.getByText('Continue'));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
+
+    firstScanner.unmount();
+    mockPush.mockClear();
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledTimes(2));
+    fireEvent.press(screen.getByText('Scan from Gallery'));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
+  });
+
+  it('navigates exactly once for a concurrent successful camera burst', async () => {
+    let resolveParse: ((value: { isValid: boolean; type: string }) => void) | undefined;
+    mockParsePaymentRequest.mockImplementation(() => new Promise((resolve) => { resolveParse = resolve; }));
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+    resolveParse!({ isValid: true, type: 'bolt11' });
+    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
     expect(mockParsePaymentRequest).toHaveBeenCalledTimes(1);
   });
 

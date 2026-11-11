@@ -34,8 +34,6 @@ import { useFeedback } from '../components/FeedbackComponents';
 type ScanMode = 'camera' | 'manual';
 type ScanSource = 'camera' | 'manual' | 'gallery';
 
-const CAMERA_FAILURE_SUPPRESSION_MS = 1500;
-
 type ScannerProcessingStage = 'parse' | 'receive-validation' | 'route';
 
 interface ParsedQRData {
@@ -72,6 +70,12 @@ function captureScannerProcessingFailure(
 
 export function QRScannerScreen(): React.JSX.Element {
   const { showError } = useFeedback();
+  const isGalleryScanningRef = useRef(false);
+  const isScanProcessingRef = useRef(false);
+  // A camera keeps emitting while a QR remains visible. Latch a failed value
+  // until focus is deliberately re-entered or the camera sees a different QR;
+  // a timer would repeatedly reset the error toast for a held failing code.
+  const lastCameraFailurePayloadRef = useRef<string | null>(null);
   const safeBack = useMemo(() => createSafeBackHandler({
     canGoBack: () => router.canGoBack(),
     back: () => router.back(),
@@ -96,9 +100,6 @@ export function QRScannerScreen(): React.JSX.Element {
   const [isProcessing, setIsProcessing] = useState(false);
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [scanned, setScanned] = useState(false);
-  const isGalleryScanningRef = useRef(false);
-  const isScanProcessingRef = useRef(false);
-  const lastCameraFailureRef = useRef<{ payload: string; at: number } | null>(null);
 
   // ========================================
   // QR Code Parsing
@@ -189,10 +190,8 @@ export function QRScannerScreen(): React.JSX.Element {
   const handleScannedData = useCallback(
     async (data: string, source: ScanSource = 'manual') => {
       const payload = data.trim();
-      const lastFailure = lastCameraFailureRef.current;
       const isRepeatedCameraFailure = source === 'camera'
-        && lastFailure?.payload === payload
-        && Date.now() - lastFailure.at < CAMERA_FAILURE_SUPPRESSION_MS;
+        && lastCameraFailurePayloadRef.current === payload;
       if (scanned || isScanProcessingRef.current || isRepeatedCameraFailure) return;
 
       isScanProcessingRef.current = true;
@@ -300,7 +299,7 @@ export function QRScannerScreen(): React.JSX.Element {
         setScanned(false);
       } finally {
         if (failed && source === 'camera') {
-          lastCameraFailureRef.current = { payload, at: Date.now() };
+          lastCameraFailurePayloadRef.current = payload;
         }
         isScanProcessingRef.current = false;
         setIsProcessing(false);
