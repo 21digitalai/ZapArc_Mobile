@@ -12,6 +12,7 @@ const mockLaunchImageLibraryAsync = jest.fn();
 const mockScanFromURLAsync = jest.fn();
 const mockUseCameraPermissions = jest.fn(() => [{ granted: true }, jest.fn()]);
 const mockShowError = jest.fn();
+const mockUseFocusEffect = jest.fn();
 let mockCameraPayload = 'broken-camera-qr';
 const mockReact = jest.requireActual<typeof import('react')>('react');
 const mockReactNative = jest.requireActual<typeof import('react-native')>('react-native');
@@ -23,7 +24,7 @@ jest.mock('expo-router', () => ({
     canGoBack: jest.fn(() => false),
     replace: jest.fn(),
   },
-  useFocusEffect: jest.fn((callback: () => void | (() => void)) => callback()),
+  useFocusEffect: (callback: () => void | (() => void)) => mockUseFocusEffect(callback),
   useLocalSearchParams: () => mockUseLocalSearchParams(),
 }));
 
@@ -82,6 +83,8 @@ describe('QRScannerScreen scan routing', () => {
     mockUseLocalSearchParams.mockReturnValue({});
     mockUseCameraPermissions.mockReturnValue([{ granted: true }, jest.fn()]);
     mockShowError.mockClear();
+    mockUseFocusEffect.mockClear();
+    mockUseFocusEffect.mockImplementationOnce((callback: () => void | (() => void)) => callback());
     mockCameraPayload = 'broken-camera-qr';
     mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: true, assets: [] });
   });
@@ -286,6 +289,27 @@ describe('QRScannerScreen scan routing', () => {
     mockCameraPayload = 'lnbc1newcamerainvoice';
     fireEvent.press(screen.getByText('Simulate camera scan'));
     await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
+  });
+
+  it('retries the same failed camera payload after the scanner is deliberately re-focused', async () => {
+    mockParsePaymentRequest
+      .mockResolvedValueOnce({ isValid: false, type: 'unknown' })
+      .mockResolvedValueOnce({ isValid: true, type: 'bolt11' });
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledTimes(1));
+
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+    expect(mockParsePaymentRequest).toHaveBeenCalledTimes(1);
+
+    const refocusCallback = mockUseFocusEffect.mock.calls[0]?.[0];
+    expect(refocusCallback).toBeDefined();
+    refocusCallback!();
+
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
+    expect(mockParsePaymentRequest).toHaveBeenCalledTimes(2);
   });
 
   it('lets manual entry and gallery bypass a camera failure latch', async () => {

@@ -82,6 +82,10 @@ export function QRScannerScreen(): React.JSX.Element {
     replace: (route) => router.replace(route),
   }, '/wallet/home'), []);
   useFocusEffect(useCallback(() => {
+    // Returning to this screen is an intentional retry boundary. Keep the
+    // failure latch while this camera view stays focused, but let a user who
+    // leaves and deliberately re-enters scan the same code again.
+    lastCameraFailurePayloadRef.current = null;
     const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
     return () => subscription.remove();
   }, [safeBack]));
