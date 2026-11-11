@@ -309,6 +309,11 @@ const styles = StyleSheet.create({
   textCol: {
     flex: 1,
     flexShrink: 1,
+    // Explicitly start from the remaining row width. At enlarged system font
+    // sizes, flex's content-sized basis can otherwise push the icon/border
+    // outside the narrow toast instead of allowing this copy to wrap.
+    flexBasis: 0,
+    minWidth: 0,
     justifyContent: 'center',
   },
   title: {
@@ -330,7 +335,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     marginLeft: 10,
-    maxWidth: 110,
   },
   trailingText: {
     fontSize: 12,

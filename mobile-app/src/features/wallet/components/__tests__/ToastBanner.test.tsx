@@ -81,6 +81,24 @@ describe('ToastBanner', () => {
     expect(subtitle.props.numberOfLines).toBeUndefined();
   });
 
+  it('gives wrapped copy the remaining row width while preserving a trailing amount chip', () => {
+    const { getByText } = render(
+      <ToastBanner
+        visible
+        onDismiss={jest.fn()}
+        revision={1}
+        title="This is a deliberately long notification title that should wrap before displacing the toast shell"
+        trailing="100 sats"
+      />,
+    );
+
+    const trailing = getByText('100 sats');
+    expect(trailing.props.numberOfLines).toBe(1);
+
+    const textColumn = getByText('This is a deliberately long notification title that should wrap before displacing the toast shell').parent?.parent;
+    expect(textColumn?.props.style).toEqual(expect.objectContaining({ flexBasis: 0, minWidth: 0 }));
+  });
+
   it('keeps automatic banners visible for at least five seconds by default', () => {
     const onDismiss = jest.fn();
     render(<ToastBanner visible onDismiss={onDismiss} revision={1} title="Long-running notification" />);
