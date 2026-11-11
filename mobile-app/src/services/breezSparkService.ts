@@ -3288,6 +3288,32 @@ function decodeBolt11AmountSats(invoice: string): number | undefined {
 }
 
 /**
+ * Extract the one Lightning payload from a website QR wrapper without treating
+ * the wrapper's host or path as payment data. LNbits and similar services put
+ * the actual LNURL in a `lightning` query parameter. Duplicate or empty
+ * parameters stay unresolved so callers never choose an ambiguous claim.
+ */
+function normalizeLightningInput(input: string): string {
+  const trimmed = input.trim();
+  const withoutScheme = /^lightning:/i.test(trimmed)
+    ? trimmed.slice('lightning:'.length).trim()
+    : trimmed;
+
+  try {
+    const url = new URL(withoutScheme);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return withoutScheme;
+    const payloads = url.searchParams.getAll('lightning');
+    if (payloads.length !== 1 || !payloads[0].trim()) return withoutScheme;
+    const payload = payloads[0].trim();
+    return /^lightning:/i.test(payload)
+      ? payload.slice('lightning:'.length).trim()
+      : payload;
+  } catch {
+    return withoutScheme;
+  }
+}
+
+/**
  * Parse and validate a payment request
  */
 export async function parsePaymentRequest(input: string): Promise<{
@@ -3310,9 +3336,7 @@ export async function parsePaymentRequest(input: string): Promise<{
   // QR decoders commonly retain the BIP-21-style lightning wrapper. Normalize
   // it before asking the SDK so a wrapped LNURL-withdraw is classified by its
   // authoritative native parser rather than a scanner-side prefix heuristic.
-  const normalizedInput = /^lightning:/i.test(trimmed)
-    ? trimmed.slice('lightning:'.length).trim()
-    : trimmed;
+  const normalizedInput = normalizeLightningInput(trimmed);
   const trimmedLower = normalizedInput.toLowerCase();
 
   // FIRST: Check for Lightning Address (user@domain.com) - handle locally, SDK doesn't support this
@@ -3493,10 +3517,7 @@ export async function resolveLnurlWithdraw(input: string): Promise<LnurlWithdraw
     // Scanner classification accepts BIP-21-style `lightning:` wrappers. Keep
     // the same canonical payload at the claim boundary: the native parser
     // expects the LNURL itself, not its URI wrapper.
-    const trimmed = input.trim();
-    const normalizedInput = /^lightning:/i.test(trimmed)
-      ? trimmed.slice('lightning:'.length).trim()
-      : trimmed;
+    const normalizedInput = normalizeLightningInput(input);
     const parsed = await sdkInstance.parse(normalizedInput);
     if (parsed.tag !== 'LnurlWithdraw' || !parsed.inner) {
       throw new LnurlWithdrawResolveError('invalid');

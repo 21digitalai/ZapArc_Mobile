@@ -118,6 +118,18 @@ describe('QRScannerScreen scan routing', () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
+  it('reports unknown receive scans as unresolved instead of claiming they request payment', async () => {
+    mockUseLocalSearchParams.mockReturnValue({ mode: 'receive' });
+    mockParsePaymentRequest.mockResolvedValue({ isValid: false, type: 'unknown' });
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Enter Manually'));
+    fireEvent.changeText(screen.getByPlaceholderText('lnbc... or LNURL... or user@domain.com'), 'https://lnbits.example/unknown');
+    fireEvent.press(screen.getByText('Continue'));
+
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('This QR code is not a supported Lightning, LNURL, Spark, or Bitcoin payment request.'));
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
   it('rejects a USDB Spark invoice while the multi-asset UI is disabled', async () => {
     mockUseLocalSearchParams.mockReturnValue({ asset: 'USDB' });
     mockParsePaymentRequest.mockResolvedValue({ isValid: false });

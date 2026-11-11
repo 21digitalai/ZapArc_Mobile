@@ -161,7 +161,12 @@ export function QRScannerScreen(): React.JSX.Element {
       try {
         const parsed = await parseQRData(data);
         if (isReceiveMode && parsed.type !== 'lnurlWithdraw') {
-          showError(t('receive.unsupportedReceiveQr'));
+          const isOutgoingPayment = parsed.type === 'invoice'
+            || parsed.type === 'bitcoinAddress'
+            || parsed.type === 'address'
+            || parsed.type === 'sparkAddress'
+            || parsed.type === 'sparkInvoice';
+          showError(t(isOutgoingPayment ? 'receive.unsupportedReceiveQr' : 'receive.unknownQr'));
           setScanned(false);
           setIsProcessing(false);
           return;

@@ -170,6 +170,24 @@ describe('LNURL withdraw claims', () => {
     expect(mockParse).toHaveBeenCalledWith('LNURL1fixture');
   });
 
+  it('extracts one website-wrapped LNURL before resolving a receive claim', async () => {
+    const svc = require('../breezSparkService');
+    mockParse.mockResolvedValueOnce({ tag: 'LnurlWithdraw', inner: [request] });
+
+    await expect(svc.resolveLnurlWithdraw('https://lnbits.example/withdraw?lightning=LNURL1fixture'))
+      .resolves.toMatchObject({ request });
+    expect(mockParse).toHaveBeenCalledWith('LNURL1fixture');
+  });
+
+  it('does not choose an ambiguous website wrapper payload', async () => {
+    const svc = require('../breezSparkService');
+    mockParse.mockResolvedValueOnce({ tag: 'LnurlWithdraw', inner: [request] });
+
+    await expect(svc.resolveLnurlWithdraw('https://lnbits.example/withdraw?lightning=LNURL1first&lightning=LNURL1second'))
+      .resolves.toMatchObject({ request });
+    expect(mockParse).toHaveBeenCalledWith('https://lnbits.example/withdraw?lightning=LNURL1first&lightning=LNURL1second');
+  });
+
   it('rejects out-of-range claim amounts without submitting', async () => {
     const svc = require('../breezSparkService');
     await expect(svc.claimLnurlWithdraw({ request, minSats: 2, maxSats: 5, description: '' }, 1))
@@ -842,6 +860,26 @@ describe('BreezSparkService deposit claim handling', () => {
 });
 
 describe('BreezSparkService invoice metadata', () => {
+  it('classifies one website-wrapped LNURL withdrawal through the native parser', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockParse.mockResolvedValueOnce({ tag: 'LnurlWithdraw', inner: {} });
+
+    await expect(svc.parsePaymentRequest('https://lnbits.example/withdraw?lightning=LNURL1fixture'))
+      .resolves.toEqual({ type: 'lnurlWithdraw', isValid: true });
+    expect(mockParse).toHaveBeenCalledWith('LNURL1fixture');
+  });
+
+  it('leaves malformed or ambiguous website wrappers unresolved', async () => {
+    const svc = require('../breezSparkService');
+    await svc.initializeSDK('test mnemonic words go here twelve words');
+    mockParse.mockResolvedValueOnce({ tag: 'Unknown' });
+    mockParse.mockResolvedValueOnce({ tag: 'Unknown' });
+
+    await expect(svc.parsePaymentRequest('not a URL?lightning=LNURL1fixture')).resolves.toEqual({ type: 'unknown', isValid: false });
+    await expect(svc.parsePaymentRequest('https://lnbits.example/withdraw?lightning=LNURL1first&lightning=LNURL1second')).resolves.toEqual({ type: 'unknown', isValid: false });
+  });
+
   it('exposes an absolute expiry time from parsed BOLT11 metadata', async () => {
     const svc = require('../breezSparkService');
     await svc.initializeSDK('test mnemonic words go here twelve words');
