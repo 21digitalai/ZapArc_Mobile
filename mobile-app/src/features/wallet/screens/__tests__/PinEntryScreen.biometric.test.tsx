@@ -19,7 +19,7 @@ jest.mock('expo-linear-gradient', () => ({
 }));
 
 jest.mock('expo-router', () => ({
-  router: { dismissAll: jest.fn(), replace: jest.fn(), push: jest.fn() },
+  router: { canDismiss: jest.fn(() => false), dismissAll: jest.fn(), replace: jest.fn(), push: jest.fn() },
   useLocalSearchParams: () => ({}),
 }));
 
@@ -99,6 +99,20 @@ describe('PinEntryScreen biometric cancellation', () => {
     expect(mockUnlockWithBiometric).toHaveBeenCalledTimes(1);
   });
 
+  it('routes home without POP_TO_TOP after a successful PIN unlock at the router root', async () => {
+    mockUnlockWithBiometric.mockResolvedValue(false);
+    const screen = render(<PinEntryScreen />);
+    await waitFor(() => expect(mockUnlockWithBiometric).toHaveBeenCalledTimes(1));
+
+    for (const digit of '123456') {
+      fireEvent.press(screen.getByText(digit));
+    }
+
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/wallet/home'));
+    expect(router.canDismiss).toHaveBeenCalled();
+    expect(router.dismissAll).not.toHaveBeenCalled();
+  });
+
   it('shows a PIN fallback after an explicit retry cannot read a biometric key', async () => {
     const screen = render(<PinEntryScreen />);
     await waitFor(() => expect(mockUnlockWithBiometric).toHaveBeenCalledTimes(1));
@@ -134,9 +148,9 @@ describe('PinEntryScreen biometric cancellation', () => {
     fireEvent.press(screen.getByText('auth.useFingerprint'));
 
     await waitFor(() =>
-      expect(router.replace).toHaveBeenCalledWith('/wallet/home')
+    expect(router.replace).toHaveBeenCalledWith('/wallet/home')
     );
-    expect(router.dismissAll).toHaveBeenCalledTimes(1);
+    expect(router.dismissAll).not.toHaveBeenCalled();
   });
 
   it('hides biometric retry when enrollment is unavailable', () => {

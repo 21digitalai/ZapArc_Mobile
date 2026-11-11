@@ -18,6 +18,7 @@ function rootRouter(): jest.Mocked<SafeBackRouter> {
 
 function completionRouter(): jest.Mocked<WalletCompletionRouter> {
   return {
+    canDismiss: jest.fn(() => true),
     dismissAll: jest.fn(),
     replace: jest.fn(),
   };

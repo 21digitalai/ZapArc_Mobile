@@ -13,8 +13,9 @@ function router(canGoBack: boolean): jest.Mocked<SafeBackRouter> {
   };
 }
 
-function completionRouter(): jest.Mocked<WalletCompletionRouter> {
+function completionRouter(canDismiss = true): jest.Mocked<WalletCompletionRouter> {
   return {
+    canDismiss: jest.fn(() => canDismiss),
     dismissAll: jest.fn(),
     replace: jest.fn(),
   };
@@ -90,7 +91,7 @@ describe('createSafeBackHandler', () => {
 });
 
 describe('completeProtectedWalletFlow', () => {
-  it('pops the wallet stack before replacing its root with home', () => {
+  it('pops a populated wallet stack before replacing its root with home', () => {
     const navigation = completionRouter();
 
     completeProtectedWalletFlow(navigation);
@@ -100,5 +101,15 @@ describe('completeProtectedWalletFlow', () => {
     expect(navigation.dismissAll.mock.invocationCallOrder[0]).toBeLessThan(
       navigation.replace.mock.invocationCallOrder[0],
     );
+  });
+
+  it('replaces home without dismissing when the protected flow is already at its root', () => {
+    const navigation = completionRouter(false);
+
+    completeProtectedWalletFlow(navigation);
+
+    expect(navigation.canDismiss).toHaveBeenCalledTimes(1);
+    expect(navigation.dismissAll).not.toHaveBeenCalled();
+    expect(navigation.replace).toHaveBeenCalledWith('/wallet/home');
   });
 });
