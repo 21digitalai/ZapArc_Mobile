@@ -13,6 +13,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export type ToastTone = 'success' | 'accent' | 'warn' | 'danger' | 'info';
 
+/**
+ * Automatic notifications must remain visible long enough to be read.
+ * Persistent notifications remain controlled by their owner via `visible`.
+ */
+export const MINIMUM_AUTOMATIC_TOAST_DURATION_MS = 5000;
+
 export interface ToastBannerProps {
   visible: boolean;
   onDismiss: () => void;
@@ -35,7 +41,7 @@ export interface ToastBannerProps {
    */
   trailing?: string;
   tone?: ToastTone;
-  /** Milliseconds to stay on screen. Default 3500. */
+  /** Milliseconds to stay on screen. Automatic values below five seconds clamp up. */
   duration?: number;
   /**
    * Where the toast docks. 'top' (default) is best for transactional
@@ -65,7 +71,7 @@ export function ToastBanner({
   subtitle,
   trailing,
   tone = 'success',
-  duration = 5000,
+  duration = MINIMUM_AUTOMATIC_TOAST_DURATION_MS,
   position = 'top',
   isPending = false,
 }: ToastBannerProps): React.JSX.Element | null {
@@ -83,6 +89,7 @@ export function ToastBanner({
   // Skip the first effect pass when visible=false — otherwise we start
   // a no-op exit timing on mount that can interfere with state.
   const firstRun = useRef(true);
+  const automaticDuration = Math.max(duration, MINIMUM_AUTOMATIC_TOAST_DURATION_MS);
 
   useEffect(() => {
     let active = true;
@@ -150,7 +157,7 @@ export function ToastBanner({
       }).start();
       const timer = setTimeout(() => {
         onDismiss();
-      }, duration);
+      }, automaticDuration);
       return () => clearTimeout(timer);
     }
 
@@ -165,7 +172,7 @@ export function ToastBanner({
       if (finished) setMounted(false);
     });
     return () => {};
-  }, [visible, anim, duration, onDismiss, position, revision]);
+  }, [visible, anim, automaticDuration, onDismiss, position, revision]);
 
   if (!mounted) return null;
 

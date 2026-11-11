@@ -2,7 +2,7 @@ import React from 'react';
 import { act, render, waitFor } from '@testing-library/react-native';
 import { AccessibilityInfo, Animated } from 'react-native';
 
-import { ToastBanner } from '../ToastBanner';
+import { MINIMUM_AUTOMATIC_TOAST_DURATION_MS, ToastBanner } from '../ToastBanner';
 
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0 }),
@@ -27,14 +27,14 @@ describe('ToastBanner', () => {
       <ToastBanner visible onDismiss={onDismiss} revision={1} title="Payment pending" tone="warn" duration={100} />,
     );
 
-    jest.advanceTimersByTime(60);
+    jest.advanceTimersByTime(3000);
     rerender(<ToastBanner visible onDismiss={onDismiss} revision={2} title={`Payment ${title.toLowerCase()}`} tone={tone} duration={100} />);
 
     expect(getByText(`Payment ${title.toLowerCase()}`)).toBeTruthy();
-    jest.advanceTimersByTime(60);
+    jest.advanceTimersByTime(3000);
     expect(onDismiss).not.toHaveBeenCalled();
 
-    jest.advanceTimersByTime(40);
+    jest.advanceTimersByTime(2000);
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
@@ -85,7 +85,18 @@ describe('ToastBanner', () => {
     const onDismiss = jest.fn();
     render(<ToastBanner visible onDismiss={onDismiss} revision={1} title="Long-running notification" />);
 
-    jest.advanceTimersByTime(4999);
+    jest.advanceTimersByTime(MINIMUM_AUTOMATIC_TOAST_DURATION_MS - 1);
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('clamps shorter automatic durations to five seconds at the timer boundary', () => {
+    const onDismiss = jest.fn();
+    render(<ToastBanner visible onDismiss={onDismiss} revision={1} title="Short request" duration={100} />);
+
+    jest.advanceTimersByTime(MINIMUM_AUTOMATIC_TOAST_DURATION_MS - 1);
     expect(onDismiss).not.toHaveBeenCalled();
 
     jest.advanceTimersByTime(1);
