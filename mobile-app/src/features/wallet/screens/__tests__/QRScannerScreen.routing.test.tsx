@@ -255,7 +255,7 @@ describe('QRScannerScreen scan routing', () => {
     await waitFor(() => expect(screen.getByText('Scan from Gallery')).toBeTruthy());
   });
 
-  it('processes one concurrent camera payload and latches its sustained repeated failure', async () => {
+  it('processes one concurrent camera payload and suppresses its sustained repeated failure during the retry cooldown', async () => {
     let rejectParse: ((error: Error) => void) | undefined;
     mockParsePaymentRequest.mockImplementation(() => new Promise((_resolve, reject) => { rejectParse = reject; }));
 
@@ -291,7 +291,8 @@ describe('QRScannerScreen scan routing', () => {
     await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
   });
 
-  it('retries the same failed camera payload after the scanner is deliberately re-focused', async () => {
+  it('retries the same failed camera payload after three seconds without resetting its error toast', async () => {
+    jest.useFakeTimers();
     mockParsePaymentRequest
       .mockResolvedValueOnce({ isValid: false, type: 'unknown' })
       .mockResolvedValueOnce({ isValid: true, type: 'bolt11' });
@@ -303,13 +304,17 @@ describe('QRScannerScreen scan routing', () => {
     fireEvent.press(screen.getByText('Simulate camera scan'));
     expect(mockParsePaymentRequest).toHaveBeenCalledTimes(1);
 
-    const refocusCallback = mockUseFocusEffect.mock.calls[0]?.[0];
-    expect(refocusCallback).toBeDefined();
-    refocusCallback!();
+    jest.advanceTimersByTime(2999);
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+    expect(mockParsePaymentRequest).toHaveBeenCalledTimes(1);
+    expect(mockShowError).toHaveBeenCalledTimes(1);
+
+    jest.advanceTimersByTime(1);
 
     fireEvent.press(screen.getByText('Simulate camera scan'));
     await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
     expect(mockParsePaymentRequest).toHaveBeenCalledTimes(2);
+    jest.useRealTimers();
   });
 
   it('lets manual entry and gallery bypass a camera failure latch', async () => {
