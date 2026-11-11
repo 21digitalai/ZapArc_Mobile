@@ -113,11 +113,11 @@ export function FeedbackProvider({ children }: FeedbackProviderProps): React.JSX
   // ========================================
 
   const showToast = useCallback(
-    (type: ToastType, message: string, duration: number = 3000) => {
+    (type: ToastType, message: string, duration: number = 5000) => {
       const id = `toast_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       // Single current toast — ToastBanner owns the on-screen duration + the
       // enter/exit animation and calls onDismiss when it's done.
-      setToast({ id, type, message, duration });
+      setToast({ id, type, message, duration: Math.max(duration, 5000) });
     },
     []
   );
@@ -128,7 +128,7 @@ export function FeedbackProvider({ children }: FeedbackProviderProps): React.JSX
   );
 
   const showError = useCallback(
-    (message: string) => showToast('error', message, 4000),
+    (message: string) => showToast('error', message, 5000),
     [showToast]
   );
 
@@ -237,7 +237,7 @@ export function FeedbackProvider({ children }: FeedbackProviderProps): React.JSX
         title={toast?.message ?? ''}
         tone={toast ? TYPE_TO_TONE[toast.type] : 'info'}
         icon={toast ? TYPE_TO_ICON[toast.type] : undefined}
-        duration={toast?.duration ?? 3000}
+        duration={toast?.duration ?? 5000}
         position="top"
       />
 

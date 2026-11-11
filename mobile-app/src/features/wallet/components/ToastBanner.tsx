@@ -65,7 +65,7 @@ export function ToastBanner({
   subtitle,
   trailing,
   tone = 'success',
-  duration = 3500,
+  duration = 5000,
   position = 'top',
   isPending = false,
 }: ToastBannerProps): React.JSX.Element | null {
@@ -234,11 +234,11 @@ export function ToastBanner({
           </Animated.View>
 
           <View style={styles.textCol}>
-            <Text numberOfLines={1} style={styles.title}>
+            <Text style={styles.title}>
               {title}
             </Text>
             {subtitle ? (
-              <Text numberOfLines={1} style={styles.subtitle}>
+              <Text style={styles.subtitle}>
                 {subtitle}
               </Text>
             ) : null}
@@ -301,6 +301,7 @@ const styles = StyleSheet.create({
   },
   textCol: {
     flex: 1,
+    flexShrink: 1,
     justifyContent: 'center',
   },
   title: {
@@ -314,6 +315,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   trailingChip: {
+    flexShrink: 1,
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 10,

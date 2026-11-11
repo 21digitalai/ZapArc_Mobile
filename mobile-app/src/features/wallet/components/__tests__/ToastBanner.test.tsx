@@ -62,4 +62,19 @@ describe('ToastBanner', () => {
     await act(async () => {});
     expect(loop).toHaveBeenCalledTimes(2);
   });
+
+  it('lets long title and subtitle text wrap without truncating the toast', () => {
+    const { getByText } = render(
+      <ToastBanner
+        visible
+        onDismiss={jest.fn()}
+        revision={1}
+        title="This is a deliberately long notification title that should remain readable on a narrow screen"
+        subtitle="A long explanatory detail should grow the toast vertically instead of being cut off"
+      />,
+    );
+
+    expect(getByText('This is a deliberately long notification title that should remain readable on a narrow screen')).toBeTruthy();
+    expect(getByText('A long explanatory detail should grow the toast vertically instead of being cut off')).toBeTruthy();
+  });
 });
