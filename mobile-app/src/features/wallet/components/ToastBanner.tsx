@@ -13,6 +13,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export type ToastTone = 'success' | 'accent' | 'warn' | 'danger' | 'info';
 
+/**
+ * Automatic notifications must remain visible long enough to be read.
+ * Persistent notifications remain controlled by their owner via `visible`.
+ */
+export const MINIMUM_AUTOMATIC_TOAST_DURATION_MS = 5000;
+
 export interface ToastBannerProps {
   visible: boolean;
   onDismiss: () => void;
@@ -35,7 +41,7 @@ export interface ToastBannerProps {
    */
   trailing?: string;
   tone?: ToastTone;
-  /** Milliseconds to stay on screen. Default 3500. */
+  /** Milliseconds to stay on screen. Automatic values below five seconds clamp up. */
   duration?: number;
   /**
    * Where the toast docks. 'top' (default) is best for transactional
@@ -65,7 +71,7 @@ export function ToastBanner({
   subtitle,
   trailing,
   tone = 'success',
-  duration = 3500,
+  duration = MINIMUM_AUTOMATIC_TOAST_DURATION_MS,
   position = 'top',
   isPending = false,
 }: ToastBannerProps): React.JSX.Element | null {
@@ -83,6 +89,7 @@ export function ToastBanner({
   // Skip the first effect pass when visible=false — otherwise we start
   // a no-op exit timing on mount that can interfere with state.
   const firstRun = useRef(true);
+  const automaticDuration = Math.max(duration, MINIMUM_AUTOMATIC_TOAST_DURATION_MS);
 
   useEffect(() => {
     let active = true;
@@ -150,7 +157,7 @@ export function ToastBanner({
       }).start();
       const timer = setTimeout(() => {
         onDismiss();
-      }, duration);
+      }, automaticDuration);
       return () => clearTimeout(timer);
     }
 
@@ -165,7 +172,7 @@ export function ToastBanner({
       if (finished) setMounted(false);
     });
     return () => {};
-  }, [visible, anim, duration, onDismiss, position, revision]);
+  }, [visible, anim, automaticDuration, onDismiss, position, revision]);
 
   if (!mounted) return null;
 
@@ -234,11 +241,11 @@ export function ToastBanner({
           </Animated.View>
 
           <View style={styles.textCol}>
-            <Text numberOfLines={1} style={styles.title}>
+            <Text style={styles.title}>
               {title}
             </Text>
             {subtitle ? (
-              <Text numberOfLines={1} style={styles.subtitle}>
+              <Text style={styles.subtitle}>
                 {subtitle}
               </Text>
             ) : null}
@@ -301,6 +308,12 @@ const styles = StyleSheet.create({
   },
   textCol: {
     flex: 1,
+    flexShrink: 1,
+    // Explicitly start from the remaining row width. At enlarged system font
+    // sizes, flex's content-sized basis can otherwise push the icon/border
+    // outside the narrow toast instead of allowing this copy to wrap.
+    flexBasis: 0,
+    minWidth: 0,
     justifyContent: 'center',
   },
   title: {
@@ -314,12 +327,14 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   trailingChip: {
+    // The amount chip is a short, atomic value. Let the text column take the
+    // wrapping pressure so enlarged system text cannot crop this value.
+    flexShrink: 0,
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 10,
     paddingVertical: 4,
     marginLeft: 10,
-    maxWidth: 110,
   },
   trailingText: {
     fontSize: 12,
