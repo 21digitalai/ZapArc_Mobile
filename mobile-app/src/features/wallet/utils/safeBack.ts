@@ -17,6 +17,7 @@ export interface SafeBackOptions {
 }
 
 export interface WalletCompletionRouter {
+  canDismiss: () => boolean;
   dismissAll: () => void;
   replace: (route: '/wallet/home') => void;
 }
@@ -26,7 +27,9 @@ export interface WalletCompletionRouter {
  * unlock or onboarding predecessors in the wallet stack.
  */
 export function completeProtectedWalletFlow(router: WalletCompletionRouter): void {
-  router.dismissAll();
+  if (router.canDismiss()) {
+    router.dismissAll();
+  }
   router.replace('/wallet/home');
 }
 
