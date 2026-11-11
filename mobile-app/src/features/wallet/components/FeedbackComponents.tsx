@@ -114,10 +114,22 @@ export function FeedbackProvider({ children }: FeedbackProviderProps): React.JSX
 
   const showToast = useCallback(
     (type: ToastType, message: string, duration: number = 5000) => {
-      const id = `toast_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       // Single current toast — ToastBanner owns the on-screen duration + the
-      // enter/exit animation and calls onDismiss when it's done.
-      setToast({ id, type, message, duration: Math.max(duration, 5000) });
+      // enter/exit animation and calls onDismiss when it's done. Repeating an
+      // identical notification while it is visible must leave its revision
+      // unchanged so the banner's minimum display timer is not restarted.
+      setToast((currentToast) => {
+        if (currentToast?.type === type && currentToast.message === message) {
+          return currentToast;
+        }
+
+        return {
+          id: `toast_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          type,
+          message,
+          duration: Math.max(duration, 5000),
+        };
+      });
     },
     []
   );
