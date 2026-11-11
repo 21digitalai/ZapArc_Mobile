@@ -74,7 +74,32 @@ describe('ToastBanner', () => {
       />,
     );
 
-    expect(getByText('This is a deliberately long notification title that should remain readable on a narrow screen')).toBeTruthy();
-    expect(getByText('A long explanatory detail should grow the toast vertically instead of being cut off')).toBeTruthy();
+    const title = getByText('This is a deliberately long notification title that should remain readable on a narrow screen');
+    const subtitle = getByText('A long explanatory detail should grow the toast vertically instead of being cut off');
+
+    expect(title.props.numberOfLines).toBeUndefined();
+    expect(subtitle.props.numberOfLines).toBeUndefined();
+  });
+
+  it('keeps automatic banners visible for at least five seconds by default', () => {
+    const onDismiss = jest.fn();
+    render(<ToastBanner visible onDismiss={onDismiss} revision={1} title="Long-running notification" />);
+
+    jest.advanceTimersByTime(4999);
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves an explicitly longer automatic duration', () => {
+    const onDismiss = jest.fn();
+    render(<ToastBanner visible onDismiss={onDismiss} revision={1} title="Long-running notification" duration={6500} />);
+
+    jest.advanceTimersByTime(5000);
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(1500);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });
