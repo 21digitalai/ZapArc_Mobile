@@ -17,7 +17,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
-import { BreezSparkService, normalizeLightningInput } from '../../../services/breezSparkService';
+import { BreezSparkService, extractSdkErrorMessage, normalizeLightningInput } from '../../../services/breezSparkService';
+import { recordSdkSupportLog, sanitizeSdkLogMessage } from '../../../services/paymentDiagnostics';
 import { MULTI_ASSET_UI_ENABLED } from '../../../config/features';
 import { createSafeBackHandler } from '../utils/safeBack';
 import { pickSingleGalleryQr } from '../utils/galleryQr';
@@ -35,10 +36,34 @@ type ScanSource = 'camera' | 'manual' | 'gallery';
 
 const CAMERA_FAILURE_SUPPRESSION_MS = 1500;
 
+type ScannerProcessingStage = 'parse' | 'receive-validation' | 'route';
+
 interface ParsedQRData {
   type: 'invoice' | 'lnurl' | 'lnurlWithdraw' | 'address' | 'sparkAddress' | 'sparkInvoice' | 'bitcoinAddress' | 'unknown';
   value: string;
   tokenIdentifier?: string;
+}
+
+/**
+ * Retain only diagnostic metadata for the generic scanner error. QR payloads
+ * and provider URLs may be sensitive, so support logs get a sanitized message
+ * and stack fingerprint instead of the original exception object.
+ */
+function captureScannerProcessingFailure(
+  source: ScanSource,
+  stage: ScannerProcessingStage,
+  error: unknown,
+): void {
+  const message = sanitizeSdkLogMessage(extractSdkErrorMessage(error, 'scanner processing failed'));
+  const stack = error instanceof Error ? sanitizeSdkLogMessage(error.stack) : { redacted: false };
+  recordSdkSupportLog('warn', JSON.stringify({
+    event: 'scanner_processing_failed',
+    source,
+    stage,
+    errorName: error instanceof Error ? error.name : undefined,
+    errorFingerprint: message.fingerprint,
+    stackFingerprint: stack.fingerprint,
+  }));
 }
 
 // =============================================================================
@@ -174,9 +199,11 @@ export function QRScannerScreen(): React.JSX.Element {
       setScanned(true);
       setIsProcessing(true);
       let failed = false;
+      let stage: ScannerProcessingStage = 'parse';
 
       try {
         const parsed = await parseQRData(data);
+        stage = 'receive-validation';
         if (isReceiveMode && parsed.type !== 'lnurlWithdraw') {
           if (parsed.type === 'lnurl') {
             showError(t('receive.unresolvedLnurl'));
@@ -212,6 +239,7 @@ export function QRScannerScreen(): React.JSX.Element {
         }
         const sparkAsset = tokenLooksUsdb || requestedAsset === 'USDB' ? 'USDB' : 'BTC';
 
+        stage = 'route';
         switch (parsed.type) {
           case 'lnurlWithdraw':
             router.push({ pathname: '/wallet/receive-claim', params: { lnurl: parsed.value } });
@@ -265,7 +293,8 @@ export function QRScannerScreen(): React.JSX.Element {
             setIsProcessing(false);
             break;
         }
-      } catch {
+      } catch (error) {
+        captureScannerProcessingFailure(source, stage, error);
         showError(t('receive.processQrFailed'));
         failed = true;
         setScanned(false);

@@ -45,6 +45,7 @@ jest.mock('../../../../services/breezSparkService', () => ({
   BreezSparkService: {
     parsePaymentRequest: (...args: unknown[]) => mockParsePaymentRequest(...args),
   },
+  extractSdkErrorMessage: (error: unknown) => error instanceof Error ? error.message : 'scanner processing failed',
   normalizeLightningInput: (input: string) => {
     const withoutScheme = input.replace(/^lightning:/i, '').trim();
     try {
@@ -263,6 +264,20 @@ describe('QRScannerScreen scan routing', () => {
 
     fireEvent.press(screen.getByText('Simulate camera scan'));
     expect(mockParsePaymentRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a route failure generic instead of exposing its scanner exception', async () => {
+    mockParsePaymentRequest.mockResolvedValue({ isValid: true, type: 'bolt11' });
+    mockPush.mockImplementationOnce(() => {
+      throw new Error('provider response must not reach the toast');
+    });
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Enter Manually'));
+    fireEvent.changeText(screen.getByPlaceholderText('lnbc... or LNURL... or user@domain.com'), 'lnbc1testinvoice');
+    fireEvent.press(screen.getByText('Continue'));
+
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('This QR code could not be processed. Try again or scan a different code.'));
   });
 
   it.each([
