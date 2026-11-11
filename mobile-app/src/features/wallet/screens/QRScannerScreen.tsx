@@ -110,9 +110,15 @@ export function QRScannerScreen(): React.JSX.Element {
       // fallback below
     }
 
-    // Lightning Invoice (bolt11)
-    if (trimmed.startsWith('lightning:') || trimmed.startsWith('lnbc') || trimmed.startsWith('lntb')) {
-      const invoice = trimmed.startsWith('lightning:') ? raw.slice('lightning:'.length) : raw;
+    // Only send a URI-wrapped value to the invoice flow after the wrapper has
+    // been removed and the payload still has a BOLT11 prefix. A `lightning:`
+    // prefix can also wrap an LNURL, which must never be treated as a payment.
+    const lightningPayload = trimmed.startsWith('lightning:')
+      ? raw.slice('lightning:'.length).trim()
+      : raw;
+    const lightningPayloadLower = lightningPayload.toLowerCase();
+    if (lightningPayloadLower.startsWith('lnbc') || lightningPayloadLower.startsWith('lntb') || lightningPayloadLower.startsWith('lnbcrt')) {
+      const invoice = lightningPayload;
       return { type: 'invoice', value: invoice };
     }
 
@@ -124,10 +130,9 @@ export function QRScannerScreen(): React.JSX.Element {
       return { type: 'sparkInvoice', value: raw, tokenIdentifier: tokenFromText };
     }
 
-    // LNURL
-    if (trimmed.startsWith('lnurl')) {
-      return { type: 'lnurl', value: raw };
-    }
+    // An LNURL that the SDK could not classify is intentionally unresolved.
+    // It may be pay, withdraw, auth, or unavailable; routing it to a fictional
+    // generic page (or to Send) would make a security-sensitive guess.
 
     // Lightning Address (user@domain format)
     if (trimmed.includes('@') && trimmed.includes('.')) {
@@ -203,10 +208,9 @@ export function QRScannerScreen(): React.JSX.Element {
             break;
 
           case 'lnurl':
-            router.push({
-              pathname: '/wallet/lnurl',
-              params: { lnurl: parsed.value },
-            });
+            showError(t('receive.unknownQr'));
+            setScanned(false);
+            setIsProcessing(false);
             break;
 
           case 'address':

@@ -3307,12 +3307,18 @@ export async function parsePaymentRequest(input: string): Promise<{
   expiresAt?: number;
 }> {
   const trimmed = input.trim();
-  const trimmedLower = trimmed.toLowerCase();
+  // QR decoders commonly retain the BIP-21-style lightning wrapper. Normalize
+  // it before asking the SDK so a wrapped LNURL-withdraw is classified by its
+  // authoritative native parser rather than a scanner-side prefix heuristic.
+  const normalizedInput = /^lightning:/i.test(trimmed)
+    ? trimmed.slice('lightning:'.length).trim()
+    : trimmed;
+  const trimmedLower = normalizedInput.toLowerCase();
 
   // FIRST: Check for Lightning Address (user@domain.com) - handle locally, SDK doesn't support this
   // Must check before SDK parsing because SDK throws InvalidInput for Lightning Addresses
-  if (trimmed.includes('@') && !trimmedLower.startsWith('lnurl') && !trimmedLower.startsWith('lnbc')) {
-    const parts = trimmed.split('@');
+  if (normalizedInput.includes('@') && !trimmedLower.startsWith('lnurl') && !trimmedLower.startsWith('lnbc')) {
+    const parts = normalizedInput.split('@');
     if (parts.length === 2 && parts[0] && parts[1] && parts[1].includes('.')) {
       // Valid Lightning Address format - no amount embedded, user must specify
       return { type: 'lightningAddress', isValid: true };
@@ -3322,14 +3328,10 @@ export async function parsePaymentRequest(input: string): Promise<{
   // For other types, try SDK if available
   if (!_isNativeAvailable || !sdkInstance) {
     // Fallback to simple string matching if SDK not available
-    if (trimmedLower.startsWith('lnurl')) {
-      return { type: 'lnurl', isValid: true };
-    }
-
     if (trimmedLower.startsWith('lnbc') || trimmedLower.startsWith('lntb') || trimmedLower.startsWith('lnbcrt')) {
       // Decode the amount from the invoice itself so the amount field still
       // fills when the SDK isn't ready at scan time.
-      return { type: 'bolt11', isValid: true, amountSat: decodeBolt11AmountSats(trimmed) };
+      return { type: 'bolt11', isValid: true, amountSat: decodeBolt11AmountSats(normalizedInput) };
     }
 
     if (trimmedLower.startsWith('bc1') || trimmedLower.startsWith('1') || trimmedLower.startsWith('3') || trimmedLower.startsWith('tb1')) {
@@ -3347,17 +3349,17 @@ export async function parsePaymentRequest(input: string): Promise<{
   // returned by native parse() for an otherwise ordinary BOLT11 invoice.
   // BOLT11 is already structurally identifiable and needs no native parse
   // before preparation, so this is a compatibility workaround.
-  if (isBolt11Invoice(trimmed)) {
+  if (isBolt11Invoice(normalizedInput)) {
     return {
       type: 'bolt11',
       isValid: true,
-      amountSat: decodeBolt11AmountSats(trimmed),
+      amountSat: decodeBolt11AmountSats(normalizedInput),
     };
   }
 
   try {
     // Use SDK to parse for full details including amount
-    const parsed = await sdkInstance.parse(trimmed);
+    const parsed = await sdkInstance.parse(normalizedInput);
 
     // Check the parsed result type
     if (parsed.tag === 'Bolt11Invoice' && parsed.inner) {
@@ -3369,7 +3371,7 @@ export async function parsePaymentRequest(input: string): Promise<{
       // invoice that actually carries one.
       const amountSat = invoiceDetails?.amountMsat
         ? Number(invoiceDetails.amountMsat) / 1000
-        : decodeBolt11AmountSats(trimmed);
+        : decodeBolt11AmountSats(normalizedInput);
       const timestamp = Number(invoiceDetails?.timestamp);
       const expiry = Number(invoiceDetails?.expiry);
       const expiresAt = Number.isFinite(timestamp) && timestamp > 0 && Number.isFinite(expiry) && expiry > 0
@@ -3446,7 +3448,7 @@ export async function parsePaymentRequest(input: string): Promise<{
 
     return { type: 'unknown', isValid: false };
   } catch (error) {
-    logInvoiceDecodeDiagnostic('parse', trimmed, error);
+    logInvoiceDecodeDiagnostic('parse', normalizedInput, error);
     return { type: 'unknown', isValid: false };
   }
 }

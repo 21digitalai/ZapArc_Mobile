@@ -216,7 +216,6 @@ describe('QRScannerScreen scan routing', () => {
   });
 
   it.each([
-    ['lnurl', 'lnurl1example', { pathname: '/wallet/lnurl', params: { lnurl: 'lnurl1example' } }],
     ['lightning address', 'alice@example.com', { pathname: '/wallet/send', params: { asset: 'BTC', tab: 'lightning', paymentInput: 'alice@example.com' } }],
     ['bitcoin address', 'bc1qgalleryaddress', { pathname: '/wallet/send', params: { asset: 'BTC', tab: 'onchain', paymentInput: 'bc1qgalleryaddress' } }],
     ['spark address', 'sp1gallerysparkaddress', { pathname: '/wallet/send', params: { asset: 'BTC', tab: 'lightning', paymentInput: 'sp1gallerysparkaddress' } }],
@@ -240,6 +239,30 @@ describe('QRScannerScreen scan routing', () => {
     render(<QRScannerScreen />);
     fireEvent.press(screen.getByText('Scan from Gallery'));
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith(expectedRoute));
+  });
+
+  it('does not route an unresolved gallery LNURL to a nonexistent page', async () => {
+    mockParsePaymentRequest.mockResolvedValue({ isValid: false, type: 'unknown' });
+    mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///lnurl.png' }] });
+    mockScanFromURLAsync.mockResolvedValue([{ data: 'lnurl1unavailable', type: 'qr' }]);
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Scan from Gallery'));
+
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('This QR code is not a supported Lightning, LNURL, Spark, or Bitcoin payment request.'));
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('does not treat a lightning-wrapped unresolved LNURL as an invoice', async () => {
+    mockParsePaymentRequest.mockResolvedValue({ isValid: false, type: 'unknown' });
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Enter Manually'));
+    fireEvent.changeText(screen.getByPlaceholderText('lnbc... or LNURL... or user@domain.com'), 'lightning:lnurl1withdraw');
+    fireEvent.press(screen.getByText('Continue'));
+
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('This QR code is not a supported Lightning, LNURL, Spark, or Bitcoin payment request.'));
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   it('keeps gallery and manual entry available when camera permission is denied', async () => {
