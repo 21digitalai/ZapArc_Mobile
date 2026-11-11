@@ -1,4 +1,6 @@
 import React from 'react';
+import { existsSync } from 'fs';
+import path from 'path';
 import { render, fireEvent, screen, waitFor } from '@testing-library/react-native';
 
 import { QRScannerScreen } from '../QRScannerScreen';
@@ -53,6 +55,11 @@ jest.mock('../../components/FeedbackComponents', () => ({
 }));
 
 describe('QRScannerScreen scan routing', () => {
+  it('keeps the receive-claim route real and the retired generic LNURL route absent', () => {
+    expect(existsSync(path.join(process.cwd(), 'app', 'wallet', 'receive-claim.tsx'))).toBe(true);
+    expect(existsSync(path.join(process.cwd(), 'app', 'wallet', 'lnurl.tsx'))).toBe(false);
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockUseLocalSearchParams.mockReturnValue({});
