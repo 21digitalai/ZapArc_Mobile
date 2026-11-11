@@ -291,29 +291,26 @@ describe('QRScannerScreen scan routing', () => {
     await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
   });
 
-  it('retries the same failed camera payload after three seconds without resetting its error toast', async () => {
+  it('retries a sustained failed camera payload once every three seconds', async () => {
     jest.useFakeTimers();
-    mockParsePaymentRequest
-      .mockResolvedValueOnce({ isValid: false, type: 'unknown' })
-      .mockResolvedValueOnce({ isValid: true, type: 'bolt11' });
+    mockParsePaymentRequest.mockResolvedValue({ isValid: false, type: 'unknown' });
 
     render(<QRScannerScreen />);
     fireEvent.press(screen.getByText('Simulate camera scan'));
     await waitFor(() => expect(mockShowError).toHaveBeenCalledTimes(1));
 
-    fireEvent.press(screen.getByText('Simulate camera scan'));
-    expect(mockParsePaymentRequest).toHaveBeenCalledTimes(1);
+    for (let retry = 1; retry <= 3; retry += 1) {
+      jest.advanceTimersByTime(2999);
+      fireEvent.press(screen.getByText('Simulate camera scan'));
+      expect(mockParsePaymentRequest).toHaveBeenCalledTimes(retry);
 
-    jest.advanceTimersByTime(2999);
-    fireEvent.press(screen.getByText('Simulate camera scan'));
-    expect(mockParsePaymentRequest).toHaveBeenCalledTimes(1);
-    expect(mockShowError).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(1);
+      fireEvent.press(screen.getByText('Simulate camera scan'));
+      await waitFor(() => expect(mockShowError).toHaveBeenCalledTimes(retry + 1));
+      expect(mockParsePaymentRequest).toHaveBeenCalledTimes(retry + 1);
+    }
 
-    jest.advanceTimersByTime(1);
-
-    fireEvent.press(screen.getByText('Simulate camera scan'));
-    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
-    expect(mockParsePaymentRequest).toHaveBeenCalledTimes(2);
+    expect(mockPush).not.toHaveBeenCalled();
     jest.useRealTimers();
   });
 

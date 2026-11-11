@@ -38,6 +38,27 @@ describe('ToastBanner', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
+  it('does not restart its dismissal timer when its revision is unchanged', () => {
+    const onDismiss = jest.fn();
+    const { rerender } = render(
+      <ToastBanner visible onDismiss={onDismiss} revision="same-error" title="Camera could not read this QR" tone="danger" />,
+    );
+
+    act(() => {
+      jest.advanceTimersByTime(3000);
+      rerender(
+        <ToastBanner visible onDismiss={onDismiss} revision="same-error" title="Camera could not read this QR" tone="danger" />,
+      );
+      jest.advanceTimersByTime(1999);
+    });
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the warn icon stable when reduced motion is enabled', async () => {
     jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
     const loop = jest.spyOn(Animated, 'loop');
