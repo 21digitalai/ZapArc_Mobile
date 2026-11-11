@@ -40,6 +40,16 @@ jest.mock('../../../../services/breezSparkService', () => ({
   BreezSparkService: {
     parsePaymentRequest: (...args: unknown[]) => mockParsePaymentRequest(...args),
   },
+  normalizeLightningInput: (input: string) => {
+    const withoutScheme = input.replace(/^lightning:/i, '').trim();
+    try {
+      const url = new URL(withoutScheme);
+      const payloads = url.searchParams.getAll('lightning');
+      return payloads.length === 1 && payloads[0].trim() ? payloads[0].trim() : withoutScheme;
+    } catch {
+      return withoutScheme;
+    }
+  },
 }));
 
 jest.mock('../../../../components', () => {
@@ -278,6 +288,25 @@ describe('QRScannerScreen scan routing', () => {
     render(<QRScannerScreen />);
     fireEvent.press(screen.getByText('Enter Manually'));
     fireEvent.changeText(screen.getByPlaceholderText('lnbc... or LNURL... or user@domain.com'), 'lightning:lnurl1withdraw');
+    fireEvent.press(screen.getByText('Continue'));
+
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('This is a recognized LNURL, but its voucher status is unavailable. No claim or expiry status could be confirmed.'));
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['general scanner', {}],
+    ['receive-only scanner', { mode: 'receive' }],
+  ])('recognizes an unresolved website-wrapped LNURL in the %s', async (_mode, params) => {
+    mockUseLocalSearchParams.mockReturnValue(params);
+    mockParsePaymentRequest.mockRejectedValue(new Error('provider unavailable'));
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Enter Manually'));
+    fireEvent.changeText(
+      screen.getByPlaceholderText('lnbc... or LNURL... or user@domain.com'),
+      'https://example.invalid/voucher?lightning=LNURL1SYNTHETIC',
+    );
     fireEvent.press(screen.getByText('Continue'));
 
     await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('This is a recognized LNURL, but its voucher status is unavailable. No claim or expiry status could be confirmed.'));

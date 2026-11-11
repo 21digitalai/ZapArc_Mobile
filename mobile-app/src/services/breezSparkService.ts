@@ -3293,7 +3293,7 @@ function decodeBolt11AmountSats(invoice: string): number | undefined {
  * the actual LNURL in a `lightning` query parameter. Duplicate or empty
  * parameters stay unresolved so callers never choose an ambiguous claim.
  */
-function normalizeLightningInput(input: string): string {
+export function normalizeLightningInput(input: string): string {
   const trimmed = input.trim();
   const withoutScheme = /^lightning:/i.test(trimmed)
     ? trimmed.slice('lightning:'.length).trim()

@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { BRAND_COLOR } from '../../../utils/theme-helpers';
-import { BreezSparkService } from '../../../services/breezSparkService';
+import { BreezSparkService, normalizeLightningInput } from '../../../services/breezSparkService';
 import { MULTI_ASSET_UI_ENABLED } from '../../../config/features';
 import { createSafeBackHandler } from '../utils/safeBack';
 import { pickSingleGalleryQr } from '../utils/galleryQr';
@@ -113,9 +113,7 @@ export function QRScannerScreen(): React.JSX.Element {
     // Only send a URI-wrapped value to the invoice flow after the wrapper has
     // been removed and the payload still has a BOLT11 prefix. A `lightning:`
     // prefix can also wrap an LNURL, which must never be treated as a payment.
-    const lightningPayload = trimmed.startsWith('lightning:')
-      ? raw.slice('lightning:'.length).trim()
-      : raw;
+    const lightningPayload = normalizeLightningInput(raw);
     const lightningPayloadLower = lightningPayload.toLowerCase();
     if (lightningPayloadLower.startsWith('lnbc') || lightningPayloadLower.startsWith('lntb') || lightningPayloadLower.startsWith('lnbcrt')) {
       const invoice = lightningPayload;
@@ -168,6 +166,12 @@ export function QRScannerScreen(): React.JSX.Element {
       try {
         const parsed = await parseQRData(data);
         if (isReceiveMode && parsed.type !== 'lnurlWithdraw') {
+          if (parsed.type === 'lnurl') {
+            showError(t('receive.unresolvedLnurl'));
+            setScanned(false);
+            setIsProcessing(false);
+            return;
+          }
           const isOutgoingPayment = parsed.type === 'invoice'
             || parsed.type === 'bitcoinAddress'
             || parsed.type === 'address'
