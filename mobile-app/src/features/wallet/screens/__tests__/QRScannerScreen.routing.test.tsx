@@ -268,7 +268,7 @@ describe('QRScannerScreen scan routing', () => {
     render(<QRScannerScreen />);
     fireEvent.press(screen.getByText('Scan from Gallery'));
 
-    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('This QR code is not a supported Lightning, LNURL, Spark, or Bitcoin payment request.'));
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('This is a recognized LNURL, but its voucher status is unavailable. No claim or expiry status could be confirmed.'));
     expect(mockPush).not.toHaveBeenCalled();
   });
 
@@ -280,7 +280,7 @@ describe('QRScannerScreen scan routing', () => {
     fireEvent.changeText(screen.getByPlaceholderText('lnbc... or LNURL... or user@domain.com'), 'lightning:lnurl1withdraw');
     fireEvent.press(screen.getByText('Continue'));
 
-    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('This QR code is not a supported Lightning, LNURL, Spark, or Bitcoin payment request.'));
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledWith('This is a recognized LNURL, but its voucher status is unavailable. No claim or expiry status could be confirmed.'));
     expect(mockPush).not.toHaveBeenCalled();
   });
 

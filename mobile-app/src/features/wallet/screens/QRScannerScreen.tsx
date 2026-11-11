@@ -122,6 +122,13 @@ export function QRScannerScreen(): React.JSX.Element {
       return { type: 'invoice', value: invoice };
     }
 
+    // Preserve the distinction between an unresolvable LNURL and an unrelated
+    // QR payload. The native parser can fail for a valid encoded LNURL when
+    // the provider is unavailable or the tag is not a withdraw request.
+    if (lightningPayloadLower.startsWith('lnurl1')) {
+      return { type: 'lnurl', value: lightningPayload };
+    }
+
     if (trimmed.startsWith('sp1')) {
       return { type: 'sparkAddress', value: raw, tokenIdentifier: tokenFromText };
     }
@@ -213,7 +220,7 @@ export function QRScannerScreen(): React.JSX.Element {
             break;
 
           case 'lnurl':
-            showError(t('receive.unknownQr'));
+            showError(t('receive.unresolvedLnurl'));
             setScanned(false);
             setIsProcessing(false);
             break;
