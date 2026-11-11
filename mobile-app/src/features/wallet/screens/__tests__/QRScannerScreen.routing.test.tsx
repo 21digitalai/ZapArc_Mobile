@@ -27,7 +27,12 @@ jest.mock('expo-router', () => ({
 }));
 
 jest.mock('expo-camera', () => ({
-  CameraView: () => null,
+  CameraView: ({ onBarcodeScanned }: { onBarcodeScanned?: (result: { data: string }) => void }) => (
+    mockReact.createElement(mockReactNative.Button, {
+      title: 'Simulate camera scan',
+      onPress: () => onBarcodeScanned?.({ data: 'broken-camera-qr' }),
+    })
+  ),
   useCameraPermissions: () => mockUseCameraPermissions(),
   scanFromURLAsync: (...args: unknown[]) => mockScanFromURLAsync(...args),
 }));
@@ -242,6 +247,22 @@ describe('QRScannerScreen scan routing', () => {
     expect(mockLaunchImageLibraryAsync).toHaveBeenCalledTimes(1);
     resolvePicker!({ canceled: true, assets: [] });
     await waitFor(() => expect(screen.getByText('Scan from Gallery')).toBeTruthy());
+  });
+
+  it('processes one concurrent camera payload and suppresses its immediate repeated failure', async () => {
+    let rejectParse: ((error: Error) => void) | undefined;
+    mockParsePaymentRequest.mockImplementation(() => new Promise((_resolve, reject) => { rejectParse = reject; }));
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+
+    expect(mockParsePaymentRequest).toHaveBeenCalledTimes(1);
+    rejectParse!(new Error('native parser failed'));
+    await waitFor(() => expect(mockShowError).toHaveBeenCalledTimes(1));
+
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+    expect(mockParsePaymentRequest).toHaveBeenCalledTimes(1);
   });
 
   it.each([

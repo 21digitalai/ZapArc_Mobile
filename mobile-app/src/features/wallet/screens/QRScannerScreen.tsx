@@ -31,6 +31,9 @@ import { useFeedback } from '../components/FeedbackComponents';
 // =============================================================================
 
 type ScanMode = 'camera' | 'manual';
+type ScanSource = 'camera' | 'manual' | 'gallery';
+
+const CAMERA_FAILURE_SUPPRESSION_MS = 1500;
 
 interface ParsedQRData {
   type: 'invoice' | 'lnurl' | 'lnurlWithdraw' | 'address' | 'sparkAddress' | 'sparkInvoice' | 'bitcoinAddress' | 'unknown';
@@ -69,6 +72,8 @@ export function QRScannerScreen(): React.JSX.Element {
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [scanned, setScanned] = useState(false);
   const isGalleryScanningRef = useRef(false);
+  const isScanProcessingRef = useRef(false);
+  const lastCameraFailureRef = useRef<{ payload: string; at: number } | null>(null);
 
   // ========================================
   // QR Code Parsing
@@ -157,17 +162,25 @@ export function QRScannerScreen(): React.JSX.Element {
   // ========================================
 
   const handleScannedData = useCallback(
-    async (data: string, allowProcessing = false) => {
-      if (scanned || (isProcessing && !allowProcessing)) return;
+    async (data: string, source: ScanSource = 'manual') => {
+      const payload = data.trim();
+      const lastFailure = lastCameraFailureRef.current;
+      const isRepeatedCameraFailure = source === 'camera'
+        && lastFailure?.payload === payload
+        && Date.now() - lastFailure.at < CAMERA_FAILURE_SUPPRESSION_MS;
+      if (scanned || isScanProcessingRef.current || isRepeatedCameraFailure) return;
 
+      isScanProcessingRef.current = true;
       setScanned(true);
       setIsProcessing(true);
+      let failed = false;
 
       try {
         const parsed = await parseQRData(data);
         if (isReceiveMode && parsed.type !== 'lnurlWithdraw') {
           if (parsed.type === 'lnurl') {
             showError(t('receive.unresolvedLnurl'));
+            failed = true;
             setScanned(false);
             setIsProcessing(false);
             return;
@@ -178,6 +191,7 @@ export function QRScannerScreen(): React.JSX.Element {
             || parsed.type === 'sparkAddress'
             || parsed.type === 'sparkInvoice';
           showError(t(isOutgoingPayment ? 'receive.unsupportedReceiveQr' : 'receive.unknownQr'));
+          failed = true;
           setScanned(false);
           setIsProcessing(false);
           return;
@@ -191,6 +205,7 @@ export function QRScannerScreen(): React.JSX.Element {
         // clear "not supported in this version" message.
         if (!MULTI_ASSET_UI_ENABLED && tokenLooksUsdb) {
           showError(t('receive.usdbUnsupported'));
+          failed = true;
           setScanned(false);
           setIsProcessing(false);
           return;
@@ -225,6 +240,7 @@ export function QRScannerScreen(): React.JSX.Element {
 
           case 'lnurl':
             showError(t('receive.unresolvedLnurl'));
+            failed = true;
             setScanned(false);
             setIsProcessing(false);
             break;
@@ -244,14 +260,20 @@ export function QRScannerScreen(): React.JSX.Element {
 
           case 'unknown':
             showError(t('receive.unknownQr'));
+            failed = true;
             setScanned(false);
             setIsProcessing(false);
             break;
         }
       } catch {
         showError(t('receive.processQrFailed'));
+        failed = true;
         setScanned(false);
       } finally {
+        if (failed && source === 'camera') {
+          lastCameraFailureRef.current = { payload, at: Date.now() };
+        }
+        isScanProcessingRef.current = false;
         setIsProcessing(false);
       }
     },
@@ -270,7 +292,7 @@ export function QRScannerScreen(): React.JSX.Element {
   const handleBarcodeScanned = useCallback(
     (result: BarcodeScanningResult) => {
       if (result.data && !scanned) {
-        handleScannedData(result.data);
+        handleScannedData(result.data, 'camera');
       }
     },
     [handleScannedData, scanned]
@@ -283,7 +305,7 @@ export function QRScannerScreen(): React.JSX.Element {
   const handleManualSubmit = useCallback(() => {
     Keyboard.dismiss();
     if (manualInput.trim()) {
-      handleScannedData(manualInput.trim());
+      handleScannedData(manualInput.trim(), 'manual');
     }
   }, [manualInput, handleScannedData]);
 
@@ -312,7 +334,7 @@ export function QRScannerScreen(): React.JSX.Element {
       }
 
       if (result.kind === 'payload') {
-        await handleScannedData(result.payload, true);
+        await handleScannedData(result.payload, 'gallery');
       }
     } catch {
       showError(t('receive.galleryScanFailed'));
