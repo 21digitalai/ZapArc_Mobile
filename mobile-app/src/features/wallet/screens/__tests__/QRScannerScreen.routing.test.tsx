@@ -377,6 +377,34 @@ describe('QRScannerScreen scan routing', () => {
     await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(2));
   });
 
+  it('ignores a camera parse that resolves after blur and a fresh focus session', async () => {
+    let resolveParse: ((value: { isValid: boolean; type: string }) => void) | undefined;
+    let focusCallback: (() => void | (() => void)) | undefined;
+    let focusCleanup: (() => void) | undefined;
+    mockUseFocusEffect.mockReset();
+    mockUseFocusEffect.mockImplementationOnce((callback: () => void | (() => void)) => {
+      focusCallback = callback;
+      const cleanup = callback();
+      focusCleanup = typeof cleanup === 'function' ? cleanup : undefined;
+      return cleanup;
+    });
+    mockParsePaymentRequest.mockImplementation(() => new Promise((resolve) => { resolveParse = resolve; }));
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+    await act(async () => {
+      focusCleanup!();
+    });
+
+    await act(async () => {
+      focusCallback!();
+    });
+    resolveParse!({ isValid: true, type: 'bolt11' });
+
+    await act(async () => {});
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
   it('keeps a route failure generic instead of exposing its scanner exception', async () => {
     mockParsePaymentRequest.mockResolvedValue({ isValid: true, type: 'bolt11' });
     mockPush.mockImplementationOnce(() => {
