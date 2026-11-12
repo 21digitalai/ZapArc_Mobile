@@ -729,6 +729,20 @@ describe('BreezSparkService payment error copy', () => {
       .toContain('We couldn’t read that destination');
   });
 
+  it('keeps meaningful unknown SDK details while redacting payment material', () => {
+    const svc = require('../breezSparkService');
+    const invoice = 'lnbc2500u1p0sensitivepaymentrequestabcdefghijklmno';
+
+    expect(svc.getPaymentErrorMessage(`Route unavailable for invoice=${invoice}`))
+      .toBe('Route unavailable for invoice=[redacted]');
+  });
+
+  it('turns an opaque Spark wrapper into readable fallback copy', () => {
+    const svc = require('../breezSparkService');
+
+    expect(svc.getPaymentErrorMessage('sdkError.sparkError')).toBe('Payment failed (SparkError).');
+  });
+
   it.each([
     ["Getting raw enum value doesn't match any cases", 'unreadable'],
     ['Unexpected enum value 9', 'unreadable'],

@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
 import type * as BreezSparkSdk from '@breeztech/breez-sdk-spark-react-native';
 import { getExchangeRates, getCachedRates } from '../utils/currency';
 import { SWAP_TOKENS, type ResolvedSwapToken } from '../config/swapTokens';
-import { buildDetailedSdkSupportLogsExport, buildPaymentDiagnosticsExport, buildSdkSupportLogsExport, classifyReconciliation, getPaymentDiagnosticBalance, recordPaymentDiagnostic, recordSanitizedSdkLog, recordSdkSupportLog, sanitizeDiagnosticValue, type BreezHtlcDiagnosticSnapshot, type BreezPaymentDiagnosticSnapshot } from './paymentDiagnostics';
+import { buildDetailedSdkSupportLogsExport, buildPaymentDiagnosticsExport, buildSdkSupportLogsExport, classifyReconciliation, getPaymentDiagnosticBalance, recordPaymentDiagnostic, recordSanitizedSdkLog, recordSdkSupportLog, sanitizeDiagnosticValue, sanitizeSdkLogMessage, type BreezHtlcDiagnosticSnapshot, type BreezPaymentDiagnosticSnapshot } from './paymentDiagnostics';
 // Push notifications now flow via Breez's webhook registration + relay.
 // Foreground UX still comes from the local notification/event listeners.
 
@@ -197,10 +197,11 @@ export function getPaymentErrorMessage(error: unknown, fallback = 'Payment faile
     return 'Could not reach the payment provider. Check your connection and try again.';
   }
   if (/^(?:sdkerror[.: _-]?)?sparkerror$/i.test(message.trim())) {
-    return 'This payment could not be completed. If this invoice was already paid, ask the recipient for a new invoice and try again.';
+    return 'Payment failed (SparkError).';
   }
 
-  return message === '[object Object]' ? fallback : message;
+  const sanitized = sanitizeSdkLogMessage(message).message;
+  return sanitized && sanitized !== '[object Object]' ? sanitized : fallback;
 }
 
 export type InvoiceErrorKind = 'expired' | 'unreadable';
