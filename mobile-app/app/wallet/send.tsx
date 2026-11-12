@@ -38,6 +38,7 @@ import { t } from '../../src/services/i18nService';
 import { createSafeBackHandler } from '../../src/features/wallet/utils/safeBack';
 import { pickSingleGalleryQr } from '../../src/features/wallet/utils/galleryQr';
 import { savePaymentComment } from '../../src/features/wallet/utils/paymentComment';
+import { useFeedback } from '../../src/features/wallet/components/FeedbackComponents';
 
 function isValidBitcoinAddress(address: string): boolean {
   // Bech32 (native segwit): bc1q... or bc1p... (taproot)
@@ -194,6 +195,7 @@ export default function SendScreen() {
     secondaryFiatCurrency,
   } = useCurrency();
   const { contacts, refreshContacts } = useContacts();
+  const { showError } = useFeedback();
 
   // Refresh contacts when screen gains focus (e.g. after adding a contact in address book)
   useFocusEffect(
@@ -613,7 +615,8 @@ export default function SendScreen() {
 
   const showPaymentError = useCallback((title: string, message: string) => {
     setPaymentError({ title, message });
-  }, []);
+    showError(message);
+  }, [showError]);
 
   const showInvoiceError = useCallback((error: unknown): boolean => {
     const kind = classifyInvoiceError(error);

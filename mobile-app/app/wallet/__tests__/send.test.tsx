@@ -60,6 +60,7 @@ const mockRefreshTransactions = jest.fn().mockResolvedValue(undefined);
 const mockLaunchImageLibraryAsync = jest.fn();
 const mockScanFromURLAsync = jest.fn();
 const mockRequestCameraPermission = jest.fn();
+const mockShowFeedbackError = jest.fn();
 const mockContacts = [{
   id: 'contact-1',
   name: 'Alice',
@@ -137,6 +138,10 @@ jest.mock('../../../src/hooks/useLightningAddress', () => ({
 
 jest.mock('../../../src/features/addressBook/hooks/useContacts', () => ({
   useContacts: () => ({ contacts: mockContacts, refreshContacts: jest.fn() }),
+}));
+
+jest.mock('../../../src/features/wallet/components/FeedbackComponents', () => ({
+  useFeedback: () => ({ showError: mockShowFeedbackError }),
 }));
 
 jest.mock('../../../src/features/addressBook/components/ContactSelectionModal', () => ({
@@ -664,6 +669,9 @@ describe('SendScreen on-chain flow', () => {
     expect(screen.getByText('Payment Failed')).toBeTruthy();
     expect(screen.getByText('This invoice may already be paid. Check with the recipient before trying again.')).toBeTruthy();
     expect(screen.queryByText('SdkError.SparkError')).toBeNull();
+    expect(mockShowFeedbackError).toHaveBeenCalledWith(
+      'This invoice may already be paid. Check with the recipient before trying again.',
+    );
     expect(screen.getAllByTestId('destination-input')[0].props.value).toBe('lnbc1alreadypaid');
     expect(Alert.alert).not.toHaveBeenCalled();
 

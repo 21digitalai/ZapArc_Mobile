@@ -29,6 +29,7 @@ import {
 import type { Transaction } from '../types';
 import type { TransactionRow } from '../utils/transactionRows';
 import { loadPaymentComment, shouldShowPaymentComment } from '../utils/paymentComment';
+import { useFeedback } from './FeedbackComponents';
 
 const DIAGNOSTICS_TIMEOUT_MS = 20_000;
 
@@ -63,6 +64,7 @@ export function TransactionDetailsModal({
   refreshTransactions,
   onClose,
 }: TransactionDetailsModalProps): React.JSX.Element | null {
+  const { showToast: showFeedbackToast } = useFeedback();
   const { t } = useLanguage();
   const { formatTx } = useCurrency();
   const { themeMode } = useAppTheme();
@@ -94,12 +96,8 @@ export function TransactionDetailsModal({
   }, [activeWalletInfo, transaction]);
 
   const showToast = useCallback((message: string, long = false): void => {
-    if (Platform.OS === 'android' && ToastAndroid?.show) {
-      ToastAndroid.show(message, long ? ToastAndroid.LONG : ToastAndroid.SHORT);
-      return;
-    }
-    Alert.alert('ZapArc', message);
-  }, []);
+    showFeedbackToast('info', message, long ? 5000 : 5000);
+  }, [showFeedbackToast]);
 
   const reconcile = useCallback(async (copy: boolean): Promise<void> => {
     if (!transaction?.id || diagnosticsAction) return;
