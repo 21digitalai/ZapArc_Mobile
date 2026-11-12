@@ -120,6 +120,7 @@ export function TransactionDetailsModal({
           overdue_stuck_reconciliation: 'Payment is overdue. Copy diagnostics for support.',
           settling_or_claimable: 'Payment is still settling. Check again shortly.',
           funds_returned: 'Wallet sync confirms the funds were returned.',
+          return_reported_balance_unverified: 'A return was reported, but the wallet balance is not verified yet.',
           balance_sync_inconsistency: 'Wallet balance needs another sync before it can be confirmed.',
           failed_but_funds_still_reserved: 'Payment failed, but funds are still reserved.',
           unknown: 'The current wallet state could not be confirmed.',
