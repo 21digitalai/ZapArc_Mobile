@@ -196,13 +196,16 @@ jest.mock('../../../src/services/breezSparkService', () => ({
   },
   getPaymentErrorMessage: (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
+    if (/invoice.*expired|expired.*invoice/i.test(message)) {
+      return 'This Lightning invoice has expired. Ask the recipient for a new invoice, then try again.';
+    }
     if (/already[ _-]?(paid|used)|payment.*exist/i.test(message)) {
       return 'This invoice may already be paid. Check with the recipient before trying again.';
     }
     if (/^(?:sdkerror[.: _-]?)?sparkerror$/i.test(message.trim())) {
-      return 'This payment could not be completed. If this invoice was already paid, ask the recipient for a new invoice and try again.';
+      return 'Payment failed (SparkError).';
     }
-    return message;
+    return message.replace(/^SdkError\.SparkError\s*/i, '');
   },
   BreezSparkService: {
     parsePaymentRequest: (...args: unknown[]) => mockParsePaymentRequest(...args),
@@ -677,6 +680,30 @@ describe('SendScreen on-chain flow', () => {
 
     fireEvent.press(screen.getByLabelText('Dismiss payment error'));
     expect(screen.queryByTestId('send-inline-error')).toBeNull();
+  });
+
+  it.each([
+    ['confirmed expiry', 'Invoice has expired', 'This Lightning invoice has expired. Ask the recipient for a new invoice, then try again.'],
+    ['sanitized nested SDK error', 'SdkError.SparkError\nprovider rejected request for account 123', 'provider rejected request for account 123'],
+    ['opaque Spark error', 'sdkError.sparkError', 'Payment failed (SparkError).'],
+    ['uncertain outcome', 'Payment status is pending and could not be confirmed', 'Payment status is pending and could not be confirmed'],
+  ])('delivers %s failures to the canonical feedback sink once', async (_label, error, expectedMessage) => {
+    mockParsePaymentRequest.mockResolvedValue({
+      type: 'bolt11',
+      isValid: true,
+      amountSat: 1000,
+    });
+    mockPrepareSendPayment.mockResolvedValue({ paymentMethod: { tag: 'Bolt11' } });
+    mockSendPayment.mockResolvedValue({ success: false, error });
+
+    renderScreen();
+    fireEvent.changeText(screen.getAllByTestId('destination-input')[0], 'lnbc1toastdelivery');
+    fireEvent.press(screen.getByText('Preview Payment'));
+    await waitFor(() => expect(screen.getByText('Payment Preview')).toBeTruthy());
+    fireEvent.press(screen.getByText('Send Payment'));
+
+    await waitFor(() => expect(mockShowFeedbackError).toHaveBeenCalledWith(expectedMessage));
+    expect(mockShowFeedbackError).toHaveBeenCalledTimes(1);
   });
 
   it('hands an immediately completed payment to Home through Pending first', async () => {
