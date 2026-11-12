@@ -44,6 +44,16 @@ describe('payment diagnostics privacy and reconciliation', () => {
     expect(safe.message).not.toContain(hash);
   });
 
+  it('redacts URLs, credential values, and stack frames from user-safe SDK text', () => {
+    const safe = sanitizeSdkLogMessage(
+      'Provider unavailable url=https://spark.example/pay?invoice=secret access_token=topsecret\n at sendPayment (wallet.ts:42:7)',
+    );
+
+    expect(safe.message).toBe('Provider unavailable url=[redacted:url] access_token=[redacted]');
+    expect(safe.redacted).toBe(true);
+    expect(safe.message).not.toMatch(/spark\.example|secret|topsecret|wallet\.ts|sendPayment/);
+  });
+
   it('exports bounded sanitized SDK support logs for the payment and recent windows', async () => {
     const now = Date.now();
     recordSdkSupportLog('info', `send payment invoice=lnbc${'1'.repeat(80)} started`);

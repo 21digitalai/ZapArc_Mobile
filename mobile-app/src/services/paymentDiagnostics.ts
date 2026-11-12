@@ -139,6 +139,7 @@ export interface PaymentDiagnosticsExport {
 
 const SENSITIVE = /(seed|mnemonic|private.?key|preimage|proof|invoice|bolt11|lnurl|lightning.?address|recipient|pubkey|description|comment|api.?key|token)/i;
 const LOG_REDACTIONS: Array<[RegExp, string]> = [
+  [/\bhttps?:\/\/[^\s,;]+/gi, '[redacted:url]'],
   [/\b(?:lnbc|lntb|lnbcrt)[0-9a-z]+\b/gi, '[redacted:invoice]'],
   [/\blnurl1[0-9a-z]+\b/gi, '[redacted:lnurl]'],
   [/\b(?:bc1|tb1|bcrt1)[0-9a-z]{20,}\b/gi, '[redacted:bitcoin-address]'],
@@ -146,8 +147,9 @@ const LOG_REDACTIONS: Array<[RegExp, string]> = [
   [/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[redacted:address]'],
   [/\b[0-9a-f]{64,}\b/gi, '[redacted:hex]'],
   [/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '[redacted:id]'],
-  [/\b(seed|mnemonic|private_?key|preimage|proof|api_?key|token|invoice|bolt11|lnurl|recipient|pubkey)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]'],
+  [/\b(seed|mnemonic|private_?key|preimage|proof|api_?key|access_?token|refresh_?token|authorization|bearer|secret|token|invoice|bolt11|lnurl|recipient|pubkey)\s*[:=]\s*(?:bearer\s+)?[^\s,;]+/gi, '$1=[redacted]'],
   [/(?:\/[A-Za-z0-9._-]+){3,}/g, '[redacted:path]'],
+  [/\s+at\s+(?:[A-Za-z0-9_$<>.[\]]+\s*)?\([^)]*(?::\d+){1,2}\)(?=\s|$)/g, ''],
   [/\b[A-Za-z0-9+/_=-]{48,}\b/g, '[redacted:encoded]'],
 ];
 
@@ -196,6 +198,7 @@ export function sanitizeSdkLogMessage(value: unknown): { message?: string; finge
   if (!original) return { redacted: false };
   let message = original;
   for (const [pattern, replacement] of LOG_REDACTIONS) message = message.replace(pattern, replacement);
+  message = message.replace(/\s{2,}/g, ' ').trim();
   const redacted = message !== original;
   const code = message.match(/\bcode\s*[:=]\s*([A-Za-z][A-Za-z0-9_.-]{0,63})\b/i)?.[1];
   const kind = message.match(/\bkind\s*[:=]\s*([A-Za-z][A-Za-z0-9_.-]{0,63})\b/i)?.[1];

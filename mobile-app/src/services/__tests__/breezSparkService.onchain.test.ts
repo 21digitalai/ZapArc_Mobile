@@ -737,6 +737,16 @@ describe('BreezSparkService payment error copy', () => {
       .toBe('Route unavailable for invoice=[redacted]');
   });
 
+  it('keeps meaningful unknown details while removing URLs, credentials, and stack clutter', () => {
+    const svc = require('../breezSparkService');
+    const message = svc.getPaymentErrorMessage(
+      'Provider rejected request url=https://spark.example/pay?invoice=secret access_token=topsecret\n at sendPayment (wallet.ts:42:7)',
+    );
+
+    expect(message).toBe('Provider rejected request url=[redacted:url] access_token=[redacted]');
+    expect(message).not.toMatch(/spark\.example|secret|topsecret|wallet\.ts|sendPayment/);
+  });
+
   it('turns an opaque Spark wrapper into readable fallback copy', () => {
     const svc = require('../breezSparkService');
 
