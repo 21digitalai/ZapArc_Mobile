@@ -97,8 +97,8 @@ android {
         applicationId 'com.zaparc.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 92
-        versionName "1.1.16"
+        versionCode 93
+        versionName "1.1.17"
     }
     signingConfigs {
         debug {
