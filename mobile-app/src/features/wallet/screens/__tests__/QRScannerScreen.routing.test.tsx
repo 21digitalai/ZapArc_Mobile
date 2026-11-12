@@ -1,7 +1,7 @@
 import React from 'react';
 import { existsSync } from 'fs';
 import path from 'path';
-import { render, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, render, fireEvent, screen, waitFor } from '@testing-library/react-native';
 
 import { QRScannerScreen } from '../QRScannerScreen';
 
@@ -83,7 +83,7 @@ describe('QRScannerScreen scan routing', () => {
     mockUseLocalSearchParams.mockReturnValue({});
     mockUseCameraPermissions.mockReturnValue([{ granted: true }, jest.fn()]);
     mockShowError.mockClear();
-    mockUseFocusEffect.mockClear();
+    mockUseFocusEffect.mockReset();
     mockUseFocusEffect.mockImplementationOnce((callback: () => void | (() => void)) => callback());
     mockCameraPayload = 'broken-camera-qr';
     mockLaunchImageLibraryAsync.mockResolvedValue({ canceled: true, assets: [] });
@@ -354,6 +354,27 @@ describe('QRScannerScreen scan routing', () => {
     resolveParse!({ isValid: true, type: 'bolt11' });
     await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
     expect(mockParsePaymentRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('remounts a fresh camera session after focus returns and accepts another scan', async () => {
+    mockParsePaymentRequest.mockResolvedValue({ isValid: true, type: 'bolt11' });
+    let focusCallback: (() => void | (() => void)) | undefined;
+    mockUseFocusEffect.mockReset();
+    mockUseFocusEffect.mockImplementationOnce((callback: () => void | (() => void)) => {
+      focusCallback = callback;
+      return callback();
+    });
+
+    render(<QRScannerScreen />);
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      focusCallback!();
+    });
+    mockCameraPayload = 'lnbc1returnscan';
+    fireEvent.press(screen.getByText('Simulate camera scan'));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(2));
   });
 
   it('keeps a route failure generic instead of exposing its scanner exception', async () => {

@@ -77,20 +77,16 @@ export function QRScannerScreen(): React.JSX.Element {
   // then let the same visible code retry without requiring a refocus.
   const lastCameraFailurePayloadRef = useRef<string | null>(null);
   const lastCameraFailureAtRef = useRef<number | null>(null);
+  // Native camera previews can remain mounted after a route is blurred. A new
+  // focused session remounts the preview and makes late work from the old
+  // session harmless.
+  const cameraSessionRef = useRef(0);
   const CAMERA_FAILURE_RETRY_MS = 3000;
   const safeBack = useMemo(() => createSafeBackHandler({
     canGoBack: () => router.canGoBack(),
     back: () => router.back(),
     replace: (route) => router.replace(route),
   }, '/wallet/home'), []);
-  useFocusEffect(useCallback(() => {
-    // Returning to this screen is an intentional retry boundary. Keep the
-    // cooldown state scoped to this focused camera view.
-    lastCameraFailurePayloadRef.current = null;
-    lastCameraFailureAtRef.current = null;
-    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
-    return () => subscription.remove();
-  }, [safeBack]));
   const params = useLocalSearchParams<{ asset?: string | string[]; mode?: string | string[]; fixture?: string | string[] }>();
   const receiveModeRaw = Array.isArray(params.mode) ? params.mode[0] : params.mode;
   const isReceiveMode = receiveModeRaw === 'receive';
@@ -106,6 +102,25 @@ export function QRScannerScreen(): React.JSX.Element {
   const [isProcessing, setIsProcessing] = useState(false);
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [scanned, setScanned] = useState(false);
+  const [cameraSessionKey, setCameraSessionKey] = useState(0);
+
+  useFocusEffect(useCallback(() => {
+    // Returning to this screen is an intentional retry boundary. Remount the
+    // native preview, release the success latch, and invalidate any parse that
+    // began before the previous screen blurred.
+    cameraSessionRef.current += 1;
+    setCameraSessionKey(cameraSessionRef.current);
+    lastCameraFailurePayloadRef.current = null;
+    lastCameraFailureAtRef.current = null;
+    isScanProcessingRef.current = false;
+    setScanned(false);
+    setIsProcessing(false);
+    const subscription = BackHandler.addEventListener('hardwareBackPress', safeBack);
+    return () => {
+      cameraSessionRef.current += 1;
+      subscription.remove();
+    };
+  }, [safeBack]));
 
   // ========================================
   // QR Code Parsing
@@ -196,6 +211,7 @@ export function QRScannerScreen(): React.JSX.Element {
   const handleScannedData = useCallback(
     async (data: string, source: ScanSource = 'manual') => {
       const payload = data.trim();
+      const cameraSession = source === 'camera' ? cameraSessionRef.current : null;
       const isRepeatedCameraFailure = source === 'camera'
         && lastCameraFailurePayloadRef.current === payload
         && lastCameraFailureAtRef.current !== null
@@ -210,6 +226,7 @@ export function QRScannerScreen(): React.JSX.Element {
 
       try {
         const parsed = await parseQRData(data);
+        if (cameraSession !== null && cameraSession !== cameraSessionRef.current) return;
         stage = 'receive-validation';
         if (isReceiveMode && parsed.type !== 'lnurlWithdraw') {
           if (parsed.type === 'lnurl') {
@@ -306,6 +323,7 @@ export function QRScannerScreen(): React.JSX.Element {
         failed = true;
         setScanned(false);
       } finally {
+        if (cameraSession !== null && cameraSession !== cameraSessionRef.current) return;
         if (failed && source === 'camera') {
           lastCameraFailurePayloadRef.current = payload;
           lastCameraFailureAtRef.current = Date.now();
@@ -459,6 +477,7 @@ export function QRScannerScreen(): React.JSX.Element {
       {scanMode === 'camera' ? (
         <View style={styles.cameraContainer}>
           <CameraView
+            key={cameraSessionKey}
             style={styles.camera}
             facing="back"
             barcodeScannerSettings={{
